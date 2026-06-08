@@ -3,6 +3,7 @@
 from .clock_keeper import TimeSyncGuard, utc_now
 from .learning import get_lessons_summary
 from . import retrieval
+from . import tool_policy
 
 
 def get_relevant_context(topic: str = "") -> str:
@@ -47,6 +48,12 @@ def get_relevant_context(topic: str = "") -> str:
     try:
         snapshot = retrieval.build_retrieval_layers(topic or "", limit=5)
         parts.append("🔎 L1-L4 Retrieval:\n" + retrieval.format_retrieval_layers(snapshot))
+    except Exception:
+        pass
+
+    try:
+        snapshot = tool_policy.build_tool_policy_snapshot()
+        parts.append(tool_policy.format_tool_policy_snapshot(snapshot))
     except Exception:
         pass
 

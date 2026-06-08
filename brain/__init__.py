@@ -26,6 +26,7 @@ from .mood import detect_tone, format_by_tone, get_style_guide
 from .advisors import assess_proposal, format_assessment
 from .reporter import generate_health_report as generate_brain_health_report
 from .retrieval import build_retrieval_layers, format_retrieval_layers
+from .tool_policy import build_tool_policy_snapshot, format_tool_policy_snapshot
 from .observability import (
     AUTONOMY_POLICY_LOG,
     ERROR_BUDGET_LOG,
@@ -71,6 +72,8 @@ __all__ = [
     "generate_brain_health_report",
     "build_retrieval_layers",
     "format_retrieval_layers",
+    "build_tool_policy_snapshot",
+    "format_tool_policy_snapshot",
     "RUN_LOG",
     "STEP_LOG",
     "ERROR_BUDGET_LOG",
