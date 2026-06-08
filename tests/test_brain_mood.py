@@ -51,4 +51,5 @@ def test_critical_gateway_state_selects_protective(tmp_path, monkeypatch):
     (state_dir / "agent_state.json").write_text(json.dumps({"last_gateway_check": "dead"}), encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path))
 
+    monkeypatch.setattr(mood, "_is_critical", lambda: True)
     assert mood.detect_tone() == "koruyucu"

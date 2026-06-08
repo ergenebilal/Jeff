@@ -1,7 +1,15 @@
-"""Mode router: auto-detect mode from message, support !override commands."""
+"""Mode router: auto-detect mode from message with task classifier.
+
+Priority:
+1. User !override (e.g., !deep)
+2. Manual override via set_mode()
+3. Task classifier (heuristic + optional run stats)
+4. Default: quick
+"""
 
 import re
 from typing import Optional
+from brain.phase5.task_classifier import classify_message
 
 # Override command patterns
 OVERRIDE_PATTERN = re.compile(r"^!(quick|deep|background)\b", re.IGNORECASE)
@@ -34,13 +42,18 @@ def get_mode() -> str:
     return _active_mode
 
 
-def detect_mode(message: str) -> str:
+def detect_mode(message: str, run_stats: Optional[dict] = None) -> str:
     """Detect the appropriate mode from a user message.
 
     Priority:
     1. !override command (e.g., !deep)
     2. Manual override via set_mode()
-    3. Keyword-based detection
+    3. Task classifier with heuristic + optional run stats
+    4. Default: quick
+
+    Args:
+        message: User input message.
+        run_stats: Optional historical run statistics for better classification.
 
     Returns: "quick", "deep", or "background"
     """
@@ -53,25 +66,14 @@ def detect_mode(message: str) -> str:
     if _active_mode != "auto":
         return _active_mode
 
-    # Keyword-based detection
-    msg_lower = message.lower()
+    # Use task classifier
+    if run_stats:
+        from brain.phase5.task_classifier import classify_with_history
+        result = classify_with_history(message, run_stats)
+    else:
+        result = classify_message(message)
 
-    # Count keyword matches for each mode
-    quick_score = sum(1 for kw in QUICK_KEYWORDS if kw in msg_lower)
-    deep_score = sum(1 for kw in DEEP_KEYWORDS if kw in msg_lower)
-    bg_score = sum(1 for kw in BACKGROUND_KEYWORDS if kw in msg_lower)
-
-    # Decision logic
-    if deep_score > quick_score and deep_score >= bg_score:
-        return "deep"
-    if bg_score > quick_score and bg_score > deep_score:
-        return "background"
-
-    # Default to quick for short messages, deep for long ones
-    if len(message.split()) <= 10:
-        return "quick"
-
-    return "quick"  # safe default
+    return result["suggested_mode"]
 
 
 class ModeRouter:

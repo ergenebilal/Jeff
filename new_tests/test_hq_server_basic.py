@@ -23,9 +23,10 @@ def test_hq_health_does_not_expose_secrets():
 
 
 def test_hq_index_is_self_contained():
-    from pathlib import Path
+    from brain.environment import Environment
 
-    html = Path("/opt/hermes/hq/index.html").read_text(encoding="utf-8")
+    env = Environment()
+    html = env.resolve_abs("/opt/hermes/hq/index.html").read_text(encoding="utf-8")
 
     assert "ERGENEAI KOMUTA MERKEZI" in html
     assert "https://" not in html

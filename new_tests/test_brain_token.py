@@ -34,6 +34,7 @@ def test_token_usage_helpers_return_safe_shapes():
 
 def test_track_usage_falls_back_to_token_state(tmp_path, monkeypatch):
     import brain.token as token
+    import brain.accounting as acc
 
     state = tmp_path / "token_state.json"
     state.write_text(
@@ -42,6 +43,8 @@ def test_track_usage_falls_back_to_token_state(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(token, "TOKEN_STATE_FILE", state)
     monkeypatch.setattr(token, "TOKEN_GUARD_SCRIPT", tmp_path / "missing.py")
+    monkeypatch.setattr(acc, "TOKEN_STATE_FILE", state)
+    monkeypatch.setattr(acc, "TOKEN_GUARD_SCRIPT", tmp_path / "missing.py")
 
     usage = token.track_usage()
 

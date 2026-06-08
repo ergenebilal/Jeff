@@ -5,24 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ERGENEAI KOMUTA MERKEZI</title>
 <style>
-:root{--bg:#050807;--panel:#0b110f;--line:#1c2a23;--text:#eef8f0;--muted:#8fa39a;--accent:#81e36f;--warn:#f2c94c;--bad:#ff6b6b}
+:root{--bg:#050807;--panel:#0b110f;--line:#1c2a23;--text:#eef8f0;--muted:#8fa39a;--accent:#81e36f;--warn:#f2c94c;--bad:#ff6b6b;--bar:#1c2a23}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
-.shell{min-height:100vh;padding:28px;display:grid;grid-template-columns:280px 1fr;gap:24px}
-aside{border-right:1px solid var(--line);padding-right:24px}
-.mark{width:42px;height:42px;border:1px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-weight:800;margin-bottom:22px}
-h1{font-size:24px;line-height:1.08;margin:0 0 10px}p{color:var(--muted);line-height:1.55;margin:0}.nav{margin-top:34px;display:grid;gap:10px}.nav div{padding:12px 0;border-bottom:1px solid var(--line);color:var(--muted)}
-main{display:grid;grid-template-rows:auto 1fr;gap:20px}.top{display:flex;justify-content:space-between;align-items:end;border-bottom:1px solid var(--line);padding-bottom:18px}
-.time{color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;min-height:150px}
-.panel h2{font-size:15px;margin:0 0 14px;color:var(--accent);font-weight:700}.metric{display:flex;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid var(--line)}
+.shell{min-height:100vh;padding:28px;display:grid;grid-template-columns:220px 1fr;gap:24px}
+aside{border-right:1px solid var(--line);padding-right:20px;overflow-y:auto;max-height:100vh}
+.mark{width:38px;height:38px;border:1px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-weight:800;margin-bottom:18px;font-size:14px}
+h1{font-size:20px;line-height:1.08;margin:0 0 8px}p{color:var(--muted);line-height:1.55;margin:0;font-size:13px}.nav{margin-top:24px;display:grid;gap:4px}.nav div{padding:10px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-size:13px;cursor:pointer;transition:all .15s;border-radius:4px}.nav div:hover,.nav .active{color:var(--accent);background:#81e36f08}.nav .active{border-left:2px solid var(--accent)}
+.tab{display:none}.tab.active{display:block}main{display:grid;grid-template-rows:auto 1fr;gap:16px}
+.top{display:flex;justify-content:space-between;align-items:end;border-bottom:1px solid var(--line);padding-bottom:14px}
+.time{color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;min-height:120px}
+.panel h2{font-size:14px;margin:0 0 12px;color:var(--accent);font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.panel h2 span.badge{font-size:10px;background:var(--line);padding:2px 8px;border-radius:10px;color:var(--muted);font-weight:400}
+.metric{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .metric:last-child{border-bottom:0}.value{font-weight:700}.ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
-.decisions{grid-column:1/-1}.decision{padding:12px 0;border-top:1px solid var(--line)}.decision:first-of-type{border-top:0}.cmd{font-family:ui-monospace,monospace;color:var(--text);font-size:13px}.small{font-size:12px;color:var(--muted);margin-top:4px}
-button{background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:10px 14px;font-weight:700;cursor:pointer}
+.decisions{grid-column:1/-1}.decision{padding:10px 0;border-top:1px solid var(--line);font-size:13px}.decision:first-of-type{border-top:0}.cmd{font-family:ui-monospace,monospace;color:var(--text);font-size:12px}.small{font-size:11px;color:var(--muted);margin-top:3px}
+.bar{height:6px;background:var(--bar);border-radius:3px;overflow:hidden;margin:6px 0}.barfill{height:100%;border-radius:3px;transition:width .5s}
+button{background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:12px}
 .btn-small{background:transparent;border:1px solid #333;color:#888;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;transition:all .2s}
 .btn-small:hover{border-color:var(--accent);color:var(--accent);background:#81e36f10}
 .commandbar{display:grid;grid-template-columns:1fr auto;gap:8px}
-.commandbar input{width:100%;background:#050807;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:10px 12px;font:13px ui-monospace,monospace}
-.output{margin-top:12px;white-space:pre-wrap;font:12px ui-monospace,monospace;color:var(--muted);max-height:180px;overflow:auto;border-top:1px solid var(--line);padding-top:10px}
-@media(max-width:800px){.shell{grid-template-columns:1fr;padding:18px}aside{border-right:0;border-bottom:1px solid var(--line);padding:0 0 18px}.grid{grid-template-columns:1fr}.top{align-items:start;gap:14px;flex-direction:column}}
+.commandbar input{width:100%;background:#050807;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:8px 10px;font:12px ui-monospace,monospace}
+.output{margin-top:10px;white-space:pre-wrap;font:11px ui-monospace,monospace;color:var(--muted);max-height:150px;overflow:auto;border-top:1px solid var(--line);padding-top:8px}
+.mt-10{margin-top:10px}
+@media(max-width:800px){.shell{grid-template-columns:1fr;padding:18px}aside{border-right:0;border-bottom:1px solid var(--line);padding:0 0 18px;max-height:none}.grid,.grid3{grid-template-columns:1fr}.top{align-items:start;gap:14px;flex-direction:column}}
 </style>
 </head>
 <body>
@@ -30,68 +36,153 @@ button{background:transparent;color:var(--accent);border:1px solid var(--accent)
 <aside>
 <div class="mark">E</div>
 <h1>ERGENEAI KOMUTA MERKEZI</h1>
-<p>Hermes karar ağacı, token bütçesi ve canlı servis sağlığı için yerel kontrol paneli.</p>
-<div class="nav"><div>Servis Sağlığı</div><div>Token Sanatorium</div><div>Reasoning Tree</div><div>Sistem Metrikleri</div></div>
+<p>Hermes beyin MRI paneli</p>
+<div class="nav">
+<div class="active" data-tab="tab-overview">Genel Bakis</div>
+<div data-tab="tab-runs">Run Metrikleri</div>
+<div data-tab="tab-skills">Skill Dagilimi</div>
+<div data-tab="tab-cron">Cron Isleri</div>
+<div data-tab="tab-token">Token Trendleri</div>
+<div data-tab="tab-policy">Politika Kayitlari</div>
+<div data-tab="tab-eval">Eval Skorlari</div>
+<div data-tab="tab-terminal">Komut Kutusu</div>
+</div>
+<div id="alarmPanel" style="margin-top:20px;padding:12px;border:1px solid var(--line);border-radius:6px;font-size:12px"></div>
+<div style="margin-top:12px;text-align:center"><button class="btn-small" onclick="resetTokenLimit()">Token Sifirla</button></div>
 </aside>
 <main>
-<section class="top"><div><h1>Hermes HQ</h1><p>Localhost güvenli mod: 127.0.0.1:8889</p></div><button onclick="loadStatus()">Yenile</button></section>
-<section class="grid">
+<section class="top"><div><h1>Hermes Beyin MRI</h1><p id="lastUpdate">127.0.0.1:8889</p></div><div><button onclick="loadAll()" style="margin-right:8px">Yenile</button></div></section>
+
+<div id="tab-overview" class="tab active">
+<div class="grid3">
 <div class="panel"><h2>Servisler</h2><div id="services"></div></div>
-<div class="panel"><h2>Token Durumu</h2><div id="tokens"></div></div>
+<div class="panel"><h2>Token <span id="tokenBadge" class="badge">?</span></h2><div id="tokens"></div></div>
 <div class="panel"><h2>Sistem</h2><div id="system"></div></div>
-<div class="panel"><h2>Özet</h2><div id="summary"></div></div>
-<div class="panel decisions"><h2>Komut Kutusu</h2><div class="commandbar"><input id="commandBox" placeholder="uptime · free -m · systemctl status hermes-gateway.service"><button onclick="runCommand()">Çalıştır</button></div><div id="commandOutput" class="output">Whitelist dışındaki komutlar reddedilir.</div></div>
+</div>
+<div class="grid">
+<div class="panel"><h2>Alarmlar <span id="alarmCount" class="badge">0</span></h2><div id="alarms"></div></div>
 <div class="panel decisions"><h2>Son Kararlar</h2><div id="decisions"></div></div>
-</section>
+</div>
+</div>
+
+<div id="tab-runs" class="tab">
+<div class="grid3">
+<div class="panel"><h2>Kategori Skorlari</h2><div id="runScores"></div></div>
+<div class="panel"><h2>Basarili / Basarisiz</h2><div id="runStats"></div></div>
+<div class="panel"><h2>Son Durum</h2><div id="runStatus"></div></div>
+</div>
+</div>
+
+<div id="tab-skills" class="tab">
+<div class="grid3">
+<div class="panel"><h2>Stage Dagitimi</h2><div id="skillStages"></div></div>
+<div class="panel"><h2>Altin Skill'ler</h2><div id="goldenSkills"></div></div>
+<div class="panel"><h2>Deprecasyon Adaylari</h2><div id="deprecationCandidates"></div></div>
+</div>
+</div>
+
+<div id="tab-cron" class="tab">
+<div class="grid3">
+<div class="panel"><h2>Job Ozeti</h2><div id="cronSummary"></div></div>
+<div class="panel"><h2>Basarili / Basarisiz</h2><div id="cronStats"></div></div>
+<div class="panel"><h2>Kritik Hatalar</h2><div id="cronFailures"></div></div>
+</div>
+</div>
+
+<div id="tab-token" class="tab">
+<div class="grid">
+<div class="panel"><h2>Token Trendleri</h2><div id="tokenTrends"></div></div>
+<div class="panel"><h2>Tavsiyeler</h2><div id="tokenRecs"></div></div>
+</div>
+<div class="grid">
+<div class="panel decisions"><h2>En Pahali Run'lar</h2><div id="expensiveRuns"></div></div>
+<div class="panel decisions"><h2>Token Durumu</h2><div id="tokenDetail"></div></div>
+</div>
+</div>
+
+<div id="tab-policy" class="tab">
+<div class="grid3">
+<div class="panel"><h2>Politika Ozeti</h2><div id="policySummary"></div></div>
+<div class="panel"><h2>Allow/Ask/Deny</h2><div id="policyStats"></div></div>
+<div class="panel"><h2>Tavsiyeler</h2><div id="policyRecs"></div></div>
+</div>
+</div>
+
+<div id="tab-eval" class="tab">
+<div class="grid">
+<div class="panel decisions"><h2>Kategori Bazli Eval Skorlari</h2><div id="evalScores"></div></div>
+<div class="panel"><h2>Ozet</h2><div id="evalSummary"></div></div>
+</div>
+</div>
+
+<div id="tab-terminal" class="tab">
+<div class="panel decisions"><h2>Komut Kutusu</h2><div class="commandbar"><input id="commandBox" placeholder="uptime · free -m · systemctl status hermes"><button onclick="runCommand()">Calistir</button></div><div id="commandOutput" class="output">Whitelist disindaki komutlar reddedilir.</div></div>
+</div>
+
 </main>
 </div>
 <script>
 const cls=v=>v?'ok':'bad';
-function row(k,v,c='',action=''){return `<div class="metric"><span>${k}</span><span class="value ${c}">${v}${action}</span></div>`}
+function row(k,v,c='',action=''){return '<div class="metric"><span>'+k+'</span><span class="value '+(c||'')+'">'+v+(action||'')+'</span></div>'}
+function bar(v,pct){return '<div class="bar"><div class="barfill" style="width:'+pct+'%;background:'+(v=='ok'?'var(--accent)':v=='warn'?'var(--warn)':'var(--bad)')+'"></div></div>'}
+document.querySelectorAll('.nav div').forEach(el=>{el.addEventListener('click',function(){document.querySelectorAll('.nav div').forEach(e=>e.classList.remove('active'));this.classList.add('active');document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById(this.dataset.tab).classList.add('active')})});
+async function loadAll(){await loadStatus();await loadDashboard();await loadAlarms();loadTime()}
+function loadTime(){const t=document.createElement('div');t.className='time';t.textContent=new Date().toLocaleString('tr-TR');const existing=document.querySelector('.top .time');if(existing)existing.remove();document.querySelector('.top div').appendChild(t)}
 async function loadStatus(){
- const r=await fetch('/api/status'); const d=await r.json();
- document.querySelector('.time')?.remove();
- const t=document.createElement('div'); t.className='time'; t.textContent=new Date(d.timestamp).toLocaleString('tr-TR'); document.querySelector('.top').appendChild(t);
- const svc=d.health.services||{}; services.innerHTML=Object.entries(svc).map(([k,v])=>row(k,v?'aktif':'kapalı',cls(v),` <button onclick="restartService('${k}')" class="btn-small">⟳</button>`)).join('');
- const g=d.tokens.guard||{}; tokens.innerHTML=row('durum',g.status||'n/a',g.status==='ok'?'ok':'warn')+row('kalan bütçe',String(d.tokens.budget_left??'?'),'',` <button onclick="resetTokenLimit()" class="btn-small">Sıfırla</button>`);
- const mem=d.health.system?.memory||{}; const disk=d.health.system?.disk||{}; system.innerHTML=row('RAM uygun MB',mem.MemAvailable||'?')+row('Disk boş GB',disk.free_gb||'?');
- summary.innerHTML=row('karar sayısı',d.decision_count||0)+row('güncelleme','canlı','ok');
- decisions.innerHTML=(d.decisions||[]).slice().reverse().map(x=>`<div class="decision"><div class="cmd">${x.command||'karar'}</div><div class="small">${x.chosen_branch||'pending'} · ${x.outcome||'pending'}</div></div>`).join('')||'<p>Kayıt yok.</p>';
+ try{
+ const r=await fetch('/api/status');const d=await r.json();
+ const svc=d.health.services||{};document.getElementById('services').innerHTML=Object.entries(svc).map(([k,v])=>row(k,v?'aktif':'kapali',cls(v))).join('')||'<p>Servis bilgisi yok.</p>';
+ const g=d.tokens.guard||{};const tb=document.getElementById('tokens');tb.innerHTML=row('durum',g.status||'n/a',g.status==='ok'?'ok':'warn')+row('kalan butce',String(d.tokens.budget_left??'?'));const bg=document.getElementById('tokenBadge');if(bg)bg.textContent=g.status||'?';
+ const mem=d.health.system?.memory||{};const disk=d.health.system?.disk||{};document.getElementById('system').innerHTML=row('RAM uygun MB',mem.MemAvailable||'?')+row('Disk bos GB',disk.free_gb||'?');
+ document.getElementById('decisions').innerHTML=(d.decisions||[]).slice().reverse().map(function(x){return '<div class="decision"><div class="cmd">'+(x.command||'karar')+'</div><div class="small">'+(x.chosen_branch||'pending')+' · '+(x.outcome||'pending')+'</div></div>'}).join('')||'<p>Kayit yok.</p>';
+ }catch(e){console.error('status err',e)}
 }
-function serviceUnit(name){
- const map={gateway:'hermes-gateway.service',embedding:'hermes-embedding-daemon.service',headroom:'headroom.service',n8n:'n8n.service'};
- return map[name]||name;
+async function loadDashboard(){
+ try{
+ const r=await fetch('/api/dashboard/runs');const d=await r.json();
+ if(!d.error){var scores=d.scores||{};var sc=Object.entries(scores);document.getElementById('runScores').innerHTML=sc.map(function(s){return row(s[0],s[1].success?'PASS':'FAIL',cls(s[1].success))}).join('')||'<p>Skor yok.</p>';document.getElementById('runStats').innerHTML=row('toplam kategori',d.total_categories||0)+row('basarili',d.success_categories||0,'ok')+row('basarisiz',(d.total_categories||0)-(d.success_categories||0),'bad')}
+ }catch(e){}
+ try{
+ const r=await fetch('/api/dashboard/skills');const d=await r.json();
+ if(!d.error){var ss=d.stage_summary||{};document.getElementById('skillStages').innerHTML=Object.entries(ss).map(function(s){return row(s[0],s[1])}).join('')||'<p>Skill yok.</p>';var gs=d.golden_skills||[];document.getElementById('goldenSkills').innerHTML=gs.map(function(g){return row(g.name,g.usage_count+' kullanim','ok')}).join('')||'<p>Altin skill yok.</p>';document.getElementById('deprecationCandidates').innerHTML=row('aday sayisi',d.deprecation_candidates||0,d.deprecation_candidates>0?'warn':'ok')}
+ }catch(e){}
+ try{
+ const r=await fetch('/api/dashboard/cron');const d=await r.json();
+ if(!d.error){document.getElementById('cronSummary').innerHTML=row('toplam job',d.total_jobs||0);document.getElementById('cronStats').innerHTML=row('basarili',d.success||0,'ok')+row('basarisiz',d.failed||0,d.failed>0?'bad':'ok')+row('basari orani',(d.success_rate*100||0).toFixed(0)+'%',d.success_rate>0.8?'ok':'warn');var cf=d.critical_failures||[];document.getElementById('cronFailures').innerHTML=cf.map(function(f){return row(f.job_id||'?',f.error||'hata','bad')}).join('')||'<p>Kritik hata yok.</p>'}
+ }catch(e){}
+ try{
+ const r=await fetch('/api/dashboard/token-trends');const d=await r.json();
+ if(!d.error){document.getElementById('tokenTrends').innerHTML=row('toplam token',(d.total_tokens||0).toLocaleString())+row('kayit sayisi',d.total_entries||0);var exp=d.top_expensive||[];document.getElementById('expensiveRuns').innerHTML=exp.map(function(e){return row(e.mode||'?',(e.tokens||0).toLocaleString()+' token','warn')}).join('')||'<p>Veri yok.</p>';var recs=d.recommendations||[];document.getElementById('tokenRecs').innerHTML=recs.map(function(r){return row('tavsiye',r,'warn')}).join('')||'<p>Tavsiye yok.</p>'}
+ }catch(e){}
+ try{
+ const r=await fetch('/api/dashboard/policy');const d=await r.json();
+ if(!d.error){document.getElementById('policySummary').innerHTML=row('toplam karar',d.total_decisions||0);document.getElementById('policyStats').innerHTML=row('allow',d.allow||0,'ok')+row('ask',d.ask||0,'warn')+row('deny',d.deny||0,'bad');var recs=d.recommendations||[];document.getElementById('policyRecs').innerHTML=recs.map(function(r){return row('oner',r,'warn')}).join('')||'<p>Tavsiye yok.</p>'}
+ }catch(e){}
+ try{
+ const r=await fetch('/api/dashboard/eval');const d=await r.json();
+ if(!d.error){var cats=d.categories||[];document.getElementById('evalScores').innerHTML=cats.map(function(c){return row(c.category,c.success?'PASS':'FAIL',cls(c.success))}).join('')||'<p>Eval verisi yok.</p>';var pass=cats.filter(function(c){return c.success}).length;document.getElementById('evalSummary').innerHTML=row('toplam kategori',cats.length)+row('gecen',pass,'ok')+row('kalan',cats.length-pass,'bad')}
+ }catch(e){}
 }
-async function restartService(name){
- if(!confirm(`${name} servisini yeniden başlat?`)) return;
- const unit=serviceUnit(name);
- const data=await postJSON('/api/command',{command:`systemctl restart ${unit}`});
- showToast(data.exit_code===0?`✅ ${name} yeniden başlatıldı`:`❌ ${name}: ${data.error||'hata'}`);
- loadStatus();
+async function loadAlarms(){
+ try{
+ const r=await fetch('/api/dashboard/alarms');const d=await r.json();
+ var alarms=d.alarms||[];var panel=document.getElementById('alarmPanel');var count=document.getElementById('alarmCount');
+ if(count)count.textContent=alarms.length;
+ if(alarms.length){panel.innerHTML='<div style="color:var(--bad);font-weight:700;margin-bottom:6px">&#9888; Alarmlar</div>'+alarms.map(function(a){return '<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:11px"><span style="color:'+(a.level==='critical'?'var(--bad)':'var(--warn)')+'">['+a.source+']</span> '+a.message+'</div>'}).join('');panel.style.display='block'}else{panel.innerHTML='<div style="color:var(--muted);font-size:11px">Aktif alarm yok.</div>';panel.style.display='block'}
+ document.getElementById('alarms').innerHTML=alarms.slice(0,5).map(function(a){return row(a.source+' '+a.level,a.message.slice(0,60),a.level==='critical'?'bad':'warn')}).join('')||'<p>Sorun yok.</p>';
+ }catch(e){}
 }
-async function resetTokenLimit(){
- if(!confirm('Token limitini sıfırla?')) return;
- const data=await postJSON('/api/token-limit',{action:'reset'});
- showToast(data.status==='reset_requested'?'✅ Token limit sıfırlama istendi':'❌ Hata');
- loadStatus();
-}
+function serviceUnit(name){const map={gateway:'hermes-gateway.service',embedding:'hermes-embedding-daemon.service',headroom:'headroom.service',n8n:'n8n.service'};return map[name]||name}
+async function restartService(name){if(!confirm(name+' servisini yeniden baslat?'))return;const unit=serviceUnit(name);const data=await postJSON('/api/command',{command:'systemctl restart '+unit});showToast(data.exit_code===0?'OK '+name+' yeniden baslatildi':'Hata: '+(data.error||'?'));loadAll()}
+async function resetTokenLimit(){if(!confirm('Token limitini sifirla?'))return;const data=await postJSON('/api/token-limit',{action:'reset'});showToast(data.status==='reset_requested'?'OK Token limit sifirlama istendi':'Hata');loadAll()}
+function showToast(msg){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1f1c;color:#e0e0e0;padding:12px 24px;border-radius:8px;border:1px solid #81e36f;font-size:13px;z-index:1000;transition:opacity .3s';document.body.appendChild(t)}t.textContent=msg;t.style.opacity='1';setTimeout(function(){t.style.opacity='0'},3000)}
 async function runCommand(){
- const input=document.getElementById('commandBox');
- const out=document.getElementById('commandOutput');
+ const input=document.getElementById('commandBox');const out=document.getElementById('commandOutput');
  const data=await postJSON('/api/command',{command:input.value.trim()});
- out.textContent=data.error?`${data.error}\n${data.command||''}`:`$ ${data.command}\nexit=${data.exit_code}\n${data.stdout||''}${data.stderr?'\nERR: '+data.stderr:''}`;
- showToast(data.error?'❌ Komut reddedildi':'✅ Komut tamamlandı');
+ out.textContent=data.error?data.error+'\n'+(data.command||''):'$ '+data.command+'\nexit='+data.exit_code+'\n'+(data.stdout||'')+(data.stderr?'\nERR: '+data.stderr:'');
 }
-async function postJSON(url,payload){
- const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
- return await res.json();
-}
-function showToast(msg){
- let toast=document.getElementById('toast');
- if(!toast){toast=document.createElement('div');toast.id='toast';toast.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1f1c;color:#e0e0e0;padding:12px 24px;border-radius:8px;border:1px solid #81e36f;font-size:13px;z-index:1000;transition:opacity .3s';document.body.appendChild(toast)}
- toast.textContent=msg;toast.style.opacity='1';setTimeout(()=>{toast.style.opacity='0'},3000);
-}
-loadStatus();
+async function postJSON(url,payload){const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});return await res.json()}
+loadAll();
 </script>
 </body>
 </html>

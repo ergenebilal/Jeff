@@ -1,4 +1,7 @@
 import json
+import platform
+
+import pytest
 
 
 def test_hq_api_handler_status_shape():
@@ -23,9 +26,10 @@ def test_hq_health_does_not_expose_secrets():
 
 
 def test_hq_index_is_self_contained():
-    from pathlib import Path
+    from brain.environment import Environment
 
-    html = Path("/opt/hermes/hq/index.html").read_text(encoding="utf-8")
+    env = Environment()
+    html = env.resolve_abs("/opt/hermes/hq/index.html").read_text(encoding="utf-8")
 
     assert "ERGENEAI KOMUTA MERKEZI" in html
     assert "https://" not in html
@@ -42,8 +46,12 @@ def test_hq_command_rejects_disallowed_command():
     assert result["error"] == "Bu komuta izin verilmiyor"
 
 
+
 def test_hq_command_allows_safe_uptime():
     from hq.server import _run_allowed_command
+
+    if platform.system().lower() == "windows":
+        pytest.skip("uptime is a Linux-only command")
 
     result, status = _run_allowed_command("uptime")
 
@@ -67,9 +75,10 @@ def test_hq_token_limit_actions():
 
 
 def test_hq_index_has_interactive_controls():
-    from pathlib import Path
+    from brain.environment import Environment
 
-    html = Path("/opt/hermes/hq/index.html").read_text(encoding="utf-8")
+    env = Environment()
+    html = env.resolve_abs("/opt/hermes/hq/index.html").read_text(encoding="utf-8")
 
     assert "restartService" in html
     assert "resetTokenLimit" in html

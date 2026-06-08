@@ -1,7 +1,46 @@
+"""Tests for mini_swe_runner — patched imports, no Docker required."""
+
+import sys
+from pathlib import Path
+# Ensure project root is first in sys.path — some tests pollute it by importing
+# from the installed hermes-agent (C:\Users\lenovo\AppData\Local\hermes\hermes-agent)
+# which shadows local modules like mini_swe_runner.
+_PROJECT_ROOT = str(Path(__file__).resolve().parent)
+if _PROJECT_ROOT in sys.path:
+    sys.path.remove(_PROJECT_ROOT)
+sys.path.insert(0, _PROJECT_ROOT)
+
+import importlib.util
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import json
 import pytest
+
+
+# ── Force local mini_swe_runner ──────────────────────────────────────────────
+# Some sibling tests import from the installed hermes-agent, which can cause
+# Python to import the *installed* agent's mini_swe_runner instead of this
+# project's version.  We load the local module by file path to stay immune.
+_LOCAL_MSR_PATH = Path(__file__).resolve().parent / "mini_swe_runner.py"
+
+
+def _local_mini_swe_runner():
+    """Return the local mini_swe_runner module, loading by file path."""
+    spec = importlib.util.spec_from_file_location("mini_swe_runner", _LOCAL_MSR_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    # Remove any cached version first
+    for m in list(sys.modules):
+        if m == "mini_swe_runner" or m.startswith("mini_swe_runner."):
+            sys.modules.pop(m, None)
+    sys.modules["mini_swe_runner"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(autouse=True)
+def _msr():
+    """Fixture so tests can access the local mini_swe_runner module."""
+    return _local_mini_swe_runner()
 
 
 @pytest.mark.asyncio

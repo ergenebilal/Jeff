@@ -19,11 +19,13 @@ def isolated_log():
 
 
 def _import_and_patch(monkeypatch, tmp_path):
-    """Import token module and patch BUDGET_LOG."""
+    """Import token module and patch BUDGET_LOG on both modules."""
     import brain.phase4.token_guard as tg
+    import brain.accounting as acc
     fake_log = tmp_path / "token_budget.jsonl"
     fake_log.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(tg, "BUDGET_LOG", fake_log)
+    monkeypatch.setattr(acc, "BUDGET_LOG", fake_log)
     return tg
 
 

@@ -1,0 +1,65 @@
+name: Hermes CI
+
+on:
+  push:
+    branches: [main, master, jeff-*, claude-*]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-timeout
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Verify imports
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from brain import (
+              TokenGuard, ChunkCompressor, check_health, get_metrics,
+              detect_tone, get_style_guide, format_by_tone,
+              assess_proposal, format_assessment,
+              generate_brain_health_report,
+          )
+          print('brain facade: OK')
+          from brain_token import TokenGuard as BTG
+          print('brain_token back-compat: OK')
+          from brain_monitor import check_health as bh
+          print('brain_monitor back-compat: OK')
+          from brain_reasoning_tree import summarize
+          print('brain_reasoning_tree back-compat: OK')
+          "
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ new_tests/ -v --tb=short -x
+
+      - name: Run phase4 token guard tests
+        run: |
+          python -m pytest tests/test_phase4/ -v --tb=short

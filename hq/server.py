@@ -34,6 +34,20 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
             self._json_response(self._build_full_status())
         elif parsed.path == "/api/command-history":
             self._json_response({"commands": self._command_history[-10:]})
+        elif parsed.path == "/api/dashboard/runs":
+            self._json_response(self._build_dashboard_runs())
+        elif parsed.path == "/api/dashboard/skills":
+            self._json_response(self._build_dashboard_skills())
+        elif parsed.path == "/api/dashboard/cron":
+            self._json_response(self._build_dashboard_cron())
+        elif parsed.path == "/api/dashboard/token-trends":
+            self._json_response(self._build_dashboard_token_trends())
+        elif parsed.path == "/api/dashboard/policy":
+            self._json_response(self._build_dashboard_policy())
+        elif parsed.path == "/api/dashboard/eval":
+            self._json_response(self._build_dashboard_eval())
+        elif parsed.path == "/api/dashboard/alarms":
+            self._json_response(self._build_dashboard_alarms())
         elif parsed.path in {"", "/"}:
             self._serve_html()
         else:
@@ -142,6 +156,127 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
             "decisions": decisions[-5:],
             "decision_count": len(decisions),
         }
+
+    @staticmethod
+    def _build_dashboard_runs() -> dict:
+        try:
+            from brain.phase4.eval_daily import get_latest_scores
+            from pathlib import Path
+            scores = get_latest_scores()
+            total = len(scores)
+            passed = sum(1 for s in scores.values() if s.get("success"))
+            return {
+                "total_categories": total,
+                "success_categories": passed,
+                "success_rate": round(passed / total, 2) if total else 0,
+                "scores": {k: {"success": v.get("success"), "error": v.get("error")}
+                          for k, v in scores.items()},
+            }
+        except Exception:
+            return {"error": "run data unavailable"}
+
+    @staticmethod
+    def _build_dashboard_skills() -> dict:
+        try:
+            from brain.phase4.skill_lifecycle import skill_stage_summary
+            from brain.phase4.skill_advisor import get_golden_skills, find_deprecation_candidates
+            summary = skill_stage_summary()
+            golden = get_golden_skills()
+            candidates = find_deprecation_candidates()
+            return {
+                "stage_summary": summary,
+                "golden_skills": golden,
+                "deprecation_candidates": len(candidates),
+            }
+        except Exception:
+            return {"error": "skill data unavailable"}
+
+    @staticmethod
+    def _build_dashboard_cron() -> dict:
+        try:
+            from brain.phase5.cron_summary import generate_session_start_report
+            report = generate_session_start_report(hours=24)
+            return {
+                "total_jobs": report.get("total_jobs", 0),
+                "success": report.get("success", 0),
+                "failed": report.get("failed", 0),
+                "success_rate": report.get("success_rate", 0),
+                "critical_failures": report.get("critical_failures", []),
+            }
+        except Exception:
+            return {"error": "cron data unavailable"}
+
+    @staticmethod
+    def _build_dashboard_token_trends() -> dict:
+        try:
+            from brain.phase4.token_report import generate_weekly_report
+            report = generate_weekly_report(hours=168)
+            return {
+                "total_tokens": report.get("total_tokens", 0),
+                "total_entries": report.get("total_entries", 0),
+                "top_expensive": report.get("top_expensive", [])[:5],
+                "recommendations": report.get("recommendations", []),
+            }
+        except Exception:
+            return {"error": "token trend data unavailable"}
+
+    @staticmethod
+    def _build_dashboard_policy() -> dict:
+        try:
+            from brain.phase4.autonomy_policy import self_audit
+            return self_audit()
+        except Exception:
+            return {"error": "policy data unavailable"}
+
+    @staticmethod
+    def _build_dashboard_eval() -> dict:
+        try:
+            from brain.phase4.eval_daily import get_latest_scores
+            scores = get_latest_scores()
+            by_category = []
+            for cat, data in scores.items():
+                by_category.append({
+                    "category": cat,
+                    "success": data.get("success", False),
+                    "metrics": data.get("metrics", {}),
+                })
+            return {"categories": by_category}
+        except Exception:
+            return {"error": "eval data unavailable"}
+
+    @staticmethod
+    def _build_dashboard_alarms() -> dict:
+        alarms = []
+        try:
+            from brain.accounting import TokenGuard
+            token_check = TokenGuard.check()
+            if token_check.get("status") in ("flash", "stop"):
+                alarms.append({
+                    "level": "critical",
+                    "source": "token",
+                    "message": f"Token budget {token_check['status']}: {token_check.get('usage', 0):.2f} used",
+                })
+        except Exception:
+            pass
+        try:
+            from brain.phase4.token_report import generate_weekly_report
+            report = generate_weekly_report(hours=168)
+            for rec in report.get("recommendations", []):
+                alarms.append({"level": "warning", "source": "token", "message": rec})
+        except Exception:
+            pass
+        try:
+            from brain.phase5.cron_summary import check_critical_failures
+            failures = check_critical_failures(hours=24)
+            for f in failures:
+                alarms.append({
+                    "level": "critical",
+                    "source": "cron",
+                    "message": f"Cron job '{f.get('job_id')}' failed: {f.get('error', 'unknown')}",
+                })
+        except Exception:
+            pass
+        return {"alarms": alarms[:10], "total": len(alarms)}
 
     def log_message(self, format, *args):
         return
