@@ -25,6 +25,7 @@ from .context_loader import get_relevant_context
 from .mood import detect_tone, format_by_tone, get_style_guide
 from .advisors import assess_proposal, format_assessment
 from .reporter import generate_health_report as generate_brain_health_report
+from .retrieval import build_retrieval_layers, format_retrieval_layers
 from .observability import (
     AUTONOMY_POLICY_LOG,
     ERROR_BUDGET_LOG,
@@ -68,6 +69,8 @@ __all__ = [
     "assess_proposal",
     "format_assessment",
     "generate_brain_health_report",
+    "build_retrieval_layers",
+    "format_retrieval_layers",
     "RUN_LOG",
     "STEP_LOG",
     "ERROR_BUDGET_LOG",
