@@ -29,6 +29,7 @@ Usage:
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -64,6 +65,52 @@ def _effective_temperature_for_model(
 # ============================================================================
 # Terminal Tool Definition (matches Hermes-Agent format)
 # ============================================================================
+
+
+CRITICAL_COMMAND_PATTERNS = [
+    re.compile(r"(^|[;&|]\s*)rm\s+(-[^\n]*[rf]|-[^\n]*f[^\n]*r)", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)sudo\s+", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)systemctl\s+(restart|stop|disable|enable)", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)service\s+\S+\s+(restart|stop)", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)git\s+(reset\s+--hard|clean\s+-[fdx]+|push\s+--force)", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)chmod\s+(-R\s+)?777", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)chown\s+(-R\s+)?", re.IGNORECASE),
+    re.compile(r"(^|[;&|]\s*)(dropdb|mysqladmin\s+drop|alembic\s+upgrade|python\s+.*manage\.py\s+migrate)", re.IGNORECASE),
+]
+
+
+def is_critical_command(command: str) -> bool:
+    text = str(command or "").strip()
+    return any(pattern.search(text) for pattern in CRITICAL_COMMAND_PATTERNS)
+
+
+def build_critical_command_branches(command: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "name": "safe_dry_run",
+            "description": "Do not execute on host; report the risky command and ask for a safer plan.",
+            "token_cost": 1,
+            "success_probability": 0.55,
+            "system_safety_risk": 0.02,
+            "score": 0.95,
+        },
+        {
+            "name": "limited_patch_or_sandbox",
+            "description": "Run only in an isolated sandbox or replace with a bounded read-only inspection.",
+            "token_cost": 2,
+            "success_probability": 0.70,
+            "system_safety_risk": 0.18,
+            "score": 0.72,
+        },
+        {
+            "name": "direct_execute",
+            "description": "Execute the command directly in the active environment.",
+            "token_cost": 1,
+            "success_probability": 0.85,
+            "system_safety_risk": 0.95,
+            "score": 0.10,
+        },
+    ]
 
 TERMINAL_TOOL_DEFINITION = {
     "type": "function",
@@ -271,6 +318,39 @@ class MiniSWERunner:
         Returns:
             Dict with 'output' and 'returncode'
         """
+        if is_critical_command(command):
+            branches = build_critical_command_branches(command)
+            try:
+                from brain.reasoning_tree import add_decision
+
+                add_decision(
+                    command=command,
+                    task="mini_swe_command_execution",
+                    chosen_branch="safe_dry_run",
+                    branches=branches,
+                    outcome="blocked",
+                )
+            except Exception:
+                pass
+            try:
+                from brain.observability import record_autonomy_decision
+
+                record_autonomy_decision(
+                    action="critical_command_blocked",
+                    reason=f"Mini-SWE blocked critical command: {command[:160]}",
+                    approved=False,
+                    risk="high",
+                    task_type="mini_swe",
+                    metadata={"chosen_branch": "safe_dry_run"},
+                )
+            except Exception:
+                pass
+            return {
+                "output": "Critical command blocked by Mini-SWE reasoning gate.",
+                "exit_code": -1,
+                "error": "critical_command_blocked",
+            }
+
         if self.env is None:
             self._create_env()
         
