@@ -1,0 +1,9 @@
+{
+  "enabled": false,
+  "voice": "tr-TR-EmelNeural",
+  "rate": "+0%",
+  "volume": "+0%",
+  "pitch": "+0Hz",
+  "min_interval_sec": 30,
+  "allowed_modes": ["quick"]
+}

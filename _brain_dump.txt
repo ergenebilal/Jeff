@@ -1,0 +1,77 @@
+"""Conversation-start context loader for Hermes."""
+
+from datetime import datetime
+
+from .learning import get_lessons_summary
+
+
+def get_relevant_context(topic: str = "") -> str:
+    """Return compact context Hermes should review before a new conversation."""
+    parts = []
+    lessons = get_lessons_summary(10)
+    parts.append("📚 Öğrendiklerim:\n" + lessons)
+
+    now = datetime.now()
+    parts.append(f"🕐 {now.strftime('%d %B %Y, %H:%M')}")
+
+    try:
+        from .reasoning_tree import summarize as tree_summary
+
+        parts.append("🧠 " + tree_summary())
+    except Exception:
+        pass
+
+    if topic:
+        parts.append(f"🎯 Konu: {topic}")
+    return "\n\n".join(parts)
+
+
+if __name__ == "__main__":
+    print(get_relevant_context())
+---
+"""Hermes brain facade for core state, health, token and decision helpers."""
+
+from .state import close_db, get_db, get_session
+from .monitor import check_health, get_metrics
+from .token import (
+    TokenGuard,
+    compress_message,
+    estimate_tokens,
+    get_budget_left,
+    get_daily_usage,
+    get_session_breakdown,
+    set_log_level,
+    should_log,
+    track_usage,
+)
+from .learning import (
+    get_lessons_summary,
+    get_recent_lessons,
+    mark_applied,
+    save_lesson,
+    sync_all_to_mnemosyne,
+)
+from .context_loader import get_relevant_context
+
+__all__ = [
+    "get_db",
+    "get_session",
+    "close_db",
+    "check_health",
+    "get_metrics",
+    "track_usage",
+    "get_budget_left",
+    "get_daily_usage",
+    "get_session_breakdown",
+    "set_log_level",
+    "should_log",
+    "compress_message",
+    "estimate_tokens",
+    "TokenGuard",
+    "save_lesson",
+    "get_recent_lessons",
+    "get_lessons_summary",
+    "mark_applied",
+    "sync_all_to_mnemosyne",
+    "get_relevant_context",
+]

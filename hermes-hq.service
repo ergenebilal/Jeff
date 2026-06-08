@@ -1,0 +1,18 @@
+[Unit]
+Description=Hermes HQ — ErgeneAI Komuta Merkezi
+After=network.target hermes-gateway.service hermes-embedding-daemon.service
+Wants=hermes-gateway.service hermes-embedding-daemon.service
+
+[Service]
+Type=simple
+User=hermes
+WorkingDirectory=/opt/hermes
+ExecStart=/opt/hermes/venv/bin/python /opt/hermes/hq/server.py 8889
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/home/hermes
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
