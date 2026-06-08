@@ -1,0 +1,171 @@
+{
+  "updatedAt": "2026-05-24T16:01:17.000Z",
+  "createdAt": "2026-05-13T14:48:23.263Z",
+  "id": "FwhFF6xcGncTW3nM",
+  "name": "ErgeneAI Daily Content Pipeline (Free RSS + Gemini)",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "id": "797d8689-4f58-4a63-9fd3-6f02869cae04",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=KOB\u0130+OR+yapay+zeka+OR+restoran+OR+g\u00fczellik+merkezi&hl=tr&gl=TR&ceid=TR:tr",
+        "options": {}
+      },
+      "id": "4b961561-a85c-48f8-83ef-d24a85c93e82",
+      "name": "Google News RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet text = \"Bug\u00fcn\u00fcn G\u00fcndem Ba\u015fl\u0131klar\u0131:\\n\";\n\nitems.slice(0, 15).forEach((item, index) => {\n  text += (index + 1) + \". \" + item.json.title + \"\\n\";\n});\n\nreturn [{ json: { trendData: text } }];"
+      },
+      "id": "009e7ac8-b701-44c7-956e-5b1d3b42b71c",
+      "name": "Haberleri Birle\u015ftir",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "generate",
+        "model": "models/gemini-1.5-pro",
+        "prompt": "Sen ErgeneAI markasi icin Turkiye'deki kucuk isletme sahiplerine (guzellik merkezi, klinik, restoran) yonelik gunluk icerik ureten bir editorsun.\n\nTon: Sade, guven veren, sonuc odakli. 'AI devrimi' gibi bos laflar YOK. Turkce, siz'li anlatim.\n\nSana verilen guncel haber listesinden ilham alarak 3 adet birbirinden bagimsiz, yuksek kaliteli WhatsApp/Telegram kanal postu olustur.\n\nHer post:\n- Baslik: 1 satir, dikkat cekici (max 60 karakter)\n- Govde: 3-5 cumle, pratik ve aksiyona donuk (200-400 karakter)\n- Kategori: isletme_ipucu | sektorel_gundem | vaka | nasil_yapilir | arac | rakamlarla | kontrol | soru_cevap\n- Hedef kitle: guzellik_merkezi | klinik | restoran | genel\n\nSADECE su JSON array formatinda cikti ver, baska metin ekleme:\n[\n  {\n    \"title\": \"...\",\n    \"body\": \"...\",\n    \"category\": \"...\",\n    \"audience\": \"...\"\n  }\n]\n\n\u0130\u015fte analiz edilecek bug\u00fcn\u00fcn verisi:\n={{ $json.trendData }}"
+      },
+      "id": "0a1d6c99-a052-46b7-b79c-6fdb061db927",
+      "name": "Gemini Generate",
+      "type": "n8n-nodes-base.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        352,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nlet posts = [];\n\nconst content = response.text || response.data || response.message?.content || JSON.stringify(response);\nconst match = content.match(/\\[[\\s\\S]*\\]/);\n\nif (match) {\n  try {\n    posts = JSON.parse(match[0]);\n  } catch (e) {\n    posts = [{ title: 'Format Hatas\u0131', body: '\u0130\u00e7erik i\u015flenemedi, manuel kontrol et.', category: 'hata', audience: 'genel' }];\n  }\n} else {\n  posts = [{ title: '\u0130\u00e7erik Bulunamad\u0131', body: content.substring(0, 200), category: 'hata', audience: 'genel' }];\n}\n\nconst emoji = { isletme_ipucu: '\ud83d\udca1', sektorel_gundem: '\ud83d\udccc', vaka: '\ud83d\udcca', nasil_yapilir: '\ud83d\udccb', arac: '\ud83d\udee0', rakamlarla: '\ud83d\udcc8', kontrol: '\u2705', soru_cevap: '\u2753', hata: '\u26a0\ufe0f' };\n\nconst today = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });\n\nlet message = 'ErgeneAI | G\u00fcnl\u00fck Sekt\u00f6r \u00d6zeti | ' + today + '\\n\\n';\n\nposts.forEach((p, i) => {\n  const e = emoji[p.category] || '\ud83d\udcdd';\n  message += (i + 1) + '. ' + e + ' *' + (p.title || '').replace(/[*_]/g, '') + '*\\n';\n  message += (p.body || '').replace(/[*_]/g, '') + '\\n';\n  message += '   Hedef Kitle: ' + (p.audience || 'genel').replace(/_/g, ' ').toUpperCase() + '\\n\\n';\n});\n\nmessage += '_Bu i\u00e7erik ErgeneAI otonom sistemleri taraf\u0131ndan haz\u0131rlanm\u0131\u015ft\u0131r._';\n\nreturn [{ json: { text: message, posts: posts } }];"
+      },
+      "id": "229fa294-3c9b-407a-a9c8-60b90e24a51e",
+      "name": "Code Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "BURAYA_TELEGRAM_CHAT_ID_GELECEK",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "a5689c1a-35ed-4401-9898-a482907cb5f5",
+      "name": "Telegram Send",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        752,
+        208
+      ],
+      "webhookId": "867c9a3d-045b-48b6-85fb-4deb6773b02a"
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Google News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google News RSS": {
+      "main": [
+        [
+          {
+            "node": "Haberleri Birle\u015ftir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Format": {
+      "main": [
+        [
+          {
+            "node": "Telegram Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "b1c35c0b-8db4-445f-ba8e-202c9e85cc5a",
+  "activeVersionId": null,
+  "versionCounter": 3,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-05-13T14:48:23.273Z",
+      "createdAt": "2026-05-13T14:48:23.273Z",
+      "role": "workflow:owner",
+      "workflowId": "FwhFF6xcGncTW3nM",
+      "projectId": "pW675UOqMsBdw4py",
+      "project": {
+        "updatedAt": "2026-05-01T11:34:58.151Z",
+        "createdAt": "2026-05-01T11:33:47.587Z",
+        "id": "pW675UOqMsBdw4py",
+        "name": "Bilal ergenebilal@gmail.com <ergenebilal@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "786f0310-cd50-4a6a-97a0-ac51f842938b"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

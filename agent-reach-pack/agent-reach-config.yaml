@@ -1,0 +1,28 @@
+# Agent Reach Configuration Template
+# Copy to /opt/Agent-Reach/config.yaml and add your API keys
+
+channels:
+  twitter:
+    enabled: false
+    auth_token: "your_twitter_auth_token"
+    ct0: "your_twitter_ct0"
+    search_queries:
+      - "need an AI agent"
+      - "looking for automation"
+  
+  youtube:
+    enabled: false
+    queries:
+      - "AI agent tutorial"
+  
+  rss:
+    enabled: true
+    urls:
+      - https://news.ycombinator.com/rss
+      - https://old.reddit.com/r/artificial/search.rss?q=ai+agent&sort=new
+
+notifications:
+  telegram:
+    enabled: true
+    bot_token: "your_bot_token"
+    chat_id: "your_chat_id"

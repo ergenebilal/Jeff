@@ -1,0 +1,118 @@
+{
+  "updatedAt": "2026-05-22T14:20:34.000Z",
+  "createdAt": "2026-05-22T13:47:04.772Z",
+  "id": "D3Vst7ImoKtCRRFF",
+  "name": "\ud83e\udde0 ErgeneAI Instagram Asistan\u0131",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "id": "a9e2fa01-16e8-4cb2-9888-1b00956aaf7b",
+      "name": "\ud83d\udce9 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "ergeneai-ig",
+        "httpMethod": "GET,POST",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "ergeneai-ig"
+    },
+    {
+      "id": "8289d670-b99d-481a-83d5-232b3c61ad7a",
+      "name": "\ud83d\udd00 Y\u00f6nlendir",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        300,
+        0
+      ],
+      "parameters": {
+        "functionCode": "const d = $input.first().json||{};\nif(d.query&&d.query['hub.mode']) return [{json:{challenge:d.query['hub.challenge']}}];\nconst data = d.body||d; let s='',m='';\nif(data.entry&&data.entry[0]&&data.entry[0].messaging&&data.entry[0].messaging[0]){\n  s=data.entry[0].messaging[0].sender.id; m=data.entry[0].messaging[0].message.text;\n} else { s=data.senderId||''; m=data.text||data.message||''; }\nreturn [{json:{senderId:s||'',messageText:m||'',skip:!s||!m}}];"
+      }
+    },
+    {
+      "id": "0b707a38-d25f-4457-b974-79aa5ac3c3ef",
+      "name": "\ud83d\udccb Haf\u0131za",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        600,
+        0
+      ],
+      "parameters": {
+        "url": "http://10.0.1.1:8899/memory/get?senderId={{ $json.senderId }}",
+        "method": "GET",
+        "authentication": "none",
+        "sendBody": false,
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "\ud83d\udce9 Webhook": {
+      "main": [
+        [
+          {
+            "node": "\ud83d\udd00 Y\u00f6nlendir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "\ud83d\udd00 Y\u00f6nlendir": {
+      "main": [
+        [
+          {
+            "node": "\ud83d\udccb Haf\u0131za",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "aa00a7a7-f0a5-4c73-85be-6300ed04e160",
+  "activeVersionId": null,
+  "versionCounter": 4,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-05-22T13:47:04.774Z",
+      "createdAt": "2026-05-22T13:47:04.774Z",
+      "role": "workflow:owner",
+      "workflowId": "D3Vst7ImoKtCRRFF",
+      "projectId": "pW675UOqMsBdw4py",
+      "project": {
+        "updatedAt": "2026-05-01T11:34:58.151Z",
+        "createdAt": "2026-05-01T11:33:47.587Z",
+        "id": "pW675UOqMsBdw4py",
+        "name": "Bilal ergenebilal@gmail.com <ergenebilal@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "786f0310-cd50-4a6a-97a0-ac51f842938b"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

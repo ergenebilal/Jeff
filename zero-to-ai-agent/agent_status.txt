@@ -1,0 +1,20 @@
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Scheduled Jobs                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  c16a3add1f03 [active]
+    Name:      Denetim Hatırlatıcı
+    Schedule:  0 6 * * *
+    Repeat:    ∞
+    Next run:  2026-06-09T06:00:00+03:00
+    Deliver:   telegram:5506784207
+    Script:    probation_reminder.py
+    Mode:      no-agent (script stdout delivered directly)
+    Last run:  2026-06-08T06:00:56.596416+03:00  ok
+
+  490a1e1a2e1d [active]
+    Name:      Embedding Daemon Watchdog
+    Schedule:  every 5m
+    Repeat:    ∞
+    Next run:  2026-06-08T21:25:52.719100+03:00

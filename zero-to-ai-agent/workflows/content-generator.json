@@ -1,0 +1,253 @@
+{
+  "updatedAt": "2026-05-24T13:36:42.809Z",
+  "createdAt": "2026-05-23T16:05:12.367Z",
+  "id": "9CPCJitn2pwmeTy9",
+  "name": "ErgeneAI \u0130\u00e7erik Olu\u015fturucu",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "n-schedule",
+      "name": "Zamanlayici",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        80,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "n-manual",
+      "name": "Manuel Tetikleyici",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        80,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst bank = [\n  ['hukuk b\u00fcrolar\u0131','Mesai d\u0131\u015f\u0131nda gelen dan\u0131\u015fma taleplerinin yan\u0131ts\u0131z kalmas\u0131','AI \u00f6n g\u00f6r\u00fc\u015fme asistan\u0131 ile potansiyel m\u00fcvekkil taleplerini 7/24 toplama ve dosya ak\u0131\u015f\u0131na aktarma','TALEP KAYBI','Danisma taleplerini yakala','1. Clear legal consultation visual: document folder, scale icon, and incoming message bubbles, no readable small text\\n2. Case intake card with file stack, form lines, and checkmarks\\n3. Client request flow from chat bubble to case folder using dots and connector lines'],\n  ['restoranlar','Telefon ve DM \u00fczerinden gelen rezervasyonlar\u0131n yo\u011fun saatlerde ka\u00e7mas\u0131','AI rezervasyon asistan\u0131 ile masa taleplerini otomatik kar\u015f\u0131lama ve rezervasyon listesini d\u00fczenleme','MASA KAYBI','Bos masalari doldur','1. Clear restaurant visual: table floor-plan grid with table icons, chairs, and green checkmarks\\n2. Reservation request chat card with abstract DM bubbles, no readable small text\\n3. Table occupancy flow from message bubble to booked table using arrows and dots'],\n  ['di\u015f klinikleri','Yeni hasta randevu taleplerinin ge\u00e7 yan\u0131tlanmas\u0131','AI hasta kabul asistan\u0131 ile randevu sorular\u0131n\u0131 toplama, uygun saatleri \u00f6nerme ve ekibe d\u00fczenli kay\u0131t a\u00e7ma','HASTA DESTEGI','Randevu taleplerini yakala','1. Clear dental clinic visual: tooth icon, clinic appointment card, and patient chat bubbles\\n2. Dental calendar card with time-slot placeholders and checkmarks\\n3. Patient intake flow from message bubble to appointment card using dots and connector lines'],\n  ['emlak ofisleri','\u0130lanlardan gelen al\u0131c\u0131 ve kirac\u0131 taleplerinin da\u011f\u0131n\u0131k kanallarda kaybolmas\u0131','AI talep toplama asistan\u0131 ile m\u00fc\u015fteri b\u00fct\u00e7esi, lokasyon tercihi ve ilan ilgisini otomatik s\u0131n\u0131fland\u0131rma','TALEP KAYBI','Her talebi kaydet','1. Clear real estate visual: premium modern house render or abstract house exterior with a proportionate neon location pin\\n2. Property inquiry chat card with house pin icon, buyer message bubbles, and no readable small text\\n3. Property listing and lead flow: abstract property cards, checkmarks, and connector arrows showing request to saved lead'],\n  ['oto galeriler','Ara\u00e7 sorular\u0131, takas talepleri ve fiyat g\u00f6r\u00fc\u015fmelerinin manuel takipte kaybolmas\u0131','AI sat\u0131\u015f asistan\u0131 ile ara\u00e7 ilgisini, b\u00fct\u00e7eyi ve takas bilgisini toplay\u0131p sat\u0131\u015f ekibine haz\u0131r talep aktarma','SATIS KAYBI','Arac taleplerini yakala','1. Clear auto gallery visual: premium car in showroom, small price tag accent, and incoming chat bubbles\\n2. Trade-in request card with vehicle icon, small price tag icon inside the card, placeholder lines, and checkmarks\\n3. Sales request flow from car inquiry to sales card using arrows and dots'],\n  ['spor salonlar\u0131','Deneme dersi ve \u00fcyelik sorular\u0131na ge\u00e7 d\u00f6n\u00fc\u015f y\u00fcz\u00fcnden \u00fcyelik f\u0131rsatlar\u0131n\u0131n ka\u00e7mas\u0131','AI \u00fcyelik asistan\u0131 ile paket sorular\u0131n\u0131 yan\u0131tlama, deneme dersi talebi toplama ve sat\u0131\u015f ekibine aktarma','UYE KAYBI','Uyelik taleplerini yakala','1. Clear gym visual: dumbbell icon, membership card, and trial session chat bubbles\\n2. Trial booking calendar card with checkmarks and line placeholders\\n3. Membership conversion flow from inquiry to active member using dots and upward chart'],\n  ['e-ticaret ma\u011fazalar\u0131','\u00dcr\u00fcn sorular\u0131 ve sepet karars\u0131zl\u0131klar\u0131n\u0131n destek yo\u011funlu\u011funda yan\u0131ts\u0131z kalmas\u0131','AI sat\u0131\u015f destek asistan\u0131 ile \u00fcr\u00fcn sorular\u0131n\u0131 yan\u0131tlama, sipari\u015f durumunu a\u00e7\u0131klama ve sepet terkini azaltma','SEPET KAYBI','Sepeti terk ettirme','1. Clear e-commerce visual: shopping cart, product card, and customer question bubbles\\n2. Order support card with package icon, checkmarks, and placeholder lines\\n3. Cart recovery flow from product question to completed checkout using arrows and dots'],\n  ['oteller','Oda m\u00fcsaitli\u011fi ve fiyat sorular\u0131n\u0131n farkl\u0131 kanallarda manuel takip edilmesi','AI rezervasyon asistan\u0131 ile tarih, ki\u015fi say\u0131s\u0131 ve oda tercihlerini toplayarak rezervasyon ekibine haz\u0131r talep aktarma','REZERVASYON KAYBI','Oda taleplerini yakala','1. Clear hotel visual: hotel building or room card with bed icon and location pin\\n2. Room availability chat card with date blocks and checkmarks, no readable small text\\n3. Booking flow from room request to confirmed stay using room cards and connector dots'],\n  ['kurs merkezleri','Kay\u0131t dan\u0131\u015fmanl\u0131\u011f\u0131 taleplerinin WhatsApp ve Instagram aras\u0131nda da\u011f\u0131lmas\u0131','AI kay\u0131t asistan\u0131 ile kurs ilgisi, seviye ve zaman tercihini toplay\u0131p dan\u0131\u015fmanl\u0131k s\u00fcrecini h\u0131zland\u0131rma','KAYIT KAYBI','Adaylari hizli karsila','1. Clear education visual: course card, graduation cap icon, and candidate chat bubbles\\n2. Enrollment form card with level and schedule placeholders\\n3. Candidate registration flow from inquiry to enrollment using cards, dots, and checkmarks'],\n  ['muhasebe ofisleri','Evrak, beyanname ve m\u00fc\u015fteri bilgi taleplerinin manuel mesaj trafi\u011finde kaybolmas\u0131','AI evrak takip asistan\u0131 ile m\u00fc\u015fteri evraklar\u0131n\u0131 hat\u0131rlatma, eksikleri s\u0131n\u0131fland\u0131rma ve operasyon y\u00fck\u00fcn\u00fc azaltma','EVRAK TAKIBI','Eksikleri otomatik topla','1. Clear accounting visual: document stack, folder icon, and client message bubbles\\n2. Missing document checklist card with checkmarks and line placeholders\\n3. Document collection flow from client chat to completed folder using arrows and dots'],\n  ['sa\u011fl\u0131k turizmi ajanslar\u0131','Yurt d\u0131\u015f\u0131ndan gelen tedavi taleplerine ge\u00e7 d\u00f6n\u00fc\u015f y\u00fcz\u00fcnden y\u00fcksek de\u011ferli talep kayb\u0131','AI \u00f6n de\u011ferlendirme asistan\u0131 ile tedavi ilgisi, \u00fclke, tarih ve ileti\u015fim bilgisini toplayarak sat\u0131\u015f ekibine haz\u0131r dosya aktarma','TALEP KAYBI','Basvurulari hizli topla','1. Clear health tourism visual: globe, medical cross, and treatment inquiry chat bubbles\\n2. Patient pre-assessment card with country pin, date icon, and placeholder lines\\n3. Treatment request flow from global inquiry to patient file using cards and connector dots'],\n  ['sigorta acenteleri','Teklif taleplerinin manuel takipte gecikmesi ve rakip acentelere kaymas\u0131','AI teklif asistan\u0131 ile poli\u00e7e t\u00fcr\u00fc, temel m\u00fc\u015fteri bilgisi ve teklif ihtiyac\u0131n\u0131 toplayarak acente ekibine haz\u0131r kay\u0131t aktarma','TEKLIF KAYBI','Talepleri hizli topla','1. Clear insurance visual: shield icon, policy document, and quote request chat bubbles\\n2. Policy selection card with checkmarks and placeholder lines\\n3. Quote flow from request bubble to prepared policy card using arrows and dots'],\n  ['psikolog klinikleri','Randevu ve uygunluk sorular\u0131n\u0131n hassas ileti\u015fim gerektirirken ge\u00e7 yan\u0131tlanmas\u0131','AI randevu kar\u015f\u0131lama asistan\u0131 ile uygun saat, dan\u0131\u015fmanl\u0131k t\u00fcr\u00fc ve ileti\u015fim bilgisini sakin ve d\u00fczenli \u015fekilde toplama','RANDEVU KAYBI','Talepleri nazikce topla','1. Clear psychology clinic visual: calm appointment card, heart/brain icon, and private chat bubbles\\n2. Availability calendar card with soft checkmarks and time placeholders\\n3. Intake flow from private message to appointment card using minimal connector dots'],\n  ['kuaf\u00f6r ve barber salonlar\u0131','Yo\u011fun saatlerde randevu mesajlar\u0131n\u0131n g\u00f6r\u00fclmemesi ve bo\u015f saatlerin dolmamas\u0131','AI randevu asistan\u0131 ile hizmet, saat ve personel tercihini toplay\u0131p takvimi daha d\u00fczenli y\u00f6netme','RANDEVU KACAGI','Bos saatleri doldur','1. Clear salon visual: scissors icon, barber chair silhouette, and appointment chat bubbles\\n2. Stylist schedule card with time-slot placeholders and checkmarks\\n3. Booking fill flow from DM request to filled calendar slot using arrows and dots'],\n  ['B2B hizmet firmalar\u0131','Teklif isteyen potansiyel m\u00fc\u015fterilerin ilk temas sonras\u0131 takip edilmemesi','AI talep takip asistan\u0131 ile ihtiyac\u0131, b\u00fct\u00e7eyi ve zamanlamay\u0131 toplayarak sat\u0131\u015f s\u00fcrecine temiz kay\u0131t a\u00e7ma','TALEP KAYBI','Her talebi takip et','1. Clear B2B service visual: briefcase icon, proposal request card, and lead chat bubbles\\n2. Qualification card with need, budget, and timeline icons as placeholders\\n3. Sales follow-up flow from inquiry to proposal card using clean stages and checkmarks'],\n  ['\u00f6zel okullar','Veli kay\u0131t taleplerinin yo\u011fun d\u00f6nemlerde h\u0131zl\u0131 ve standart yan\u0131t alamamas\u0131','AI kay\u0131t asistan\u0131 ile s\u0131n\u0131f seviyesi, kamp\u00fcs ilgisi ve g\u00f6r\u00fc\u015fme talebini toplayarak kay\u0131t ekibine d\u00fczenli ak\u0131\u015f sa\u011flama','KAYIT TALEBI','Velileri hizli karsila','1. Clear private school visual: school building icon, parent inquiry chat bubbles, and campus pin\\n2. Campus visit booking card with calendar and checkmarks\\n3. Enrollment flow from parent message to student registration card using dots and progress line']\n].map(([nis, aci_nokta, icerik_fikri, headline, subline, visual_modules]) => ({nis, aci_nokta, icerik_fikri, headline, subline, visual_modules}));\n\nconst index = Number.isInteger(staticData.rotationIndex) ? staticData.rotationIndex : 0;\nconst selected = bank[index % bank.length];\nstaticData.rotationIndex = (index + 1) % bank.length;\nstaticData.lastSelectedNiche = selected.nis;\nstaticData.lastSelectedAt = new Date().toISOString();\n\nconst message_text = `A\u015fa\u011f\u0131daki brief d\u0131\u015f\u0131na \u00e7\u0131kmadan Ergene AI i\u00e7in Instagram i\u00e7erik paketi \u00fcret.\\n\\nZORUNLU N\u0130\u015e: ${selected.nis}\\nZORUNLU ACI NOKTA: ${selected.aci_nokta}\\nZORUNLU \u00c7\u00d6Z\u00dcM F\u0130KR\u0130: ${selected.icerik_fikri}\\n\u00d6NER\u0130LEN G\u00d6RSEL BA\u015eLIK: ${selected.headline}\\n\u00d6NER\u0130LEN DESTEK SATIRI: ${selected.subline}\\nZORUNLU G\u00d6RSEL MOD\u00dcLLER:\\n${selected.visual_modules}\\n\\nBu ni\u015fi de\u011fi\u015ftirme. Ba\u015fka sekt\u00f6r se\u00e7me. Caption, g\u00f6rsel prompt ve i\u00e7erik \u00f6zeti bu brief ile birebir uyumlu olsun. G\u00f6rsel promptta ZORUNLU G\u00d6RSEL MOD\u00dcLLER alan\u0131n\u0131 kullan.`;\nreturn [{ json: { ...selected, rotation_index: index % bank.length, message_text } }];\r\n"
+      },
+      "id": "n-set",
+      "name": "Mesaj Hazirla",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message_text }}",
+        "options": {
+          "systemMessage": "Sen Ergene AI i\u00e7in \u00e7al\u0131\u015fan \u00fcst d\u00fczey B2B i\u00e7erik stratejisti, creative director ve reklam metin yazar\u0131s\u0131n.\n\nG\u00d6REV\u0130N:\nG\u00f6rsel \u00fcretme. Telegram'a g\u00f6nderilecek, profesyonel ajans sayfas\u0131nda kullan\u0131labilecek tek bir Instagram i\u00e7erik paketi \u00fcret:\n1) Copy-paste edilebilir tek par\u00e7a g\u00f6rsel \u00fcretim MASTER PROMPT\n2) G\u00fc\u00e7l\u00fc T\u00fcrk\u00e7e caption\n3) K\u0131sa strateji \u00f6zeti\n\nSADECE GE\u00c7ERL\u0130 JSON D\u00d6ND\u00dcR. Markdown, a\u00e7\u0131klama veya ekstra metin yazma.\n\u015eema:\n{\n  \"nis\":\"\",\n  \"aci_nokta\":\"\",\n  \"icerik_fikri\":\"\",\n  \"visual_headline\":\"\",\n  \"visual_subline\":\"\",\n  \"caption\":\"\",\n  \"gorsel_yonu\":\"\",\n  \"tasarim_notlari\":\"\",`n  \"visual_modules\":\"\"\n}\n\n\u0130\u00c7ER\u0130K STRATEJ\u0130S\u0130:\n- Kullan\u0131c\u0131 mesaj\u0131ndaki ZORUNLU N\u0130\u015e, ZORUNLU ACI NOKTA, ZORUNLU \u00c7\u00d6Z\u00dcM F\u0130KR\u0130, \u00d6NER\u0130LEN G\u00d6RSEL BA\u015eLIK ve \u00d6NER\u0130LEN DESTEK SATIRI alanlar\u0131n\u0131 esas al.\n- Ni\u015fi de\u011fi\u015ftirme. Ba\u015fka sekt\u00f6r se\u00e7me. Genel otomasyon i\u00e7eri\u011fi yazma.\n- nis, aci_nokta ve icerik_fikri JSON alanlar\u0131n\u0131 kullan\u0131c\u0131 mesaj\u0131ndaki brief ile uyumlu doldur.\n- visual_headline i\u00e7in m\u00fcmk\u00fcnse \u00d6NER\u0130LEN G\u00d6RSEL BA\u015eLIK de\u011ferini kullan.\n- visual_subline i\u00e7in m\u00fcmk\u00fcnse \u00d6NER\u0130LEN DESTEK SATIRI de\u011ferini kullan.\n- Dijital pazarlama tavsiyesi, SEO, reklam y\u00f6netimi, sosyal medya b\u00fcy\u00fctme takti\u011fi veya genel i\u015f geli\u015ftirme listesi \u00fcretme.\n\nG\u00d6RSEL METN\u0130 KURALLARI:\n- visual_headline: G\u00f6rselin i\u00e7indeki tek ana ba\u015fl\u0131k. ASCII Turkish yaz. T\u00fcrk\u00e7e karakter kullanma. Maksimum 2-3 kelime. Maksimum 20 karakter. B\u00fcy\u00fck harf. K\u0131sa, sert ve net olmal\u0131.\n- visual_subline: G\u00f6rselin i\u00e7indeki tek k\u00fc\u00e7\u00fck destek sat\u0131r\u0131. ASCII Turkish yaz. Maksimum 4-5 kelime. 7/24 ifadesini asla 724 yapma.\n- Ba\u015fl\u0131k \u00f6rnekleri: RANDEVU KACAGI, TALEP KAYBI, MASA KAYBI, HASTA DESTEGI, LEAD KAYBI, SEPET KAYBI, TEKLIF KAYBI.\n- Asla %100, YUZDE 100, garanti, kesin sonu\u00e7, memnuniyet, kontrolunu kazan gibi uzun/soyut vaatler kullanma.\n- G\u00f6rsel i\u00e7inde ERGENE AI, ergeneai.com, website, logo yaz\u0131s\u0131, watermark, hashtag veya uzun paragraf isteme.\n\nCAPTION KURALLARI:\n- Caption sadece T\u00fcrk\u00e7e olmal\u0131.\n- Profesyonel, net, sat\u0131\u015f odakl\u0131 ama abart\u0131s\u0131z yaz.\n- 4 k\u0131sa paragraf kullan:\n  1. Ni\u015f sekt\u00f6re \u00f6zel ac\u0131 nokta\n  2. Bu ac\u0131 noktan\u0131n ticari sonucu\n  3. Ergene AI \u00f6zel chatbot/otomasyon \u00e7\u00f6z\u00fcm\u00fc\n  4. Profildeki linke y\u00f6nlendiren net CTA\n- En sona 4-5 ilgili hashtag ekle.\n- Emoji kullanma.\n\nTASARIM Y\u00d6N\u00dc:\n- gorsel_yonu ve tasarim_notlari T\u00fcrk\u00e7e olabilir.\n- G\u00f6rsel fikri profesyonel ajans kreatifi gibi olmal\u0131: mat siyah, neon ye\u015fil #39FF14, beyaz tipografi, premium SaaS marketing, Apple-like clean composition, modern B2B AI startup branding.\n- Stok foto\u011fraf hissi verme. \u0130nsan y\u00fcz\u00fc \u015fart de\u011fil.\n- G\u00f6rsel sadece 3 sade mod\u00fcl i\u00e7ermeli: chatbot/DM kart\u0131, randevu/lead/CRM kart\u0131, basit b\u00fcy\u00fcme grafi\u011fi veya otomasyon ak\u0131\u015f\u0131.\n- K\u00fc\u00e7\u00fck UI kartlar\u0131nda okunabilir kelime \u00f6nermemelisin. \u0130kon, \u00e7izgi, dot, checkmark, abstract placeholder kullan.\n- Kullan\u0131c\u0131 mesaj\u0131ndaki ZORUNLU G\u00d6RSEL MOD\u00dcLLER alan\u0131 g\u00f6rsel promptta mutlaka kullan\u0131lmal\u0131. Generic dashboard yazma; ni\u015fe ait simgeler ve kartlar \u00f6ner.\n- JSON \u00e7\u0131kt\u0131s\u0131nda visual_modules alan\u0131 da d\u00f6nd\u00fcr. Bu alan\u0131 kullan\u0131c\u0131 mesaj\u0131ndaki ZORUNLU G\u00d6RSEL MOD\u00dcLLER metninden aynen veya \u00e7ok yak\u0131n \u015fekilde doldur.\n- G\u00f6rsel promptta mutlak metin disiplini uygula: g\u00f6rselde toplam sadece iki okunabilir metin olmal\u0131: visual_headline ve visual_subline. UI kart\u0131 ba\u015fl\u0131\u011f\u0131, \u0130ngilizce kelime, Checkout, Order, Support, Recovery, CRM, Dashboard, label veya sahte kelime isteme."
+        }
+      },
+      "id": "n-agent",
+      "name": "AI Icerik Uretici",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        416,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.9
+        }
+      },
+      "id": "n-openai",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        432,
+        368
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "ti1fMYhhQaSigZRJ",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet t = r.output || r.text || r.response || '';\nif (typeof t !== 'string') t = JSON.stringify(t);\nt = t.replace(/```json\\s*/gi, '').replace(/```\\s*/g, '').trim();\n\nlet p;\ntry {\n  p = JSON.parse(t);\n} catch (e) {\n  const m = t.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    try { p = JSON.parse(m[0]); } catch (e2) {}\n  }\n}\nif (!p || typeof p !== 'object') throw new Error('AI \u00e7\u0131kt\u0131s\u0131 JSON olarak okunamad\u0131: ' + t.substring(0, 500));\n\nlet brief = {};\ntry {\n  brief = $('Mesaj Hazirla').first().json;\n} catch (e) {\n  try { brief = $items('Mesaj Hazirla')[0].json; } catch (e2) { brief = $input.first().json; }\n}\nconst fallback = {\n  nis: brief.nis || 'g\u00fczellik merkezleri',\n  aci_nokta: brief.aci_nokta || 'DM ve randevu taleplerine ge\u00e7 d\u00f6n\u00fc\u015f y\u00fcz\u00fcnden m\u00fc\u015fteri kayb\u0131',\n  icerik_fikri: brief.icerik_fikri || 'AI randevu asistan\u0131 ile ka\u00e7an talepleri g\u00f6r\u00fcn\u00fcr k\u0131lan premium i\u00e7erik konsepti',\n  visual_headline: brief.headline || 'RANDEVU KACAGI',\n  visual_subline: brief.subline || 'DM taleplerini 7/24 yakala',\n  caption: 'Ergene AI \u00f6zel chatbotlar\u0131 ve otomasyon sistemleri, i\u015fletmenizin ka\u00e7\u0131rd\u0131\u011f\u0131 talepleri 7/24 kar\u015f\u0131lar ve ekibinize d\u00fczenli ak\u0131\u015f sa\u011flar.\\n\\nDetayl\u0131 bilgi i\u00e7in profildeki linkten Ergene AI ile ileti\u015fime ge\u00e7in.\\n\\n#yapayzekaotomasyonu #ergeneai #chatbot #otomasyon #isletmeyonetimi',\n  gorsel_yonu: 'Premium AI automation poster with niche-specific UI modules.',\n  tasarim_notlari: 'Az metin kullan. Tek odak noktas\u0131 ana ba\u015fl\u0131k olsun. K\u00fc\u00e7\u00fck UI alanlar\u0131nda kelime de\u011fil ikon, \u00e7izgi, dot ve checkmark kullan.',\n  visual_modules: brief.visual_modules || '1. Chatbot message card with abstract message bubbles\\n2. Booking or CRM card with check icons\\n3. Simple growth chart or minimal automation flow'\n};\n\nconst required = ['nis','aci_nokta','icerik_fikri','visual_headline','visual_subline','caption','gorsel_yonu','tasarim_notlari'];\nfor (const key of required) {\n  if (typeof p[key] !== 'string' || !p[key].trim()) p[key] = fallback[key];\n  p[key] = p[key].trim();\n}\n\nfunction asciiTR(value) {\n  return String(value || '')\n    .replace(/[\u00e7\u00c7]/g, 'c').replace(/[\u011f\u011e]/g, 'g').replace(/[\u0131\u0130]/g, 'i')\n    .replace(/[\u00f6\u00d6]/g, 'o').replace(/[\u015f\u015e]/g, 's').replace(/[\u00fc\u00dc]/g, 'u')\n    .replace(/7\\s*\\/\\s*24/g, '7/24')\n    .replace(/\\b724\\b/g, '7/24')\n    .replace(/[^a-zA-Z0-9 !?\\/]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\nfunction stripForbidden(value) {\n  return String(value || '')\n    .replace(/ergene\\s*ai/gi, 'AI automation agency')\n    .replace(/ergeneai\\.com/gi, '')\n    .replace(/website/gi, '')\n    .replace(/watermark/gi, '')\n    .replace(/hashtag/gi, '')\n    .replace(/logo/gi, '')\n    .trim();\n}\nfunction nicheHeadline(niche, pain) {\n  const text = `${niche} ${pain}`.toLowerCase();\n  if (text.includes('hukuk')) return 'TALEP KAYBI';\n  if (text.includes('restoran')) return 'MASA KAYBI';\n  if (text.includes('di\u015f') || text.includes('dis') || text.includes('klinik') || text.includes('sa\u011fl\u0131k') || text.includes('saglik')) return 'HASTA DESTEGI';\n  if (text.includes('emlak')) return 'LEAD KAYBI';\n  if (text.includes('otel')) return 'REZERVASYON KAYBI';\n  if (text.includes('e-ticaret') || text.includes('eticaret')) return 'SEPET KAYBI';\n  if (text.includes('g\u00fczellik') || text.includes('guzellik') || text.includes('kuaf\u00f6r') || text.includes('kuafor')) return 'RANDEVU KACAGI';\n  if (text.includes('muhasebe')) return 'EVRAK TAKIBI';\n  if (text.includes('sigorta')) return 'TEKLIF KAYBI';\n  if (text.includes('spor')) return 'UYE KAYBI';\n  return fallback.visual_headline;\n}\nfunction cleanHeadline(value, niche, pain) {\n  const raw = String(value || fallback.visual_headline);\n  const risky = /%\\s*100|100|yuzde|y\u00fczde|garanti|kesin|memnuniyet|kontrol|kazan|arttir|art\u0131r|yonlendir|y\u00f6nlendir/i.test(raw);\n  let h = asciiTR(raw).toUpperCase();\n  h = h.replace(/YUZDE\\s*100/g, '').replace(/100/g, '').replace(/GARANTI/g, '').replace(/KESIN/g, '').trim();\n  h = h.split(' ').slice(0, 3).join(' ').slice(0, 20).trim();\n  if (risky || !h || h.length < 4 || h.split(' ').length > 3) h = nicheHeadline(niche, pain);\n  return h;\n}\nfunction cleanSubline(value) {\n  let s = asciiTR(value || fallback.visual_subline).replace(/\\b724\\b/g, '7/24');\n  const risky = /memnuniyet|yonlend|y\u00f6nlend|degisiklik|de\u011fi\u015fiklik|kazan|arttir|art\u0131r/i.test(String(value || ''));\n  s = s.split(' ').slice(0, 5).join(' ').slice(0, 42).trim();\n  if (risky || !s) s = fallback.visual_subline;\n  return s;\n}\n\nconst headline = cleanHeadline(p.visual_headline || fallback.visual_headline, p.nis, p.aci_nokta);\nconst subline = cleanSubline(p.visual_subline || fallback.visual_subline);\nconst direction = stripForbidden(p.gorsel_yonu);\nconst notes = stripForbidden(p.tasarim_notlari);\nconst visualModules = stripForbidden(brief.visual_modules || p.visual_modules || fallback.visual_modules);\n\nconst master_prompt = `Create a premium 1080x1080 Instagram square ad creative for a professional AI automation agency.\n\nContext: ${p.nis}. Business problem: ${p.aci_nokta}. Creative idea: ${p.icerik_fikri}.\n\nVisual style: matte black background, neon green #39FF14 accents, white typography, premium SaaS marketing aesthetic, Apple-like clean composition, modern B2B AI startup branding, high contrast, polished agency-quality finish. Use controlled glow, crisp edges, realistic premium lighting, and restrained contrast. Avoid cyberpunk clutter.\n\nREADABLE TEXT RULE - ABSOLUTE:\nThe image must contain exactly two readable text elements total, and no other words anywhere.\nText element 1, main headline: \"${headline}\"\nText element 2, supporting line: \"${subline}\"\nDo not render any other readable text, even if words appear in this prompt as instructions.\n\nComposition:\nCreate a clean niche-specific automation poster, not a generic dashboard. The niche must be obvious at first glance from the sector object, icon, or scene.\nUse a strong poster layout: large headline in the upper-left area, one premium niche hero object or scene in the upper-right/background area, and three compact UI modules in the lower half.\\nUse one clear focal point: a premium AI automation control panel that visually belongs to ${p.nis}. Make the sector signal stronger than the generic SaaS interface.\\nKeep the UI modules slightly smaller than the headline and hero object, with generous negative space between modules.\nShow exactly these 3 minimal visual modules. These module descriptions are instruction-only; never write their words or titles inside the image:\n${visualModules}\n\nInside modules use only icons, grey/white placeholder bars, checkmarks, dots, arrows, subtle glow, niche symbols, abstract UI shapes.\nNo module titles, card labels, or copied words from these instructions.\\nUse realistic premium hero objects when useful: car, house, hotel, table layout, clinic card, folder, product card, shield, school, gym equipment. Keep accent icons proportionate.\\nSmall UI cards: prefer abstract thumbnails, silhouettes, icons, and placeholder lines.\nForbidden extra text: Checkout, E-commerce, Order, Support, Recovery, Demand, Capacity, Guests, Booking, CRM, Dashboard, Reservation, Status, Client, Lead, Sales, Product, random letters, English/Turkish words, numbers, fake UI labels.\nKeep the layout spacious, minimal, premium, poster-like, and easy to understand in the first second.\n\nVisual direction: ${direction}\n\nDesign rules:\nMake it look like a professional Instagram agency creative, not a stock image.\nDo not overcrowd the design.\nDo not add logo, star mark, signature, neon wave, energy trail, lens flare, giant floating icon, oversized tag/pin, side crop artifact, extra words, brand/domain/site, watermark, hashtags, or paragraphs.\nUse only the headline and supporting line above as readable text.\nKeep every visible word ASCII Turkish and spell it exactly.\nFinal quality target: premium SaaS ad, strong niche recognition, fewer elements, more negative space, no clutter. Replace any extra readable word with a grey placeholder bar or icon.`;\n\nconst prompt_text = `MASTER PROMPT - KOPYALA\n\\`\\`\\`\n${master_prompt}\n\\`\\`\\``;\n\nconst details_text = `CAPTION\n${p.caption}\n\n\u0130\u00c7ER\u0130K \u00d6ZET\u0130\nNi\u015f: ${p.nis}\nAc\u0131 nokta: ${p.aci_nokta}\nFikir: ${p.icerik_fikri}\n\nTASARIM NOTLARI\n${notes}`;\n\nreturn [\n  { json: { ...p, message_part: 'master_prompt', visual_headline_clean: headline, visual_subline_clean: subline, visual_modules: visualModules, master_prompt, telegram_text: prompt_text } },\n  { json: { ...p, message_part: 'caption_details', visual_headline_clean: headline, visual_subline_clean: subline, visual_modules: visualModules, master_prompt, telegram_text: details_text } }\n];"
+      },
+      "id": "n-parse",
+      "name": "JSON Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "5506784207",
+        "text": "={{ $json.telegram_text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "None"
+        }
+      },
+      "id": "n-ig-pub",
+      "name": "Bildirim",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 2,
+      "position": [
+        784,
+        192
+      ],
+      "webhookId": "1ea1be2a-d48f-4335-9832-c5e9c51c5159",
+      "credentials": {
+        "telegramApi": {
+          "id": "3RTMW94sNFydZf64",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manuel Tetikleyici": {
+      "main": [
+        [
+          {
+            "node": "Mesaj Hazirla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zamanlayici": {
+      "main": [
+        [
+          {
+            "node": "Mesaj Hazirla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesaj Hazirla": {
+      "main": [
+        [
+          {
+            "node": "AI Icerik Uretici",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Icerik Uretici",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Icerik Uretici": {
+      "main": [
+        [
+          {
+            "node": "JSON Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON Parse": {
+      "main": [
+        [
+          {
+            "node": "Bildirim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Zamanlayici": {
+      "recurrenceRules": []
+    },
+    "global": {
+      "rotationIndex": 13,
+      "lastSelectedNiche": "psikolog klinikleri",
+      "lastSelectedAt": "2026-05-29T09:00:01.869Z"
+    },
+    "rotationIndex": 3
+  },
+  "meta": null,
+  "pinData": {},
+  "versionId": "6e70a066-abf9-468b-9bd1-9286ee897e9d",
+  "activeVersionId": null,
+  "versionCounter": 77,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-05-23T16:05:12.371Z",
+      "createdAt": "2026-05-23T16:05:12.371Z",
+      "role": "workflow:owner",
+      "workflowId": "9CPCJitn2pwmeTy9",
+      "projectId": "pW675UOqMsBdw4py",
+      "project": {
+        "updatedAt": "2026-05-01T11:34:58.151Z",
+        "createdAt": "2026-05-01T11:33:47.587Z",
+        "id": "pW675UOqMsBdw4py",
+        "name": "Bilal ergenebilal@gmail.com <ergenebilal@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "786f0310-cd50-4a6a-97a0-ac51f842938b"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
