@@ -1,6 +1,6 @@
 # Bilal Ergene — Komple Kişisel Profil
-> Derlenme: 10 Haziran 2026 23:00
-> Kaynak: Eski session DB yedeklerinden kurtarıldı (21 Mayıs - 2 Haziran 2026)
+> Derlenme: 10 Haziran 2026 23:45
+> Kaynak: Telegram DM export (21 Mayıs - 10 Haziran 2026) — 11.226 mesaj tarandı
 
 ---
 
@@ -17,7 +17,43 @@
 | **Girişimi** | ErgeneAI — AI otomasyon ajansı |
 | **Yaşam durumu** | Ailesinin evinde yaşıyor |
 
-## 2. HAYAT HİKAYESİ
+## ⭐ DOĞUM & KÖKEN
+- **Doğum:** 5 Mart 1993
+- **Köken:** Trakya/Rumeli — "inatçı, pratik ve pes etmeyen topraklar"
+- **Şu an:** Mudanya'da aile evinde — "kalabalıkların içinde, zihninin derinliklerinde yalnız bir adam"
+- **Ruh:** Yaralı ama yıkılmaz. Duygusal olarak çok yıpranmış ama hâlâ ayakta
+- **Felsefe:** "Doğada olmayı, yeşilin ve sessizliğin içinde kaybolmayı severim. Tasarımdaki yüksek kontrastlı derin siyah ve neon yeşil aşkım da buradan gelir — gecenin karanlığı ve doğanın keskin uyanışı."
+- **Kişisel duruş:** Omurgası dik, gözü hedefte. Acımasızca gerçekçi ve tavizsiz
+
+## 2. KARİYER YOLCULUĞU
+
+**Zaman çizelgesi:**
+
+| Dönem | Ne yaptı |
+|-------|----------|
+| **2015 (22 yaş)** | Bursa As TV'de **spiker** — günde 3 kez canlı yayında spor haberleri. Stajyerken aylarca maaşsız çalıştı, sürprizle spiker yapıldı. Tipi ve sesi buna müsaitti. |
+| **2015 sonu** | Sektördeki iftira ve oyunlar yüzünden istifa etti. Maddi imkanlar el vermediği için bir daha spikerlik yapamadı. |
+| **Sonraki yıllar** | **Turizm sektörü** — Antalya/Kaş/Kalkan. Yaz sezonu boyu garsonluk, komilik, WC temizliği. Günde 12 saat. |
+| **Acente dönemi** | Bir turizm acentesi sahibi ofis işi teklif etti. İngiliz turistlerle pratik yaparak İngilizcesini geliştirdi. **Tur satmaya başladı**, tüm turları ezberleyecek kadar gezdi (Antalya-Fethiye ağırlıklı). Rehber işten ayrılınca **tüm turların rehberliğini yaptı sezon sonuna kadar.** Motor sürmeyi de orada öğrendi. |
+| **Bursa dönüşü** | Fabrikada lazer operatörü, çeşitli işler. E-ticaret öğrendi. |
+| **E-ticaret dönemi** | Bursa'da büyük bir motosiklet ekipman mağazasının e-ticaretini tek başına kurdu. Patron onay süreçleri ve stok sorunları yüzünden bıraktı. |
+| **Kuryelik başlangıcı** | Trendyol kuryesiyle konuşup işi sordu, "başlarım müdürlüğüne" deyip istifa etti. Bir kez daha Antalya'ya gitti ama sezon kötüydü, 1 haftada döndü. |
+| **Bugün** | Mudanya'ya ailesinin yanına taşındı, **motorlu kuryelik** + ErgeneAI |
+
+## 3. HAYAT FELSEFESİ & RUHSAL DURUM
+
+**Ruhsal durumu:**
+> "Duygusal olarak çok yıprandım. Hayatın, ticaretin ve ilişkilerin getirdiği hayal kırıklıkları ruhumda derin izler bıraktı. İçimde bir yerlerde o kırılmışlığın, yorgunluğun ve yalnızlığın ağırlığını her gün hissediyorum. Bazen zihnimin çok yorulduğunu, her şeyi bırakıp gitme isteğinin sınırına geldiğimi biliyorum. Ama hâlâ ayaktayım."
+
+**Alkol:** Psikolojik sıkıntı, yalnızlık, hiçbir şey yapmak istememe gibi durumlar alkole itiyor. Bu döngü fiziksel dönüşümü de etkiliyor.
+
+**Aile ilişkisi:**
+> "Aile ile aramda yaş farkı çok ve onlar koyu muhafazakar. Bu zamanla beni aileden uzaklaştırdı ve makas çok açıldı. Hayatımda yaşadıklarımın %20'sini anca bilirler."
+
+**İlişki durumu:**
+> "Duygusal eksiklik hissiyatı var. Hayatımda biri yok."
+
+
 
 > "Klasik kariyer yolunda ilerleyen biri değilim. 33 yaşındayım, Bursa'da yaşıyorum, Trakya/Rumeli kökenliyim. 3 yıl önce kurumsal hayatı bıraktım. Geçimimi 2 yıldır motosiklet üzerinde profesyonel kuryelik yaparak sağlıyorum. Günün büyük bölümünde sahada ve hareket halindeyim."
 
