@@ -1,0 +1,9 @@
+{"timestamp": "2026-06-10T22:36:20.455128+03:00", "olay_tipi": "sistem", "ozet": "Super Jeff ameliyatı başladı — Faz 1: Hafıza katmanı", "sonuc": "9/9 test PASS", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:36:20.455501+03:00", "olay_tipi": "sistem", "ozet": "Episodic + Semantic memory kuruldu", "sonuc": "çalışıyor", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:37:04.236034+03:00", "olay_tipi": "sistem", "ozet": "Super Jeff Faz 1 (Hafıza) + Faz 5 (Bilal profili) tamamlandı", "sonuc": "çalışıyor", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:41:18.670179+03:00", "olay_tipi": "sistem", "ozet": "Faz2 Karar: Multi-kriter+MCTS+PostMortem", "sonuc": "calisiyor", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:41:18.670516+03:00", "olay_tipi": "sistem", "ozet": "Faz3 Duygu: 8 duygulu mood engine", "sonuc": "calisiyor", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:41:18.670628+03:00", "olay_tipi": "sistem", "ozet": "Faz4 Otonom: Aha moments+pattern transfer", "sonuc": "3 pattern tohumlandi", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:41:18.670715+03:00", "olay_tipi": "sistem", "ozet": "Faz6 SelfHealing: AutoTuner+SelfReset", "sonuc": "checkpoint alindi", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:41:18.670796+03:00", "olay_tipi": "sistem", "ozet": "Faz7 Kritik: RealityCheck+source audit", "sonuc": "calisiyor", "duygu_durumu": "nötr", "ilgili_skill": ""}
+{"timestamp": "2026-06-10T22:41:18.670876+03:00", "olay_tipi": "sistem", "ozet": "Super Jeff 7 faz tamamlandi", "sonuc": "TUM FAZLAR AYAKTA", "duygu_durumu": "nötr", "ilgili_skill": ""}

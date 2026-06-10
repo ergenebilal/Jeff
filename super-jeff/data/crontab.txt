@@ -1,0 +1,14 @@
+0 8 * * * /opt/hermes/venv/bin/python /home/hermes/hermes_data/daily_wake.py --mode sabah >> /home/hermes/logs/daily_wake.log 2>&1 # HERMES_WAKE_SABAH
+0 13 * * * /opt/hermes/venv/bin/python /home/hermes/hermes_data/daily_wake.py --mode ogle >> /home/hermes/logs/daily_wake.log 2>&1 # HERMES_WAKE_OGLE
+30 21 * * * /opt/hermes/venv/bin/python /home/hermes/hermes_data/daily_wake.py --mode aksam >> /home/hermes/logs/daily_wake.log 2>&1 # HERMES_WAKE_AKSAM
+0 9 * * 1 /opt/hermes/venv/bin/python /home/hermes/hermes_data/daily_wake.py --mode haftalik >> /home/hermes/logs/daily_wake.log 2>&1 # HERMES_WAKE_HAFTALIK
+*/15 * * * * /opt/hermes/venv/bin/python /home/hermes/hermes_data/hermes_watchdog.py >> /home/hermes/logs/watchdog.log 2>&1 # HERMES_WATCHDOG
+0 9 * * 1 /opt/hermes/venv/bin/python /home/hermes/hermes_data/hermes_self_evolve.py >> /home/hermes/logs/self_evolve.log 2>&1
+0 * * * * /opt/hermes/venv/bin/python /home/hermes/hermes_data/hermes_metrics.py >> /home/hermes/logs/hermes_metrics.log 2>&1
+@reboot sleep 10 && /home/hermes/.local/bin/start-evolution.sh
+0 */2 * * * cd /opt/hermes && /opt/hermes/venv/bin/python -c "from brain.clock_keeper import run_clock_keeper; from brain.learning import sync_all_to_mnemosyne; print(run_clock_keeper()); print(sync_all_to_mnemosyne())" >> /home/hermes/logs/learning_sync.log 2>&1 # HERMES_LEARNING_SYNC
+7 */2 * * * cd /opt/hermes && /opt/hermes/venv/bin/python -c "from brain.reporter import run_report_cycle; print(run_report_cycle())" >> /home/hermes/logs/reporter.log 2>&1 # HERMES_REPORTER
+@reboot sleep 10 && /home/hermes/.local/bin/start-evolution.sh
+*/3 * * * * /home/hermes/.hermes/scripts/port80_check.sh >/dev/null 2>&1
+*/5 * * * * /home/hermes/.hermes/scripts/gateway-healthcheck.sh # HERMES_GATEWAY_HC
+*/5 * * * * /home/hermes/dograh/dograh-watchdog.sh

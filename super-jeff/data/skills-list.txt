@@ -1,0 +1,112 @@
+--- gorsel-pazarlama ---
+---
+name: gorsel-pazarlama
+version: 1.1.0
+--- ikinci-beyin-workflow ---
+---
+name: ikinci-beyin-workflow
+description: "Bilal'in calisma sistemi + EAAW v1.1: Ana Hermes (strateji) + 4 ajan (Izci/Hafiza/Gelistirici/Analist) + Codex/Claude Code"
+--- surekli-ogrenme ---
+---
+name: surekli-ogrenme
+version: 1.1.0
+--- gsd ---
+---
+name: gsd
+description: "Get-Shit-Done Redux framework — structured project execution, planning, debugging, and delivery"
+--- dijital-urun-gelistirme ---
+---
+name: dijital-urun-gelistirme
+version: 2.1.0
+--- gemini-vision ---
+---
+name: gemini-vision
+version: 3.0.0
+--- raporlama-stili ---
+---
+name: raporlama-stili
+description: Bilal için rapor formatı — sade, 3-5 madde, önce özet, kanıt odaklı
+--- quality-control ---
+---
+name: quality-control
+version: 1.4
+--- dograh-ai-santral ---
+---
+name: dograh-ai-santral
+version: 1.0.0
+--- kodlama-protokolu ---
+---
+name: kodlama-protokolu
+description: Kıdemli Yazılım Mimarı (L6) kodlama protokolü — test önce, patch only, type hint, sequential-thinking, lean & mean
+--- senior-developer ---
+---
+name: senior-developer
+version: 1.0.0
+--- jet-kurallar ---
+---
+name: jet-kurallar
+version: 2.7.0
+--- role-matcher ---
+---
+name: role-matcher
+version: 1.0.0
+--- self-improvement ---
+---
+name: self-improvement
+version: 2.3.1
+--- coo-strategist ---
+---
+name: coo-strategist
+version: 2.0.0
+--- ergeneai-visual-design ---
+---
+name: ergeneai-visual-design
+version: 1.1.0
+--- gumroad ---
+---
+name: gumroad
+version: 1.1.0
+--- dograh-server ---
+---
+name: dograh-server
+version: 1.0.0
+--- token-budget-guard ---
+---
+name: token-budget-guard
+version: 3.0.0
+--- n8n-ops ---
+---
+name: n8n-ops
+version: 1.0.0
+--- mcp-servers ---
+---
+name: mcp-servers
+version: 1.0.0
+--- social-media-automation ---
+---
+name: social-media-automation
+version: 1.0.0
+--- instagram-content-automation ---
+---
+name: instagram-content-automation
+version: 1.0.0
+--- reddit-insights ---
+---
+name: reddit-insights
+version: 2.0.0
+--- hermes-autonomy-framework ---
+---
+name: hermes-autonomy-framework
+version: 2.4.0
+--- autonomy-manifesto ---
+---
+name: autonomy-manifesto
+version: 1.0.0
+--- hermes-ortam-notlari ---
+---
+name: hermes-ortam-notlari
+version: 3.0.0
+--- jeff-manifesto ---
+---
+name: jeff-manifesto
+version: 1.0.0

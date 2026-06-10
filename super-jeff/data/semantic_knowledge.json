@@ -1,0 +1,65 @@
+{
+  "kavramlar": [
+    {
+      "kavram": "Episodic Memory",
+      "aciklama": "Zamansal olay kaydı, JSONL formatında",
+      "kategori": "sistem",
+      "kaynak": "deneyim",
+      "onem": 8,
+      "olusturulma": "2026-06-10T22:36:20.456019+03:00",
+      "guncellenme": "2026-06-10T22:36:20.456029+03:00",
+      "ziyaret_sayisi": 0
+    },
+    {
+      "kavram": "Semantic Memory",
+      "aciklama": "Kavram ve bilgi deposu, JSON formatında, unutma eğrisi destekli",
+      "kategori": "sistem",
+      "kaynak": "deneyim",
+      "onem": 8,
+      "olusturulma": "2026-06-10T22:36:20.456291+03:00",
+      "guncellenme": "2026-06-10T22:36:20.456296+03:00",
+      "ziyaret_sayisi": 0
+    },
+    {
+      "kavram": "Brain v3",
+      "aciklama": "3 skill + state.json + 2 cron. Faz bilinci, karar journal, Mnemosyne sync",
+      "kategori": "sistem",
+      "kaynak": "deneyim",
+      "onem": 9,
+      "olusturulma": "2026-06-10T22:36:20.456632+03:00",
+      "guncellenme": "2026-06-10T22:36:20.456638+03:00",
+      "ziyaret_sayisi": 0
+    },
+    {
+      "kavram": "Senior Developer",
+      "aciklama": "Kodlama agent rolü — TDD, patch-only, type hint, 3-strike forensics",
+      "kategori": "rol",
+      "kaynak": "deneyim",
+      "onem": 8,
+      "olusturulma": "2026-06-10T22:36:20.457028+03:00",
+      "guncellenme": "2026-06-10T22:36:20.457035+03:00",
+      "ziyaret_sayisi": 0
+    },
+    {
+      "kavram": "Role Matcher",
+      "aciklama": "Kullanıcı komutundan otomatik rol seçen skill",
+      "kategori": "sistem",
+      "kaynak": "deneyim",
+      "onem": 7,
+      "olusturulma": "2026-06-10T22:36:20.457337+03:00",
+      "guncellenme": "2026-06-10T22:36:20.457344+03:00",
+      "ziyaret_sayisi": 0
+    },
+    {
+      "kavram": "Bilal Profili",
+      "aciklama": "Duygu/enerji/stres analizi, tekrar takibi, yanıt önerisi",
+      "kategori": "sistem",
+      "kaynak": "deneyim",
+      "onem": 9,
+      "olusturulma": "2026-06-10T22:37:04.237194+03:00",
+      "guncellenme": "2026-06-10T22:37:04.237218+03:00",
+      "ziyaret_sayisi": 0
+    }
+  ],
+  "son_guncelleme": "2026-06-10T22:37:04.237225+03:00"
+}

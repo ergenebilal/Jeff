@@ -1,0 +1,29 @@
+[
+  {
+    "timestamp": "2026-06-10T22:39:10.769940+03:00",
+    "problem": "Port çakışması ve MCP bağlantı sorunları",
+    "cozum": "Watchdog ile restart",
+    "pattern": "Service health check + auto-restart",
+    "alternatif_kullanim": "Dograh, n8n ve diğer servisler için uygulanabilir",
+    "kategori": "devops",
+    "kullanildi": false
+  },
+  {
+    "timestamp": "2026-06-10T22:39:10.770607+03:00",
+    "problem": "Type hint ve test eksikliği",
+    "cozum": "Senior Developer review ile tespit",
+    "pattern": "Önce test yaz + tip imzası ekle",
+    "alternatif_kullanim": "Her yeni script teftişinde kullanılabilir",
+    "kategori": "kalite",
+    "kullanildi": false
+  },
+  {
+    "timestamp": "2026-06-10T22:39:10.771326+03:00",
+    "problem": "Karmaşık sistem inşasında rol kullanmamak",
+    "cozum": "role-matcher yaratıldı ama kullanılmadı",
+    "pattern": "Her yeni işe başlamadan önce uygun rolü yükle",
+    "alternatif_kullanim": "Super Jeff için her fazda rol-matcher kullanılacak",
+    "kategori": "sistem",
+    "kullanildi": false
+  }
+]

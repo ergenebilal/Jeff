@@ -1,0 +1,26 @@
+{
+  "son_durum": {
+    "tarih": "2026-06-10T22:37:04.242715+03:00",
+    "analiz": {
+      "uzunluk": 40,
+      "kelime_sayisi": 7,
+      "enerji": "düşük",
+      "stres": "düşük",
+      "ruh_hali": "nötr",
+      "stres_sayisi": 0,
+      "kufur_sayisi": 0
+    },
+    "kaynak": "telegram"
+  },
+  "tekrarlar": {},
+  "enerji_gecmisi": [
+    {
+      "tarih": "2026-06-10T22:37:04.242736+03:00",
+      "enerji": "düşük",
+      "stres": "düşük",
+      "ruh_hali": "nötr"
+    }
+  ],
+  "tercihler": {},
+  "stres_esigi": 0.5
+}
