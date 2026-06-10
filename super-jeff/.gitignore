@@ -3,3 +3,13 @@ __pycache__/
 .env
 *.zip
 *.tar.gz
+
+# Hassas yapılandırma (API key'ler vs)
+hermes-config.yaml
+crontab-current.txt
+USER.md
+MEMORY.md
+brain-state.json
+
+# Template dosyasını dahil et (güvenli, redacted)
+!hermes-config.template.yaml
