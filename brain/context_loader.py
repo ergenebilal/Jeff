@@ -1,6 +1,7 @@
 """Conversation-start context loader for Hermes."""
 
 from .clock_keeper import TimeSyncGuard, utc_now
+from .context_manager import get_active_topic
 from .learning import get_lessons_summary
 
 
@@ -41,6 +42,19 @@ def get_relevant_context(topic: str = "") -> str:
         persona_line = build_persona_context_line()
         if persona_line:
             parts.append("👤 " + persona_line)
+    except Exception:
+        pass
+
+    try:
+        active_topic = get_active_topic()
+        if active_topic:
+            remaining = active_topic.get("kalan_zaman")
+            remaining_text = f"{remaining} dk" if remaining is not None else "unknown"
+            parts.append(
+                "🗂️ Aktif bağlam: "
+                f"#{active_topic.get('id')} {active_topic.get('content')} "
+                f"({active_topic.get('type')}, kalan {remaining_text})"
+            )
     except Exception:
         pass
 

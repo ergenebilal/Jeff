@@ -26,6 +26,7 @@ from .learning import (
 from .clock_keeper import TimeSyncGuard, run_clock_keeper
 from .baseline import collect_baseline_snapshot, summarize_baseline
 from .context_loader import get_relevant_context
+from .context_manager import close_topic, get_active_topic, list_topics, new_topic, recall_topic
 from .legacy_memory import import_legacy_memory
 from .mood import detect_tone, format_by_tone, get_style_guide
 from .advisors import assess_proposal, format_assessment
@@ -64,6 +65,11 @@ __all__ = [
     "collect_baseline_snapshot",
     "summarize_baseline",
     "get_relevant_context",
+    "new_topic",
+    "close_topic",
+    "list_topics",
+    "recall_topic",
+    "get_active_topic",
     "import_legacy_memory",
     "detect_tone",
     "get_style_guide",

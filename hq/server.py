@@ -32,6 +32,14 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
             self._json_response(self._build_decisions())
         elif parsed.path == "/api/status":
             self._json_response(self._build_full_status())
+        elif parsed.path == "/api/context/active":
+            self._json_response(self._build_context_active())
+        elif parsed.path == "/api/baseline/status":
+            self._json_response(self._build_baseline())
+        elif parsed.path == "/api/persona/status":
+            self._json_response(self._build_persona_status())
+        elif parsed.path == "/api/n8n/health":
+            self._json_response(self._build_n8n_health())
         elif parsed.path == "/api/command-history":
             self._json_response({"commands": self._command_history[-10:]})
         elif parsed.path == "/api/dashboard/runs":
@@ -69,6 +77,12 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
             self._json_response(payload, status)
         elif parsed.path == "/api/token-limit":
             payload, status = _handle_token_limit(data)
+            self._json_response(payload, status)
+        elif parsed.path == "/api/context/close":
+            payload, status = self._handle_context_close(data)
+            self._json_response(payload, status)
+        elif parsed.path == "/api/n8n/write_enable":
+            payload, status = self._handle_n8n_write_enable(data)
             self._json_response(payload, status)
         else:
             self._json_response({"error": "not_found"}, 404)
@@ -158,6 +172,42 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
             "decision_count": len(decisions),
             "baseline": baseline,
         }
+
+    @staticmethod
+    def _build_context_active() -> dict:
+        try:
+            from brain.context_manager import get_active_topic, list_topics
+
+            return {
+                "active_topic": get_active_topic(),
+                "topics": list_topics(active_only=True),
+                "recent_topics": list_topics(active_only=False)[-5:],
+            }
+        except Exception:
+            return {"error": "context data unavailable"}
+
+    @staticmethod
+    def _build_persona_status() -> dict:
+        try:
+            from brain.persona import build_persona_context_line, build_persona_identity_block, load_persona_profile
+
+            profile = load_persona_profile()
+            return {
+                "profile": profile,
+                "identity_block": build_persona_identity_block(profile=profile),
+                "context_line": build_persona_context_line(profile=profile),
+            }
+        except Exception:
+            return {"error": "persona data unavailable"}
+
+    @staticmethod
+    def _build_n8n_health() -> dict:
+        try:
+            from brain.n8n_gate import health
+
+            return health()
+        except Exception:
+            return {"error": "n8n gate unavailable"}
 
     @staticmethod
     def _build_dashboard_runs() -> dict:
@@ -279,6 +329,42 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         return {"alarms": alarms[:10], "total": len(alarms)}
+
+    def _handle_context_close(self, data: dict) -> tuple[dict, int]:
+        try:
+            from brain.context_manager import close_topic, list_topics
+
+            topic_id = data.get("topic_id")
+            if data.get("close_all"):
+                closed = []
+                while True:
+                    active = list_topics(active_only=True)
+                    if not active:
+                        break
+                    item = close_topic(active[-1].get("id"))
+                    if item is None:
+                        break
+                    closed.append(item)
+                return {"closed": closed, "remaining": list_topics(active_only=True)}, 200
+            if topic_id is None:
+                topic_id = "son konu"
+            closed = close_topic(topic_id)
+            if closed is None:
+                return {"error": "topic_not_found"}, 404
+            return {"closed": closed, "remaining": list_topics(active_only=True)}, 200
+        except Exception as exc:
+            return {"error": str(exc)}, 500
+
+    def _handle_n8n_write_enable(self, data: dict) -> tuple[dict, int]:
+        try:
+            from brain.n8n_gate import enable_write
+
+            minutes = data.get("minutes", 60)
+            reason = data.get("reason", "manual")
+            health = enable_write(minutes=minutes, reason=reason, actor="hq")
+            return health, 200
+        except Exception as exc:
+            return {"error": str(exc)}, 500
 
     @staticmethod
     def _build_baseline() -> dict:

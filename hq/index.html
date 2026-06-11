@@ -42,6 +42,7 @@ button{background:transparent;color:var(--accent);border:1px solid var(--accent)
 <div data-tab="tab-runs">Run Metrikleri</div>
 <div data-tab="tab-skills">Skill Dagilimi</div>
 <div data-tab="tab-cron">Cron Isleri</div>
+<div data-tab="tab-context">Baglam Yonetimi</div>
 <div data-tab="tab-token">Token Trendleri</div>
 <div data-tab="tab-policy">Politika Kayitlari</div>
 <div data-tab="tab-eval">Eval Skorlari</div>
@@ -86,6 +87,18 @@ button{background:transparent;color:var(--accent);border:1px solid var(--accent)
 <div class="panel"><h2>Job Ozeti</h2><div id="cronSummary"></div></div>
 <div class="panel"><h2>Basarili / Basarisiz</h2><div id="cronStats"></div></div>
 <div class="panel"><h2>Kritik Hatalar</h2><div id="cronFailures"></div></div>
+</div>
+</div>
+
+<div id="tab-context" class="tab">
+<div class="grid3">
+<div class="panel"><h2>Aktif Baglamlar</h2><div id="contextActive"></div></div>
+<div class="panel"><h2>Son 5 Konu</h2><div id="contextRecent"></div></div>
+<div class="panel"><h2>n8n Write Gate</h2><div id="n8nGate"></div><div class="mt-10"><button onclick="enableN8nWrite()">Write 1 Saat Ac</button><button onclick="closeAllTopics()" style="margin-left:8px">Tumunu Kapat</button></div></div>
+</div>
+<div class="grid">
+<div class="panel decisions"><h2>Baglam Detayi</h2><div id="contextDetail"></div></div>
+<div class="panel decisions"><h2>Persona Durumu</h2><div id="personaStatus"></div></div>
 </div>
 </div>
 
@@ -136,6 +149,23 @@ async function loadStatus(){
  const mem=d.health.system?.memory||{};const disk=d.health.system?.disk||{};document.getElementById('system').innerHTML=row('RAM uygun MB',mem.MemAvailable||'?')+row('Disk bos GB',disk.free_gb||'?');
  document.getElementById('decisions').innerHTML=(d.decisions||[]).slice().reverse().map(function(x){return '<div class="decision"><div class="cmd">'+(x.command||'karar')+'</div><div class="small">'+(x.chosen_branch||'pending')+' · '+(x.outcome||'pending')+'</div></div>'}).join('')||'<p>Kayit yok.</p>';
  }catch(e){console.error('status err',e)}
+ try{
+  const r=await fetch('/api/context/active');const d=await r.json();
+  const active=d.active_topic||null;
+  const topics=d.topics||[];
+  const recent=d.recent_topics||[];
+  document.getElementById('contextActive').innerHTML=topics.map(function(t){return row('#'+t.id+' '+t.type,t.content+(t.active?'':' (kapali)'),t.active?'ok':'warn')}).join('')||'<p>Aktif konu yok.</p>';
+  document.getElementById('contextRecent').innerHTML=recent.map(function(t){return row('#'+t.id,t.content,t.active?'ok':'warn')}).join('')||'<p>Konu yok.</p>';
+  document.getElementById('contextDetail').innerHTML=active?('<div class="decision"><div class="cmd">#'+active.id+' '+active.type+'</div><div class="small">'+active.content+'</div><div class="small">kalan: '+(active.kalan_zaman??'?')+' dk · priority '+(active.priority??'?')+'</div></div>'):'<p>Aktif bağlam yok.</p>';
+ }catch(e){}
+ try{
+  const r=await fetch('/api/n8n/health');const d=await r.json();
+  document.getElementById('n8nGate').innerHTML=row('write enabled',d.enabled?'evet':'hayir',d.enabled?'ok':'warn')+row('kalan saniye',String(d.remaining_seconds??'?'))+row('expires_at',d.expires_at||'?');
+ }catch(e){}
+ try{
+  const r=await fetch('/api/persona/status');const d=await r.json();
+  document.getElementById('personaStatus').innerHTML=row('ad',((d.profile&&d.profile.identity&&d.profile.identity.name)||'Jeff'),'ok')+row('teknik ad',((d.profile&&d.profile.identity&&d.profile.identity.official_name)||'Hermes Agent'),'warn')+row('context',d.context_line||'');
+ }catch(e){}
 }
 async function loadDashboard(){
  try{
@@ -181,6 +211,8 @@ async function runCommand(){
  const data=await postJSON('/api/command',{command:input.value.trim()});
  out.textContent=data.error?data.error+'\n'+(data.command||''):'$ '+data.command+'\nexit='+data.exit_code+'\n'+(data.stdout||'')+(data.stderr?'\nERR: '+data.stderr:'');
 }
+async function enableN8nWrite(){if(!confirm('n8n write gate 1 saat acilsin mi?'))return;await postJSON('/api/n8n/write_enable',{minutes:60,reason:'HQ manual'});loadAll()}
+async function closeAllTopics(){if(!confirm('Tum aktif konular kapatilacak. Devam?'))return;await postJSON('/api/context/close',{close_all:true});loadAll()}
 async function postJSON(url,payload){const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});return await res.json()}
 loadAll();
 </script>
