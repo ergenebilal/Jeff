@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hermes HQ</title>
+  <style>
+    body{margin:0;font-family:Inter,system-ui,sans-serif;background:#0a0a0c;color:#e5e7eb}
+    main{padding:24px;max-width:900px;margin:0 auto}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:16px;flex:1;min-width:220px}
+    pre{white-space:pre-wrap;word-break:break-word}
+    button{background:#22c55e;color:#04120a;border:none;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Hermes HQ</h1>
+  <div class="row">
+    <div class="card"><h2>Status</h2><pre id="status">loading...</pre></div>
+    <div class="card"><h2>Health</h2><pre id="health">loading...</pre></div>
+  </div>
+  <p><button onclick="refresh()">Yenile</button></p>
+</main>
+<script>
+async function refresh(){
+  const r = await fetch('/api/status');
+  const j = await r.json();
+  document.getElementById('status').textContent = j.status || 'unknown';
+  document.getElementById('health').textContent = JSON.stringify(j.health || {}, null, 2);
+}
+refresh();
+</script>
+</body>
+</html>
