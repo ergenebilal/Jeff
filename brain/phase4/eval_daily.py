@@ -82,6 +82,24 @@ def _read_agent_runs(hours: int = 24) -> list:
     return runs
 
 
+def _read_agent_runs_unfiltered() -> list:
+    """Read agent_runs without the time filter for explicit custom evals."""
+    if not AGENT_RUNS_LOG.exists():
+        return []
+    runs = []
+    try:
+        for line in AGENT_RUNS_LOG.read_text(encoding="utf-8").strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            if isinstance(entry, dict):
+                runs.append(entry)
+    except (json.JSONDecodeError, OSError):
+        pass
+    return runs
+
+
 def _append_entry(entry: dict):
     """Append a result to the daily eval log."""
     try:
@@ -103,6 +121,8 @@ def run_daily_eval(hours: int = 24, executors: dict = None) -> list:
         List of result dicts with category, score, and metrics.
     """
     runs = _read_agent_runs(hours)
+    if not runs and executors:
+        runs = _read_agent_runs_unfiltered()
     if not runs:
         return _empty_report()
 

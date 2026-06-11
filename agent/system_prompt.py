@@ -59,6 +59,16 @@ def _ra():
     return run_agent
 
 
+def _persona_identity_block() -> str:
+    """Best-effort Jeff persona override block."""
+    try:
+        from brain.persona import build_persona_identity_block
+
+        return build_persona_identity_block()
+    except Exception:
+        return ""
+
+
 def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) -> Dict[str, str]:
     """Assemble the system prompt as three ordered parts.
 
@@ -98,6 +108,10 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if not _soul_loaded:
         # Fallback to hardcoded identity
         stable_parts.append(DEFAULT_AGENT_IDENTITY)
+
+    persona_identity = _persona_identity_block()
+    if persona_identity:
+        stable_parts.append(persona_identity)
 
     # Pointer to the hermes-agent skill + docs for user questions about Hermes itself.
     stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)

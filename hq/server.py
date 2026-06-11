@@ -149,12 +149,14 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
     @staticmethod
     def _build_full_status() -> dict:
         decisions = HQAPIHandler._build_decisions()
+        baseline = HQAPIHandler._build_baseline()
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "health": HQAPIHandler._build_health(),
             "tokens": HQAPIHandler._build_tokens(),
             "decisions": decisions[-5:],
             "decision_count": len(decisions),
+            "baseline": baseline,
         }
 
     @staticmethod
@@ -277,6 +279,15 @@ class HQAPIHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         return {"alarms": alarms[:10], "total": len(alarms)}
+
+    @staticmethod
+    def _build_baseline() -> dict:
+        try:
+            from brain.baseline import collect_baseline_snapshot
+
+            return collect_baseline_snapshot()
+        except Exception:
+            return {"error": "baseline data unavailable"}
 
     def log_message(self, format, *args):
         return

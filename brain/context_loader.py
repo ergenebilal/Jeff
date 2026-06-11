@@ -36,6 +36,15 @@ def get_relevant_context(topic: str = "") -> str:
         pass
 
     try:
+        from .persona import build_persona_context_line
+
+        persona_line = build_persona_context_line()
+        if persona_line:
+            parts.append("👤 " + persona_line)
+    except Exception:
+        pass
+
+    try:
         from .advisors import assess_proposal, format_assessment
 
         assessment = assess_proposal(topic or "conversation_start", topic or "conversation_start")

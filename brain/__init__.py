@@ -24,9 +24,16 @@ from .learning import (
     sync_all_to_mnemosyne,
 )
 from .clock_keeper import TimeSyncGuard, run_clock_keeper
+from .baseline import collect_baseline_snapshot, summarize_baseline
 from .context_loader import get_relevant_context
+from .legacy_memory import import_legacy_memory
 from .mood import detect_tone, format_by_tone, get_style_guide
 from .advisors import assess_proposal, format_assessment
+from .persona import (
+    build_persona_context_line,
+    build_persona_identity_block,
+    load_persona_profile,
+)
 from .reporter import generate_health_report as generate_brain_health_report
 
 __all__ = [
@@ -54,11 +61,17 @@ __all__ = [
     "sync_all_to_mnemosyne",
     "TimeSyncGuard",
     "run_clock_keeper",
+    "collect_baseline_snapshot",
+    "summarize_baseline",
     "get_relevant_context",
+    "import_legacy_memory",
     "detect_tone",
     "get_style_guide",
     "format_by_tone",
     "assess_proposal",
     "format_assessment",
+    "load_persona_profile",
+    "build_persona_identity_block",
+    "build_persona_context_line",
     "generate_brain_health_report",
 ]
