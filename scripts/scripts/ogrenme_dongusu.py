@@ -1,0 +1,1 @@
+/home/hermes/.hermes/skills/hermes-self/otonom-karar-motoru/scripts/ogrenme_dongusu.py

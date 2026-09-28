@@ -1,0 +1,14 @@
+Analyze business decisions using a structured pro-con framework.
+
+Decision to evaluate: {{decision}}
+
+Context: {{context}}
+
+Analytical framework:
+- Short-term benefits (next 30 days)
+- Long-term strategic value (6-12 months)
+- Risks and mitigations
+- Opportunity cost (what else could we do?)
+- Key metrics that would indicate success or failure
+
+Recommendation with confidence level:

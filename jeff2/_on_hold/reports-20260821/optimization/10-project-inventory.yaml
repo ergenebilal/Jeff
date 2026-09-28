@@ -1,0 +1,316 @@
+# Project Inventory
+# Generated: 2026-08-17T14:15:00+03:00
+
+projects:
+  # === /opt/ directory ===
+  - id: PROJ-001
+    name: hermes (core)
+    path: /opt/hermes
+    purpose: Hermes Agent core codebase
+    business_role: core
+    runtime_status: active
+    last_modified: 2026-08-12
+    criticality: P0
+    recommended_action: keep
+
+  - id: PROJ-002
+    name: get-shit-done-redux
+    path: /opt/get-shit-done-redux
+    purpose: GSD framework
+    business_role: support
+    runtime_status: active
+    last_modified: 2026-06-16
+    criticality: P1
+    recommended_action: keep
+
+  - id: PROJ-003
+    name: ecc-system
+    path: /opt/ecc-system
+    purpose: ECC agent system
+    business_role: experimental
+    runtime_status: dormant
+    last_modified: 2026-06-19
+    criticality: P2
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-004
+    name: ergeneai-core
+    path: /opt/ergeneai-core
+    purpose: ErgeneAI main application
+    business_role: core
+    runtime_status: active
+    last_modified: 2026-06-15
+    criticality: P1
+    recommended_action: keep
+
+  - id: PROJ-005
+    name: instagram-mcp
+    path: /opt/instagram-mcp
+    purpose: Instagram MCP integration
+    business_role: support
+    runtime_status: active
+    last_modified: 2026-06-21
+    criticality: P1
+    recommended_action: keep
+
+  - id: PROJ-006
+    name: google-workplace-mcp
+    path: /opt/google-workplace-mcp
+    purpose: Google Workspace MCP
+    business_role: support
+    runtime_status: active
+    last_modified: 2026-07-14
+    criticality: P1
+    recommended_action: keep
+
+  - id: PROJ-007
+    name: jeff
+    path: /opt/jeff
+    purpose: Jeff architecture/constitution
+    business_role: core
+    runtime_status: active
+    last_modified: 2026-06-27
+    criticality: P0
+    recommended_action: keep
+
+  - id: PROJ-008
+    name: jeff-brain
+    path: /opt/jeff-brain
+    purpose: Jeff brain/autonomy
+    business_role: core
+    runtime_status: active
+    last_modified: 2026-06-08
+    criticality: P0
+    recommended_action: keep
+
+  - id: PROJ-009
+    name: hermes-agent-self-evolution
+    path: /opt/hermes-agent-self-evolution
+    purpose: Self-evolution experiments
+    business_role: experimental
+    runtime_status: dormant
+    last_modified: 2026-06-27
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-010
+    name: SalesGPT
+    path: /opt/SalesGPT
+    purpose: Sales automation
+    business_role: experimental
+    runtime_status: dormant
+    last_modified: 2026-06-19
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-011
+    name: sentry-mcp
+    path: /opt/sentry-mcp
+    purpose: Sentry integration
+    business_role: support
+    runtime_status: dormant
+    last_modified: 2026-06-17
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-012
+    name: taste-skill
+    path: /opt/taste-skill
+    purpose: Taste/creative skill
+    business_role: support
+    runtime_status: dormant
+    last_modified: 2026-06-19
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-013
+    name: x-tweet-fetcher
+    path: /opt/x-tweet-fetcher
+    purpose: X/Twitter fetcher
+    business_role: support
+    runtime_status: active
+    last_modified: 2026-07-07
+    criticality: P2
+    recommended_action: keep
+
+  - id: PROJ-014
+    name: hmpanel
+    path: /opt/hmpanel
+    purpose: HM Panel management
+    business_role: core
+    runtime_status: active
+    last_modified: 2026-08-07
+    criticality: P0
+    recommended_action: keep
+
+  - id: PROJ-015
+    name: notebooklm-mcp.old
+    path: /opt/notebooklm-mcp.old
+    purpose: Old NotebookLM MCP
+    business_role: archive
+    runtime_status: dormant
+    last_modified: 2026-06-15
+    criticality: P3
+    recommended_action: archive_candidate
+
+  - id: PROJ-016
+    name: incus
+    path: /opt/incus
+    purpose: Incus container management
+    business_role: support
+    runtime_status: dormant
+    last_modified: 2026-06-04
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-017
+    name: containarium
+    path: /opt/containarium
+    purpose: Container experiments
+    business_role: experimental
+    runtime_status: dormant
+    last_modified: 2026-06-04
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-018
+    name: pg-node
+    path: /opt/pg-node
+    purpose: PostgreSQL node setup
+    business_role: support
+    runtime_status: active
+    last_modified: 2026-08-16
+    criticality: P1
+    recommended_action: keep
+
+  - id: PROJ-019
+    name: google (chrome profile)
+    path: /opt/google
+    purpose: Chrome profile for automation
+    business_role: support
+    runtime_status: active
+    last_modified: 2026-06-08
+    criticality: P2
+    recommended_action: keep
+
+  # === /home/hermes/ directory ===
+  - id: PROJ-020
+    name: kits
+    path: /home/hermes/kits/
+    purpose: Marketplace kit files
+    business_role: support
+    runtime_status: active
+    size_gb: 2.8
+    criticality: P2
+    recommended_action: keep
+
+  - id: PROJ-021
+    name: ergeneai-core (home)
+    path: /home/hermes/ergeneai-core/
+    purpose: ErgeneAI core (home copy)
+    business_role: core
+    runtime_status: active
+    size_mb: 562
+    criticality: P1
+    duplicate_candidates: [PROJ-004]
+    recommended_action: evaluate_merge
+
+  - id: PROJ-022
+    name: everything-claude-code
+    path: /home/hermes/everything-claude-code/
+    purpose: Claude Code archive
+    business_role: archive
+    runtime_status: dormant
+    size_mb: 186
+    criticality: P3
+    recommended_action: archive_candidate
+
+  - id: PROJ-023
+    name: hermes-codex-factory
+    path: /home/hermes/hermes-codex-factory/
+    purpose: Codex factory modules
+    business_role: experimental
+    runtime_status: dormant
+    size_mb: 164
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-024
+    name: SkillClaw
+    path: /home/hermes/SkillClaw/
+    purpose: Skill development system
+    business_role: experimental
+    runtime_status: dormant
+    size_mb: 160
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-025
+    name: spec-kit
+    path: /home/hermes/spec-kit/
+    purpose: Spec/plan templates
+    business_role: support
+    runtime_status: active
+    size_mb: 30
+    criticality: P2
+    recommended_action: keep
+
+  - id: PROJ-026
+    name: jarvis-ergeneai
+    path: /home/hermes/jarvis-ergeneai/
+    purpose: JARVIS/AgencyOS integration
+    business_role: support
+    runtime_status: active
+    size_mb: 24
+    criticality: P2
+    recommended_action: keep
+
+  - id: PROJ-027
+    name: ig-posts
+    path: /home/hermes/ig-posts/
+    purpose: Instagram post outputs
+    business_role: support
+    runtime_status: active
+    size_mb: 18
+    criticality: P2
+    recommended_action: keep
+
+  - id: PROJ-028
+    name: pipeline
+    path: /home/hermes/pipeline/
+    purpose: Data pipeline scripts
+    business_role: support
+    runtime_status: active
+    size_mb: 5.7
+    criticality: P2
+    recommended_action: keep
+
+  - id: PROJ-029
+    name: creative-intelligence
+    path: /home/hermes/creative-intelligence/
+    purpose: Creative Director module
+    business_role: experimental
+    runtime_status: dormant
+    size_mb: 5.2
+    criticality: P3
+    recommended_action: quarantine_candidate
+
+  - id: PROJ-030
+    name: Money-printer-go-BRRR
+    path: /home/hermes/Money-printer-go-BRRR/
+    purpose: Experiments
+    business_role: experimental
+    runtime_status: dormant
+    size_mb: 2.7
+    criticality: P3
+    recommended_action: archive_candidate
+
+summary:
+  total_projects: 30
+  P0_core: 5
+  P1_important: 6
+  P2_support: 7
+  P3_archive_candidates: 12
+  quarantine_candidates: 8
+  archive_candidates: 4
+  duplicate_candidates: 1 (ergeneai-core in /opt and /home/hermes)

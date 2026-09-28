@@ -1,0 +1,121 @@
+{
+  "name": "Production Error Alerting Pipeline",
+  "nodes": [
+    {
+      "id": "wf03-node01",
+      "name": "Error Webhook Receiver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.2,
+      "position": [250, 300],
+      "parameters": {
+        "path": "error-ingest",
+        "methods": ["POST"],
+        "authentication": "none",
+        "responseMode": "lastNode",
+        "options": { "responseHeaders": { "entries": [{"name": "Content-Type", "value": "application/json"}] } }
+      }
+    },
+    {
+      "id": "wf03-node02",
+      "name": "Validate & Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2.0,
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\n\nconst normalized = {\n  error_message: raw.message || raw.error || raw.error_message || 'Unknown error',\n  error_type: raw.type || raw.error_type || raw.exception || 'Unknown',\n  service: raw.service || raw.source || raw.application || raw.service_name || 'unknown-service',\n  severity: raw.severity || raw.level || 'error',\n  stack_trace: raw.stack || raw.stack_trace || raw.traceback || '',\n  request_path: raw.path || raw.url || raw.endpoint || '',\n  status_code: raw.status_code || raw.status || raw.code || 500,\n  user_id: raw.user_id || raw.user || '',\n  environment: raw.environment || raw.env || 'production',\n  timestamp: raw.timestamp || new Date().toISOString(),\n  metadata: JSON.stringify(raw.metadata || raw.context || raw.extra || {})\n};\n\nif (normalized.severity === 'critical' || normalized.status_code >= 500) {\n  normalized.priority = 'P0';\n} else if (normalized.severity === 'error' || normalized.status_code >= 400) {\n  normalized.priority = 'P1';\n} else if (normalized.severity === 'warning') {\n  normalized.priority = 'P2';\n} else {\n  normalized.priority = 'P3';\n}\n\nreturn [{ json: normalized }];"
+      }
+    },
+    {
+      "id": "wf03-node03",
+      "name": "AI Severity Classifier",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 3.0,
+      "position": [650, 300],
+      "parameters": {
+        "modelId": "gpt-4o-mini",
+        "prompt": "Analyze this production error and provide:\n1. Root cause estimate (one sentence)\n2. Recommended action (one sentence)\n3. Is this a recurring pattern? (yes/no)\n\nError: {{ $json.error_message }}\nType: {{ $json.error_type }}\nService: {{ $json.service }}\nStatus: {{ $json.status_code }}\n\nRespond in JSON format only, with keys: root_cause, recommended_action, is_recurring",
+        "options": { "temperature": 0.1, "maxTokens": 300, "responseFormat": "json_object" }
+      }
+    },
+    {
+      "id": "wf03-node04",
+      "name": "Route by Priority",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2.0,
+      "position": [850, 300],
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.priority }}",
+        "rules": [
+          { "value1": "P0", "outputKey": "critical" },
+          { "value1": "P1", "outputKey": "high" },
+          { "value1": "P2", "outputKey": "medium" }
+        ],
+        "fallbackOutputKey": "low"
+      }
+    },
+    {
+      "id": "wf03-node05",
+      "name": "P0/P1: Urgent Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1050, 200],
+      "parameters": {
+        "operation": "postMessage",
+        "channelId": "#incidents-critical",
+        "text": "🚨 *{{ $json.priority }} Alert — {{ $json.service }}*\n*Error:* {{ $json.error_message }}\n*Root Cause:* {{ $json.output?.root_cause }}\n*Action:* {{ $json.output?.recommended_action }}\n*Status:* {{ $json.status_code }}\n*Time:* {{ $json.timestamp }}",
+        "attachments": [{ "color": "#FF0000" }]
+      }
+    },
+    {
+      "id": "wf03-node06",
+      "name": "P0: PagerDuty Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://events.pagerduty.com/v2/enqueue",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "routing_key", "value": "={{ $credentials.pagerdutyRoutingKey }}" },
+            { "name": "event_action", "value": "trigger" },
+            { "name": "payload.summary", "value": "={{ '[P0] ' + $json.service + ': ' + $json.error_message.substring(0, 200) }}" },
+            { "name": "payload.severity", "value": "critical" },
+            { "name": "payload.source", "value": "={{ $json.service }}" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      }
+    },
+    {
+      "id": "wf03-node07",
+      "name": "Log to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [1050, 600],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO error_logs (error_message, error_type, service, severity, stack_trace, priority, root_cause, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+        "queryParams": "={{ [$json.error_message, $json.error_type, $json.service, $json.severity, $json.stack_trace, $json.priority, $json.output?.root_cause || ''] }}"
+      }
+    }
+  ],
+  "connections": {
+    "Error Webhook Receiver": { "main": [[{"node": "Validate & Normalize", "type": "main", "index": 0}]] },
+    "Validate & Normalize": { "main": [[{"node": "AI Severity Classifier", "type": "main", "index": 0}]] },
+    "AI Severity Classifier": { "main": [[{"node": "Route by Priority", "type": "main", "index": 0}]] },
+    "Route by Priority": {
+      "main": [
+        [{"node": "P0/P1: Urgent Slack Alert", "type": "main", "index": 0}],
+        [{"node": "P0/P1: Urgent Slack Alert", "type": "main", "index": 0}],
+        [],
+        []
+      ]
+    },
+    "P0/P1: Urgent Slack Alert": { "main": [[{"node": "P0: PagerDuty Alert", "type": "main", "index": 0}]] },
+    "P0: PagerDuty Alert": { "main": [[{"node": "Log to Database", "type": "main", "index": 0}]] }
+  },
+  "settings": { "executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "all" }
+}

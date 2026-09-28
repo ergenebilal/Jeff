@@ -1,0 +1,20 @@
+{
+  "plan": "Dropshipping Gelir Motoru v1",
+  "tarih": "2026-08-20",
+  "durum": "FAZ 0 - kuruluyor",
+  "budget_usd": "BILAL ILE BELIRLENECEK (onay gerek - 1% kuralı)",
+  "max_active_stores": 1,
+  "max_test_niche": 3,
+  "kayip_limiti_goze_alinan_usd": "BILAL ONAYI GEREK",
+  "basarı_esigi": {
+    "pozitif_katki_payi": "≥1 nişte reklam+ürün maliyeti sonrası pozitif net",
+    "pozitif_cashflow_ay": "100-300 USD/ay",
+    "kargo_suresi": "≤15 gün hedef"
+  },
+  "produksiyon_dokunulmaz": "Üretim altyapısına (backup, port, log, Hermes core) DOKUNMADAN izole workspace",
+  "decision_frames": {
+    "Faz1": "KILL / FIX / KEEP",
+    "Faz3": "DEVAM / BITIR (açıkça başarısız der)"
+  },
+  "ventures": []
+}

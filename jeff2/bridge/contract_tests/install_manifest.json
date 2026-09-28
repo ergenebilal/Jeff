@@ -1,0 +1,62 @@
+[
+  {
+    "source": "telegram_claude_bot.py",
+    "target": "/opt/hermes/telegram_claude_bot.py",
+    "sha256": "9105f3ce1b011169b9cc5e3476d594312944ea042ff27f478f622123ccaec12d",
+    "original_sha256": "5848ca17fc2c8f57dd5e27d727bb453ddf0fd33aa10152faf96f9872191a8edb"
+  },
+  {
+    "source": "antigravity_telegram_bot_hybrid.py",
+    "target": "/opt/hermes/antigravity_telegram_bot_hybrid.py",
+    "sha256": "192a0caccb1e54bed87313e72b82ba0105d1535d0dd799e39e67fc08db8592eb",
+    "original_sha256": "1f1c8f170ea7b8b848e79926d058dc779b7b64b898e0b6a79c3b1e82f92f5755"
+  },
+  {
+    "source": "jeff_bridge_api.py",
+    "target": "/home/hermes/jeff2/bridge/jeff_bridge_api.py",
+    "sha256": "f913db7d807e48ba091af23ff7f64748cc8b5e288161db738482389a069f3dcb",
+    "original_sha256": "91ea89d65434b2ea49767e188888996cb92277e3a5ac2f944b7d2ffc15f1c506"
+  },
+  {
+    "source": "aider_runner.py",
+    "target": "/home/hermes/jeff2/bridge/aider_runner.py",
+    "sha256": "3f340b2610cfcfab61b1f84629d9692fc67ba36a81505093141350f493937721",
+    "original_sha256": "0aab79e78a47fc24970acdde925d74de594555c0886caf7926bbd732737f77f6"
+  },
+  {
+    "source": "coding_contract.py",
+    "target": "/home/hermes/jeff2/bridge/coding_contract.py",
+    "sha256": "351ee8b1bb7089016c65298c9298a788505348d533435e1c4b64aabb4fa59caf",
+    "original_sha256": null
+  },
+  {
+    "source": "jeff_task_evidence.py",
+    "target": "/opt/hermes/jeff_task_evidence.py",
+    "sha256": "b560c2e8f01c768c29eb31c91bf680cee52e83a624c5f52fd4df26f8b01c68be",
+    "original_sha256": null
+  },
+  {
+    "source": "jeff_task_evidence.py",
+    "target": "/home/hermes/.hermes/scripts/jeff_task_evidence.py",
+    "sha256": "b560c2e8f01c768c29eb31c91bf680cee52e83a624c5f52fd4df26f8b01c68be",
+    "original_sha256": null
+  },
+  {
+    "source": "alfred_tool.py",
+    "target": "/home/hermes/.hermes/scripts/alfred_tool.py.next",
+    "sha256": "8b50fe4e7dc534e0bcc1a7fc09af4700cbc09d6d6ccf5d6c3d9007743cfc4465",
+    "original_sha256": null
+  },
+  {
+    "source": "verified_coding.py",
+    "target": "/home/hermes/.hermes/skills/jcode/scripts/verified_coding.py",
+    "sha256": "5a2af2df414af314806e3c83b410aa238263900faec990de64bfec52181ec4d9",
+    "original_sha256": null
+  },
+  {
+    "source": "jcode_SKILL.md",
+    "target": "/home/hermes/.hermes/skills/jcode/SKILL.md",
+    "sha256": "a1ba294492533010df363433630a52970e6692db33ef0a662f3c225a2313baed",
+    "original_sha256": "14e3fa5e56a738c6f541c8c7e90351d8bea69ce8e3de65a338606fd1d5dff37a"
+  }
+]

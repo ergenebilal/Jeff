@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Reach Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0A0A0C; color: #E0E0E0; padding: 20px; }
+  .dashboard { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 28px; color: #22C55E; margin-bottom: 8px; }
+  .subtitle { color: #888; margin-bottom: 24px; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: #141418; border: 1px solid #2A2A2E; border-radius: 12px; padding: 20px; }
+  .card h3 { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .card .value { font-size: 36px; font-weight: 700; color: #FFF; }
+  .card .change { font-size: 12px; color: #22C55E; margin-top: 4px; }
+  .card .change.negative { color: #EF4444; }
+  .card .sub { font-size: 12px; color: #666; margin-top: 4px; }
+  .alerts { background: #141418; border: 1px solid #2A2A2E; border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+  .alerts h2 { font-size: 16px; margin-bottom: 16px; color: #FFF; }
+  .alert-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2A2A2E; }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-icon { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+  .alert-icon.critical { background: #EF4444; }
+  .alert-icon.warning { background: #F59E0B; }
+  .alert-icon.info { background: #22C55E; }
+  .alert-content { flex: 1; }
+  .alert-source { font-size: 12px; color: #888; }
+  .alert-title { font-size: 14px; color: #FFF; margin: 2px 0; }
+  .alert-meta { font-size: 12px; color: #666; }
+  .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .source-item { background: #141418; border: 1px solid #2A2A2E; border-radius: 8px; padding: 16px; text-align: center; }
+  .source-item .name { font-size: 14px; color: #FFF; }
+  .source-item .count { font-size: 28px; font-weight: 700; color: #22C55E; margin: 4px 0; }
+  .source-item .status { font-size: 11px; }
+  .status.online { color: #22C55E; }
+  .status.offline { color: #EF4444; }
+  .footer { text-align: center; color: #666; font-size: 12px; padding: 20px 0; }
+</style>
+</head>
+<body>
+<div class="dashboard" id="app">
+  <h1>Agent Reach</h1>
+  <p class="subtitle">Multi-platform monitoring dashboard — last updated: <span id="timestamp">--</span></p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Total Mentions</h3>
+      <div class="value" id="total-mentions">--</div>
+      <div class="change" id="mentions-change">Loading...</div>
+    </div>
+    <div class="card">
+      <h3>Keywords Tracked</h3>
+      <div class="value" id="keywords-tracked">--</div>
+      <div class="sub">Across all sources</div>
+    </div>
+    <div class="card">
+      <h3>Alerts Today</h3>
+      <div class="value" id="alerts-today">--</div>
+      <div class="change" id="alerts-change">Loading...</div>
+    </div>
+    <div class="card">
+      <h3>Sources Online</h3>
+      <div class="value" id="sources-online">--</div>
+      <div class="sub" id="sources-detail">of -- connected</div>
+    </div>
+  </div>
+
+  <div class="source-grid" id="sources">
+    <div class="source-item"><div class="name">RSS</div><div class="count" id="rss-count">--</div><div class="status" id="rss-status">Checking...</div></div>
+    <div class="source-item"><div class="name">Reddit</div><div class="count" id="reddit-count">--</div><div class="status" id="reddit-status">Checking...</div></div>
+    <div class="source-item"><div class="name">GitHub</div><div class="count" id="github-count">--</div><div class="status" id="github-status">Checking...</div></div>
+    <div class="source-item"><div class="name">Telegram</div><div class="count" id="telegram-count">--</div><div class="status" id="telegram-status">Checking...</div></div>
+    <div class="source-item"><div class="name">Brand Mention</div><div class="count" id="brand-count">--</div><div class="status" id="brand-status">Checking...</div></div>
+  </div>
+
+  <div class="alerts">
+    <h2>Recent Alerts</h2>
+    <div id="alert-list">
+      <div class="alert-item"><div class="alert-icon info"></div><div class="alert-content"><div class="alert-source">Agent Reach</div><div class="alert-title">Dashboard loaded. Feed monitoring active.</div><div class="alert-meta">Just now</div></div></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Agent Reach v2.0 — <a href="https://ergene.gumroad.com/l/agent-reach" style="color:#22C55E;">ErgeneAI</a>
+  </div>
+</div>
+
+<script>
+// -- SIMULATED DASHBOARD (replace with real API endpoint) --
+async function refresh() {
+  // In production, replace with: fetch('/api/agent-reach/stats').then(r => r.json())
+  // For demo, use sample data that mimics real API output
+  const demo = {
+    total_mentions: 147,
+    mentions_change: "+23% vs yesterday",
+    keywords_tracked: 18,
+    alerts_today: 12,
+    alerts_change: "+4 vs yesterday",
+    sources: {
+      rss: { count: 42, status: "online" },
+      reddit: { count: 58, status: "online" },
+      github: { count: 23, status: "online" },
+      telegram: { count: 16, status: "online" },
+      brand: { count: 8, status: "online" }
+    },
+    alerts: [
+      { severity: "critical", source: "Reddit", title: "Brand mentioned in r/artificial — negative sentiment detected", time: "2 min ago" },
+      { severity: "warning", source: "GitHub", title: "New competitor repo: 'auto-agent-stack' with 450★ in 2 days", time: "15 min ago" },
+      { severity: "info", source: "RSS", title: "TechCrunch: 'AI automation market growing 38% YoY'", time: "1 hour ago" },
+      { severity: "info", source: "Reddit", title: "User asks: 'Looking for n8n expert to build AI agent' — lead opportunity", time: "2 hours ago" },
+      { severity: "info", source: "Telegram", title: "Your AI agent mentioned in AI Builders group", time: "3 hours ago" }
+    ],
+    sources_online: 5,
+    sources_total: 5
+  };
+
+  const d = demo;
+  document.getElementById('timestamp').textContent = new Date().toLocaleString();
+  document.getElementById('total-mentions').textContent = d.total_mentions.toLocaleString();
+  document.getElementById('mentions-change').textContent = d.mentions_change;
+  document.getElementById('keywords-tracked').textContent = d.keywords_tracked;
+  document.getElementById('alerts-today').textContent = d.alerts_today;
+  document.getElementById('alerts-change').textContent = d.alerts_change;
+  document.getElementById('sources-online').textContent = `${d.sources_online}/${d.sources_total}`;
+  document.getElementById('sources-detail').textContent = `of ${d.sources_total} connected`;
+
+  for (const [key, val] of Object.entries(d.sources)) {
+    const el = document.getElementById(`${key}-count`);
+    if (el) el.textContent = val.count;
+    const statusEl = document.getElementById(`${key}-status`);
+    if (statusEl) { statusEl.textContent = val.status; statusEl.className = `status ${val.status}`; }
+  }
+
+  const alertList = document.getElementById('alert-list');
+  alertList.innerHTML = d.alerts.map(a => `
+    <div class="alert-item">
+      <div class="alert-icon ${a.severity}"></div>
+      <div class="alert-content">
+        <div class="alert-source">${a.source}</div>
+        <div class="alert-title">${a.title}</div>
+        <div class="alert-meta">${a.time}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+refresh();
+setInterval(refresh, 60000); // Auto-refresh every 60s
+</script>
+</body>
+</html>

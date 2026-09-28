@@ -1,0 +1,90 @@
+# Backup Inventory
+# Generated: 2026-08-17T14:15:00+03:00
+
+backup_files_found:
+  - path: /home/hermes/jeff-backup.tar.gz
+    size_mb: 187
+    last_modified: unknown
+    scope: unknown
+    restore_verified: false
+    risk: HIGH — kapasite ve restore doğrulanmamış
+
+  - path: /home/hermes/hermes_data/backups/
+    type: directory
+    contents: unknown
+    restore_verified: false
+
+  - path: /home/hermes/.hermes/config.yaml.backup
+    type: config_backup
+    scope: hermes config
+    restore_verified: false
+
+  - path: /home/hermes/.env.backup.20260710_0052
+    type: env_backup
+    date: 2026-07-10
+    scope: environment variables
+    restore_verified: false
+
+  - path: /home/hermes/backup-jeff/
+    type: directory
+    size_mb: 5.5
+    contents: unknown
+    restore_verified: false
+
+  - path: /home/hermes/backups/
+    type: directory
+    size_mb: 6.8
+    contents: unknown
+    restore_verified: false
+
+  - path: /home/hermes/.claude/backups/
+    type: directory
+    scope: claude config
+    restore_verified: false
+
+  - path: /home/hermes/jeff-ops-base/static_backup/
+    type: directory
+    scope: jeff ops static files
+    restore_verified: false
+
+  - path: /home/hermes/jeff-ops-base/templates_backup/
+    type: directory
+    scope: jeff ops templates
+    restore_verified: false
+
+docker_volumes_at_risk:
+  - hmpanel_pgdata (PostgreSQL verisi — en kritik)
+  - n8n-y10hlm1fr9avvxt3asz5p0bk_n8n-data (n8n workflow'ları)
+  - coolify-redis (Coolify cache)
+  - hmpanel_redisdata (HM Panel cache)
+  - hmpanel_uploads (HM Panel dosyaları)
+
+offsite_backup:
+  status: NOT_VERIFIED
+  details: |
+    backup-to-drive.py script'i mevcut ancak çalışıp çalışmadığı,
+    son ne zaman çalıştığı ve hedef Drive klasörünün doğruluğu
+    doğrulanmamıştır. Log dosyası: /home/hermes/logs/backup.log
+    incelenmeli.
+
+restore_test:
+  status: NOT_PERFORMED
+  last_known_test: NEVER
+  risk: CRITICAL
+
+backup_cron_jobs:
+  - name: haftalik-yedekleme.sh
+    schedule: weekly
+    status: unknown (script var, cron tetiklenmesi doğrulanmalı)
+
+  - name: jeff-backup-drive.py
+    schedule: unknown
+    status: unknown
+
+  - name: jeff-daily-backup.sh
+    schedule: daily
+    status: unknown
+
+  - name: backup-to-drive.py
+    schedule: unknown
+    status: unknown

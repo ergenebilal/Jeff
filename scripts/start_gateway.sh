@@ -1,0 +1,5 @@
+#!/bin/bash
+if ! pgrep -f 'nanobot gateway' > /dev/null; then
+    cd /home/hermes
+    /home/hermes/.local/bin/nanobot gateway --port 18791 --verbose 2>&1 | logger -t nanobot-gateway
+fi

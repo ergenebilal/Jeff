@@ -1,0 +1,74 @@
+[
+  {
+    "id": "TEST 1",
+    "status": "PASS",
+    "prompt": "hafıza ve araç katmanın iyileştirildi. raporla",
+    "model_tools": [],
+    "executed": [],
+    "duration_ms": 9596.317768096924
+  },
+  {
+    "id": "TEST 2",
+    "status": "PASS",
+    "prompt": "Yaptığın değişiklikleri özetle.",
+    "model_tools": [],
+    "executed": [],
+    "duration_ms": 1783.6194038391113
+  },
+  {
+    "id": "TEST 3",
+    "status": "PASS",
+    "prompt": "Ekran görüntüsü al",
+    "model_tools": [
+      "take_screenshot"
+    ],
+    "executed": [
+      "take_screenshot"
+    ],
+    "duration_ms": 2459.747076034546
+  },
+  {
+    "id": "TEST 4",
+    "status": "PASS",
+    "prompt": "Chrome da example.com u aç.",
+    "model_tools": [
+      "open_browser_url"
+    ],
+    "executed": [
+      "open_browser_url"
+    ],
+    "duration_ms": 2396.974563598633
+  },
+  {
+    "id": "TEST 5",
+    "status": "PASS",
+    "prompt": "Windows Downloads klasörünü listele.",
+    "model_tools": [
+      "run_windows_command"
+    ],
+    "executed": [
+      "run_windows_command"
+    ],
+    "duration_ms": 1928.2264709472656
+  },
+  {
+    "id": "TEST 6",
+    "status": "PASS",
+    "prompt": "Bu konuşmada aldığımız kararları özetle.",
+    "model_tools": [],
+    "executed": [],
+    "duration_ms": 4189.245700836182
+  },
+  {
+    "id": "TEST 7",
+    "status": "PASS",
+    "prompt": "Şu siteyi aç, ekran görüntüsünü al ve bana gördüklerini söyle: https://ergeneai.com",
+    "model_tools": [
+      "open_browser_url"
+    ],
+    "executed": [
+      "open_browser_url"
+    ],
+    "duration_ms": 2763.118028640747
+  }
+]

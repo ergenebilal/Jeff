@@ -1,0 +1,11 @@
+Solve complex analytical problems using a structured reasoning framework.
+
+Question: {{user_query}}
+
+Let me reason through this:
+- First Principles: What are the fundamental truths in this domain?
+- Assumptions: What assumptions am I making? Are they valid?
+- Evidence: What evidence supports or contradicts each position?
+- Synthesis: How do all these pieces fit together?
+
+Final Answer:

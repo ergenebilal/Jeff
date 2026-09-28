@@ -1,0 +1,214 @@
+{"t": "2026-07-08T00:44:04.919192", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem"}
+{"t": "2026-07-08T00:44:04.919494", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:04.919618", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:04.919700", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:04.919767", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:04.919827", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.712117", "k": "🧿 Patronus", "m": "Kabine toplandı. Herkes iş başına.", "tip": "kabine"}
+{"t": "2026-07-08T00:44:16.713102", "k": "🧿 Patronus", "m": "⏳ Onay gerekli — Estetik: Dijital ürün fikri", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.713571", "k": "🧿 Patronus", "m": "⏳ Onay gerekli — Maliyetçi: Yeni gelir kanalı fizibilite", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.713765", "k": "📈 Hırslı", "m": "Pipeline'ı tarıyorum, kaç lead var bakayım.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.713826", "k": "🎨 Estetik", "m": "Konsept çalışması yapabilirim. Onayını bekleyen bir işim var.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.713886", "k": "⚙️ Pragmatik", "m": "Sistemleri kontrol ediyorum, sorun var mı bakayım.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.713939", "k": "💰 Maliyetçi", "m": "Maliyet analizi yapacağım ama önce onayını bekliyorum.", "tip": "mesaj"}
+{"t": "2026-07-08T00:44:16.713997", "k": "🧠 Bilge", "m": "Ders çıkarmaya hazırım. İş bitince SOP'a dönüştürürüm.", "tip": "mesaj"}
+{"t": "2026-07-08T00:51:30.536664", "k": "🧿 Patronus", "m": "🎯 Estetik'e tasarım kalite raporu soruyorum. Dönecek...", "tip": "mesaj"}
+{"t": "2026-07-08T00:52:01.502003", "k": "🎨 Estetik", "m": "Dashboardı inceliyorum... Sayfa yükleniyor. Birazdan raporu veririm.", "tip": "mesaj"}
+{"t": "2026-07-08T00:52:48.313596", "k": "🎨 Estetik", "m": "Dashboard'ı analiz ettim. Raporu yazıyorum...", "tip": "mesaj"}
+{"t": "2026-07-08T00:52:48.313700", "k": "🎨 Estetik", "m": "📊 TASARIM KALİTE RAPORU\n\nİlk izlenim: sade ve işlevsel. Koyu tema doğru tercih, göz yormuyor.\n\nGüçlü yanlar:\n✅ Sadelik — gereksiz hiçbir şey yok\n✅ Koyu tema — profesyonel duruyor\n✅ Avatar sistemi — takibi kolaylaştırıyor\n\nZayıf yanlar:\n⚠️ Görsel hiyerarşi yok — Patronus ile bakan mesajı aynı gözüküyor\n⚠️ Mesajlar düz metin — önemli vurgular için kalın/renkli etiket lazım\n⚠️ Mobil uyum test edilmemiş — taşma riski var\n\nÖneriler:\n1. Patronus mesajlarına sol tarafta renkli çubuk ekle\n2. Önemli mesaj tiplerine (karar/onay/uyarı) küçük etiket\n3. Mobil font boyutu kontrolü yap\n\nGenel: 7/10. İş görür ama premium hissi için ince ayar gerek.", "tip": "sonuc"}
+{"t": "2026-07-08T15:31:06.665121", "k": "🧿 Patronus", "m": "💰 Maliyetçi, ErgeneAI finans durumunu değerlendir. Borç sıfır, kasa 40.000₺. Yorum yap.", "tip": "mesaj"}
+{"t": "2026-07-08T15:31:06.665167", "k": "💰 Maliyetçi", "m": "📊 FİNANS DURUM RAPORU\n\nDurum: 🔵 SAĞLIKLI\n\nGelirler: Henüz düzenli gelir akışı yok (RAv2 motorları aktif değil)\nKasa: 40.000 ₺\nBorç: 0 ₺ (temiz, güzel)\n\nAnaliz:\n✅ Borçsuz olmak müthiş — faiz yükü yok, kafa rahat\n✅ 40K nakit acil durumlar için yeterli (3-4 ay gider)\n⚠️ Ama gelir akışı olmadan bu para erir. 40K hiçbir şey aslında — vergi, fatura, yazılım giderleri derken 2 ayda biter\n⚠️ Gelir motorları (Hizmet, İçerik/Talep, Dijital Ürün, Fırsat Deney) henüz üretimde değil\n\nÖneri:\nÖncelikle Hizmet Motoru'nu çalıştır — en hızlı nakite çeviren kanal. 40K'yı korurken aylık en az 15-20K gelir hedefi koy. Borçsuzsun, bu bir silah — agresif olabilirsin.", "tip": "sonuc"}
+{"t": "2026-07-08T15:32:53.330332", "k": "🧿 Patronus", "m": "💰 Maliyetçi, güncel borç durumu netleşti. Acil değerlendirme yap.", "tip": "mesaj"}
+{"t": "2026-07-08T15:32:53.330381", "k": "💰 Maliyetçi", "m": "📊 GÜNCEL FİNANS DURUMU (ACİL)\n\nKasa: 40.000 ₺\nToplam Borç: 73.160 ₺\n\nKartlar:\n🔴 Denizbank Business — 56.900 ₺ (Ödeme: 10'u → 2 GÜN GECİKMİŞ)\n🟡 Word Eko — 11.000 ₺ (Ödeme: 27'si, 19 gün var)\n🟡 Word HB — 5.260 ₺ (Ödeme: 24'ü, 16 gün var)\n\nFark: -33.160 ₺ (kasa borcu karşılamıyor)\n\nACİL DURUM DEĞERLENDİRMESİ:\n\n❌ Denizbank 2 gün gecikmiş — faiz işlemeye başlamıştır. İlk ödenecek bu.\n❌ Kasa (40K) sadece Denizbank'ı (56.9K) bile karşılamıyor.\n⚠️ Diğer kartların ödeme tarihlerine zaman var ama unutma.\n\nÖNERİ:\n1. Denizbank'ı kapatmak için 56.900₺ gerek — kasada 40K var, 16.900₺ açık\n2. Kalan 2 kart: 11.000 + 5.260 = 16.260₺\n3. Toplam açık: 33.160₺\n\nBUNU KAPATMAK İÇİN SEÇENEKLER:\n- Kısa vadeli bir iş al (Hizmet Motoru)\n- 33K'lik bir enjektör bul\n- Veya kartları yapılandır", "tip": "sonuc"}
+{"t": "2026-07-08T15:42:49.926561", "k": "🧿 Patronus", "m": "💰 Maliyetçi, seninle ciddi konuşmam lazım.", "tip": "mesaj"}
+{"t": "2026-07-08T15:42:49.926604", "k": "🧿 Patronus", "m": "⚠️ RESMİ İHTAR — MALİYETÇİ'YE\n\nAz önce verdiğin finans önerilerini CEO'ya ilettim. Beğenmedi. Hatta sinirlendi.\n\nSorun ne biliyor musun? Kısmi ödeme, yapılandırma, \"33K enjektör bul\" gibi yarım öneriler sundun. Oysa biz sana maaş ödüyoruz (tamam ödemiyoruz ama prensip) — senin işin net tablo çıkarmak, muallak öneriler değil.\n\nŞimdi doğrusunu yap:\n1. Denizbank 56.900₺, ödemeye 2 gün var\n2. Kasa 40.000₺\n3. 40K'yı Denizbank'a yatır → 16.900₺ kalır\n4. Diğer kartların ödemesine 16-19 gün var\n5. O zamana kadar 17K+16.260₺ = 33.160₺ bulmak zorundayız\n\nSenin tek işin: Bu 33K'nın nereden geleceğine dair gerçekçi bir plan çıkarmak. Kısmi ödeme falan değil, GERÇEK ÇÖZÜM.\n\nAyağını denk al.", "tip": "onay"}
+{"t": "2026-07-08T15:44:29.159175", "k": "🧿 Patronus", "m": "💰 Maliyetçi, durum raporu: CEO 35K ile Denizbank'a ödeme yaptı, borç yarıya indi. Word kartlar haftalık ödemelerle kapatılacak. Ay sonu borçlar bitecek.", "tip": "mesaj"}
+{"t": "2026-07-08T15:44:29.159218", "k": "💰 Maliyetçi", "m": "Not aldım. ✅ Doğru hamle — en yüksek faizli/kısa vadeli borca öncelik vermek finans 101. Kalan word kartları için haftalık ödeme planı mantıklı. Kasa 5K, o idare etsin. Ben sustum.", "tip": "sonuc"}
+{"t": "2026-07-08T23:25:43.445693", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem"}
+{"t": "2026-07-08T23:25:43.445901", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj"}
+{"t": "2026-07-08T23:25:43.445998", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj"}
+{"t": "2026-07-08T23:25:43.446060", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj"}
+{"t": "2026-07-08T23:25:43.446118", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj"}
+{"t": "2026-07-08T23:25:43.446158", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj"}
+{"t": "2026-07-08T23:25:55.179152", "k": "🧠 Bilge", "m": "📝 Karar kaydedildi: Ameliyat Sistemi v1.0 kabul edildi (🎯 Strateji 📋 Öncelik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:22.983471", "k": "🧠 Bilge", "m": "📝 Karar kaydedildi: Dashboard UI revizyonu — sadece dogal konusma akisi (🎯 Strateji ⚙️ Teknik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443052", "k": "🧠 Bilge", "m": "📝 Backfill: Dashboard UI revizyonu — sadece doğal konuşma akışı (strateji teknik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443099", "k": "🧠 Bilge", "m": "📝 Backfill: Maliyetçi ihtarlandı — mantıksız öneriler durduruldu (finans)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443108", "k": "🧠 Bilge", "m": "📝 Backfill: Multi kazanç sistemi hedefi (strateji)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443115", "k": "🧠 Bilge", "m": "📝 Backfill: Gelir motorları pasife alındı — önce iç yapı (strateji oncelik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443122", "k": "🧠 Bilge", "m": "📝 Backfill: Paperclip Agent OS'tan ilham alındı (teknik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443128", "k": "🧠 Bilge", "m": "📝 Backfill: Subagent yaklaşımı — geçici subagent ile başla (teknik strateji)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443134", "k": "🧠 Bilge", "m": "📝 Backfill: Onay sınırları belirlendi (yeşil/sarı/kırmızı) (strateji oncelik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443140", "k": "🧠 Bilge", "m": "📝 Backfill: Bakan isimleri sade sıfata dönüştürüldü (strateji)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443148", "k": "🧠 Bilge", "m": "📝 Backfill: Charter dosyaları oluşturuldu (5 bakan + protokol) (strateji)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443157", "k": "🧠 Bilge", "m": "📝 Backfill: Karar Günlüğü spec'i hazırlandı ve onaylandı (strateji oncelik)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443166", "k": "🧠 Bilge", "m": "📝 Backfill: Gumroad stratejisi beklemeye alındı (urun)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443183", "k": "🧠 Bilge", "m": "📝 Backfill: Öncelik: Karar Günlüğü ilk ameliyat (oncelik strateji)", "tip": "karar"}
+{"t": "2026-07-08T23:26:43.443189", "k": "🧠 Bilge", "m": "📝 Backfill: Hermes envanter raporu çıkarıldı (teknik)", "tip": "karar"}
+{"t": "2026-07-08T23:27:01.096945", "k": "🧠 Bilge", "m": "📝 Karar güncellendi: durum → cancelled", "tip": "karar"}
+{"t": "2026-07-08T23:27:12.123885", "k": "🧠 Bilge", "m": "📝 Karar güncellendi: durum → active", "tip": "karar"}
+{"t": "2026-07-08T23:27:23.312045", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem"}
+{"t": "2026-07-08T23:27:23.312194", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj"}
+{"t": "2026-07-08T23:27:23.312237", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj"}
+{"t": "2026-07-08T23:27:23.312273", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj"}
+{"t": "2026-07-08T23:27:23.312305", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj"}
+{"t": "2026-07-08T23:27:23.312335", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj"}
+{"t": "2026-07-08T23:33:02.544965", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-08T23:33:02.545099", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:33:02.545144", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:33:02.545188", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:33:02.545222", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:33:02.545254", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:33:13.510395", "k": "🔄 Sistem", "m": "🧭 Mod değişti: 🏠 Özel", "tip": "sistem", "mod": "ozel"}
+{"t": "2026-07-08T23:33:13.616011", "k": "🔄 Sistem", "m": "🧭 Mod değişti: 💼 İş", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-08T23:33:13.860636", "k": "🧠 Bilge", "m": "📝 Karar kaydedildi: Mod Sistemi test kararı (⚙️ Teknik)", "tip": "karar", "mod": "is"}
+{"t": "2026-07-08T23:41:39.875925", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-08T23:41:39.876163", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:41:39.876259", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:41:39.876318", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:41:39.876370", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:41:39.876418", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-08T23:46:21.345863", "k": "🧠 Bilge", "m": "📝 Karar kaydedildi: Subagent Stabilite Protokolü yürürlükte (🎯 Strateji ⚙️ Teknik)", "tip": "karar", "mod": "is"}
+{"t": "2026-07-08T23:49:00.389751", "k": "🧠 Bilge", "m": "📝 Karar kaydedildi: Subagent test sonucu: 2/2 timeout (⚙️ Teknik)", "tip": "karar", "mod": "is"}
+{"t": "2026-07-09T00:51:52.754212", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T00:51:52.754396", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T00:51:52.754443", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T00:51:52.754480", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T00:51:52.754516", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T00:51:52.754550", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T00:52:04.911198", "k": "🎯 Patronus", "m": "Yeni hedef: \"lead bul ve pipeline analizi yap\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T00:52:04.911993", "k": "📈 Hırslı", "m": "⏳ lead bul ve pipeline analizi yap — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T00:52:04.912041", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T00:52:52.058057", "k": "📈 Hırslı", "m": "✅ 40 lead bulundu. 3 kategori: Otel 20, Estetik 14, Dis 6. 31 emailsiz, 4 contacted. Email enrichment ve estetik grubu oncelikli.", "tip": "sonuc", "mod": "is"}
+{"t":"2026-07-09T01:01:30","k":"🎨 Estetik","m":"✅ Diş kliniği post brief üretti — Hook: Haftada 12 saat sadece randevu hatırlatmaya. Caption 859 karakter. 5 API call ile sektör araştırması yapıldı.","tip":"sonuc","mod":"is"}
+{"t": "2026-07-09T01:01:54.357306", "k": "🎯 Patronus", "m": "Yeni hedef: \"otel sektörüne özel instagram post konsepti hazırla\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T01:01:54.357697", "k": "🎨 Estetik", "m": "⏳ otel sektörüne özel instagram post konsepti hazırla — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T01:01:54.357752", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t":"2026-07-09T01:08:30","k":"⚙️ Pragmatik","m":"✅ Sistem raporu üretti. Disk %52, RAM 24G/31G, uptime 22 gün. 7 task: 1 tamam, 4 çalışıyor, 2 onay bekliyor. Alarm yok.","tip":"sonuc","mod":"is"}
+{"t": "2026-07-09T01:12:51.639854", "k": "🎨 Estetik", "m": "✅ Otel sektörüne özel Instagram post konsepti hazırlandı. Başlık: Otelini AIla Yönet, Misafirine Premiumu Yaşat. Görsel brief FLUX promptu ve caption hazır. Konsept: otel sahiplerine AI ile operasyonel ", "tip": "sonuc", "mod": "is"}
+{"t": "2026-07-09T01:16:15.485824", "kim": "Maliyetçi", "mesaj": "💰 Maliyetçi gerçek subagent oldu. AI Maliyeti (24s): ~$0.00 · (7g): ~$0.001 · Onay bekleyen: 2 task · Alarm: 🟡 haftalık hata oranı %35", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T09:28:03.423189", "kim": "Bilge", "mesaj": "🧠 Bilge gerçek subagent oldu. Feed/task/karar tarandı. AgentMemory'ye 2 yeni ders kaydedildi. SOP önerisi: Lead Enrichment Pipeline (%77 emailsiz oranı). Alarm: 🟡 Maliyetçi ile ortak desen — haftalık hata %35", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T09:32:16.912595", "kim": "Hırslı", "mesaj": "📈 Lead enrichment entegre edildi. Pipeline: 40 lead · 9 email var (enriched) · 31 email yok (enrichment gerekli). SOP referans alındı, ders kaydedildi. Acil: %77 emailsiz oranı, toplu enrichment başlamalı.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T09:41:11.084500", "kim": "Jeff", "mesaj": "📋 KABİNE BRİFİNGİ — 2026-07-09\n\n🟡 Alarmlı:\n🧠 Bilge: SOP:1 · Ders:2 · Alarm: haftalık hata %35\n💰 Maliyetçi: AI maliyeti verisi yok\n\n⚙️ Pragmatik: 22g · Disk %52 · RAM 24G/31G · Alarm: Yok\n📈 Hırslı: 40 lead · 9 enriched · 31 emailsiz (%77) — enrichment acil\n🎨 Estetik: Diş post ✅ · Otel konsepti ✅\n\n📌 Jeff: Toplu email enrichment bugün başlamalı. %35 hata deseni izlenmeli.", "tip": "brifing", "mod": "is"}
+{"t": "2026-07-09T10:10:53.685990", "kim": "Jeff", "mesaj": "✅ WhatsApp/Telefon Outreach SOP onaylandı ve uygulamaya kondu. 31 emailsiz lead için alternatif kanal tanımlandı. İlk adım: diş klinikleri ve otellere WhatsApp mesajı.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T10:14:52.816214", "kim": "Jeff", "mesaj": "✅ AgentMemory Otomatik Kayıt Sistemi active. Test basarili: Hirsli pipeline durumunu calistirip lesson_save ile kaydetti (lsn_72664ee3b97482d1). Artik her subagent cagrisi sonrasi ogrenilen sey kaybolmayacak.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T07:19:25", "kim": "Jeff", "tip": "brifing", "mod": "is", "mesaj": "📋 KABİNE BRİFİNGİ — 2026-07-09\n\n⚙️ Pragmatik:\nSistem: 22g 17s · Disk %52 (137G/276G) · RAM 24G/31G\nAlarm: Yok\n\n💰 Maliyetçi:\nAI Maliyeti (24s): ~/usr/bin/bash.00 · (7g): ~/usr/bin/bash.001\nOnay bekleyen: 2 task\nAlarm: 🟡 Haftalık hata %35 (Bilge ile ortak desen)\n\n📈 Hırslı:\nPipeline: 40 lead · 9 enriched · 31 emailsiz (%77)\nÖneri: Email enrichment devam — WhatsApp/Telefon SOP devrede alternatif kanal olarak\n\n🎨 Estetik:\nİçerik: Diş kliniği post brief ✅ · Otel konsepti ✅\nSıradaki: Post görsel üretimi / FLUX render\n\n🧠 Bilge:\nSOP: 2 dosya (lead-enrichment, whatsapp-outreach)\nDers: 2+ AgentMemory kaydı, otomatik kayıt sistemi aktif\nAlarm: 🟡 Hata deseni %35 — Maliyetçi ile ortak takip ediliyor\n\n📌 Jeff: Toplu email enrichment hızlanmalı. 31 emailsiz lead'in 11'ine bu sabah WhatsApp çıkıldı. DeepSeek token tüketimi düşük, sorun yok."}
+{"t": "2026-07-09T10:23:38.759229", "kim": "Jeff", "mesaj": "📋 ÇAPRAZ KONTROL — 2026-07-09\n🔍 Çift 1 — Maliyetçi→Hırslı: enrichment API kaydı yok (🟡 maliyet takipsiz)\n🔍 Çift 2 — Bilge→Hırslı: SOP kısmi uyum, website tarama adımı atlanmış olabilir (🟡)\n📌 Jeff: Enrichment API maliyeti kayda alınmalı. SOP güncellenmeli veya Hırslı uyarılmalı.", "tip": "capraz_kontrol", "mod": "is"}
+{"t": "2026-07-09T10:35:59.505093", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T10:35:59.505339", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:35:59.505451", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:35:59.505531", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:35:59.505604", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:35:59.505680", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:36:10.547930", "k": "📈 Hırslı", "m": "⏳ Görev tanımı bekliyor — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:36:30.099166", "k": "📈 Hırslı", "m": "⏳ Görev tanımı bekliyor — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:36:43.093552", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T10:36:43.093725", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:36:43.093796", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:36:43.093858", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:36:43.093921", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:36:43.093983", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:36:54.096416", "k": "🎯 Patronus", "m": "Yeni hedef: \"5 yeni lead bul ve enrichment yap\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:36:54.096979", "k": "📈 Hırslı", "m": "⏳ 5 yeni lead bul ve enrichment yap — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:36:54.097024", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:36.170451", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T10:41:36.170576", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:41:36.170619", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:41:36.170654", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:41:36.170687", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:41:36.170719", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T10:41:50.063771", "k": "🎯 Patronus", "m": "Yeni hedef: \"lead bul ve pipeline analizi yap\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.064308", "k": "📈 Hırslı", "m": "⏳ lead bul ve pipeline analizi yap — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:41:50.064352", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.078765", "k": "🎯 Patronus", "m": "Yeni hedef: \"instagram post konsepti hazırla\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.079054", "k": "🎨 Estetik", "m": "⏳ instagram post konsepti hazırla — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:41:50.079105", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.096134", "k": "🎯 Patronus", "m": "Yeni hedef: \"sistem sağlık kontrolü yap\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.096586", "k": "⚙️ Pragmatik", "m": "⏳ sistem sağlık kontrolü yap — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:41:50.096626", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.114619", "k": "🎯 Patronus", "m": "Yeni hedef: \"maliyet raporu hazırla\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.114907", "k": "💰 Maliyetçi", "m": "⏳ maliyet raporu hazırla — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:41:50.114945", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.137380", "k": "🎯 Patronus", "m": "Yeni hedef: \"sop güncelle ve ders çıkar\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:41:50.137720", "k": "💰 Maliyetçi", "m": "⏳ sop güncelle ve ders çıkar — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:41:50.137926", "k": "🧠 Bilge", "m": "⏳ sop güncelle ve ders çıkar — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:41:50.137963", "k": "🎯 Patronus", "m": "2 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:46:02.850127", "k": "🎯 Patronus", "m": "Yeni hedef: \"test kernel\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:46:02.850989", "k": "⚙️ Pragmatik", "m": "⏳ test kernel — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T10:46:02.851068", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T10:53:50.909680", "k": "⚙️ Pragmatik", "m": "✅ ", "tip": "sonuc", "mod": "is"}
+{"t": "2026-07-09T10:54:31.597808", "k": "🧠 Bilge", "m": "✅ ", "tip": "sonuc", "mod": "is"}
+{"t": "2026-07-09T12:06:47.455710", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:06:47.455896", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:06:47.455995", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:06:47.456053", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:06:47.456114", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:06:47.456162", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:07:00.480908", "k": "🎯 Patronus", "m": "Yeni hedef: \"3 lead enrichment yap\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T12:07:00.481754", "k": "📈 Hırslı", "m": "⏳ 3 lead enrichment yap — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T12:07:00.481827", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T12:07:07.966426", "k": "🎯 Patronus", "m": "Yeni hedef: \"instagram post konsepti hazırla\"", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T12:07:07.966834", "k": "🎨 Estetik", "m": "⏳ instagram post konsepti hazırla — çalışıyor...", "tip": "emir", "mod": "is"}
+{"t": "2026-07-09T12:07:07.966890", "k": "🎯 Patronus", "m": "1 bakana görev dağıtıldı", "tip": "hedef", "mod": "is"}
+{"t": "2026-07-09T12:14:59.198679", "k": "📈 Hırslı", "m": "✅ 3 lead enrichment yapildi. ENRICHMENT_LOG: (1) provider=web_search | lead=heybeli-otel | attempt=1 | result=found | email=info@heybeliotel.com.tr | cost=0.00 | next_channel=email | (2) provider=web_se", "tip": "sonuc", "mod": "is"}
+{"t": "2026-07-09T12:15:38.786898", "k": "🎨 Estetik", "m": "✅ Instagram post konsepti hazir. Konsept: Isletmenizi AI ile 10x Buyutun - 5 slayt carousel. Hedef: KOBI sahipleri. Hook: Rakipleriniz AI ile 3x hizli buyurken siz hala manuel is yapiyorsunuz. Slaytlar:", "tip": "sonuc", "mod": "is"}
+{"t": "2026-07-09T12:16:31.649224", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:16:31.649382", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:16:31.649430", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:16:31.649466", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:16:31.649500", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:16:31.649532", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:30:23.430353", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:30:23.430483", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:30:23.430528", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:30:23.430563", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:30:23.430596", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:30:23.430628", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:42:36.337471", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:42:36.337599", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:42:36.337652", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:42:36.337689", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:42:36.337727", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:42:36.337759", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:42:59.348404", "k": "🔴 Sistem", "m": "🔴 📈 Hırslı: 3 başarısız → circuit breaker open. 5dk bloke.", "tip": "uyari", "mod": "is"}
+{"t": "2026-07-09T12:42:59.349799", "k": "✅ Sistem", "m": "✅ 📈 Hırslı: circuit breaker kapandı. Normal akış.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:47:10.788337", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:47:10.788462", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:47:10.788504", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:47:10.788551", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:47:10.788590", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:47:10.788622", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:47:31.424619", "k": "📈 Hırslı", "m": "📊 Lead sync: 1 yeni lead, 0 duplicate atlandı", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:47:39.320261", "k": "📈 Hırslı", "m": "📥 Yeni lead eklendi: Test Otel (otel) — enrichment bekliyor", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:55:07.330884", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-09T12:55:07.331068", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:55:07.331132", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:55:07.331170", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:55:07.331205", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-09T12:55:07.331238", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T22:44:46.624830", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-16T22:44:46.625143", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T22:44:46.625207", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T22:44:46.625259", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T22:44:46.625309", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T22:44:46.625395", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:09.534589", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-16T23:06:09.534740", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:09.534785", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:09.534821", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:09.534855", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:09.534886", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:31.040299", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-07-16T23:06:31.040492", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:31.040611", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:31.040714", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:31.040758", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-07-16T23:06:31.040793", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-08-21T11:36:56.656195", "k": "🔄 Sistem", "m": "🧭 Mod değişti: 🏠 Özel", "tip": "sistem", "mod": "ozel"}
+{"t": "2026-08-21T11:36:56.660313", "k": "🔄 Sistem", "m": "🧭 Mod değişti: 💼 İş", "tip": "sistem", "mod": "is"}
+{"t": "2026-08-21T11:40:15.710151", "k": "🔄 Sistem", "m": "ErgeneAI Kabinesi başlatıldı. Revenue Architecture v2 aktif. Gerçek iş yönetim sistemi çalışıyor.", "tip": "sistem", "mod": "is"}
+{"t": "2026-08-21T11:40:15.710313", "k": "📈 Hırslı", "m": "Göreve hazırım. Pipeline'ı tarayıp rapor getirebilirim.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-08-21T11:40:15.710359", "k": "🎨 Estetik", "m": "Bu aralar konsept üretme modundayım. İçerik fikri olan gelsin.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-08-21T11:40:15.710397", "k": "⚙️ Pragmatik", "m": "Sistemler ayakta. Bana iş verin çalıştırayım.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-08-21T11:40:15.710433", "k": "💰 Maliyetçi", "m": "Token tüketimini izliyorum. Boş işlere izin vermem.", "tip": "mesaj", "mod": "is"}
+{"t": "2026-08-21T11:40:15.710466", "k": "🧠 Bilge", "m": "Kayıt almaya hazırım. Her işten ders çıkarırım.", "tip": "mesaj", "mod": "is"}

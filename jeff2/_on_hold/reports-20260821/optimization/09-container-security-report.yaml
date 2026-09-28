@@ -1,0 +1,66 @@
+# Container Security Report
+# Generated: 2026-08-17T14:15:00+03:00
+
+container_security_matrix:
+  - name: hmpanel-host-agent
+    privileged: true
+    pid_mode: host
+    network: hmpanel_default
+    root_bind: "/ -> /host"
+    risk: CRITICAL
+    finding: |
+      Container host mode'da ve privileged=true ile çalışıyor.
+      Tüm host dosya sistemine erişim var. Container escape
+      durumunda tam host kontrolü sağlanabilir.
+    recommendation: privileged kaldır, root bind'i kaldır
+
+  - name: hmpanel-panel
+    privileged: false
+    docker_socket: "/var/run/docker.sock"
+    risk: CRITICAL
+    finding: |
+      Docker socket container'a mount edilmiş. Bu, container'dan
+      docker komutları çalıştırılarak yeni privileged container
+      açılmasına veya mevcut container'ların manipüle edilmesine
+      olanak tanır.
+    recommendation: Docker socket'i kaldır veya read-only mount et
+
+  - name: hermes-vm
+    privileged: false
+    bind_mounts:
+      - /home/hermes/.ssh -> /root/.ssh
+      - /home/hermes/.gitconfig -> /root/.gitconfig
+    risk: HIGH
+    finding: SSH key'leri ve git config'i container'a erişilebilir
+    recommendation: SSH mount'unu kaldır
+
+  - name: beszel-agent
+    docker_socket: "/var/run/docker.sock"
+    risk: MEDIUM
+    finding: Monitoring için Docker socket gerekli olabilir
+    recommendation: Monitoring amacını doğrula, alternatives değerlendir
+
+latest_tag_containers:
+  count: 7
+  containers:
+    - node (pasarguard/node:latest)
+    - node-eu-1 (pasarguard/node:latest)
+    - hmpanel-nginx (nginx:latest)
+    - hmpanel-panel (ghcr.io/neoauroraproject/hmpanel:latest)
+    - ergeneai-landing (ergene-ai-landing:latest)
+    - beszel (henrygd/beszel:latest)
+    - beszel-agent (henrygd/beszel-agent:latest)
+  risk: HIGH
+  finding: |
+    :latest tag'leri beklenmeyen güncelleme ile uygulama kırılmasına
+    yol açabilir. Production'da sabit version veya digest kullanılmalı.
+  recommendation: Her container için sabit versiyon belirle
+
+image_digest_verification:
+  status: NOT_PERFORMED
+  recommendation: docker inspect --format '{{.Image}}' for each container
+
+overall_security_score: 3/10
+critical_issues: 2
+high_issues: 3
+medium_issues: 2

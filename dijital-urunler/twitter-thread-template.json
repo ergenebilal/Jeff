@@ -1,0 +1,7 @@
+{
+  "name": "Twitter Thread Otomasyonu",
+  "schedule": "0 14 * * 1,3,5",
+  "prompt": "Write a Twitter thread about building AI agents with n8n. Style: technical but accessible, 5-7 tweets. Include a link to https://ergene.gumroad.com/l/zero-to-ai-agent at the end. Topic rotates weekly: week1='how I built a Telegram DM agent', week2='why webhook security matters', week3='multi-agent coordination patterns'",
+  "skills": ["content-engine"],
+  "deliver": "twitter"
+}

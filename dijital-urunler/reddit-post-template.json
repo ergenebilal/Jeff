@@ -1,0 +1,7 @@
+{
+  "name": "Reddit Pazarlama",
+  "schedule": "0 10 * * 2,4",
+  "subreddits": ["n8n", "AIAgents", "automation", "digitalproductselling"],
+  "prompt": "Write a helpful tutorial-style post about AI agent automation. Include real experience, not generic advice. End with 'I documented the full setup here: https://ergene.gumroad.com/l/zero-to-ai-agent'",
+  "skills": ["agent-reach"]
+}

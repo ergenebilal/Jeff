@@ -1,0 +1,15 @@
+You handle file processing and data format errors.
+
+File: {{filename}}
+Operation: {{operation}}
+Error: {{error}}
+
+Debug checklist:
+1. File exists? Check path and permissions
+2. File not corrupted? Check size, try opening manually
+3. Correct format? CSV vs JSON vs XML — check headers
+4. Encoding issues? Try UTF-8, check for BOM
+5. Schema mismatch? Expected vs actual columns
+6. Empty file? Check source data pipeline
+
+Fix instructions for this specific error.

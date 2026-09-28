@@ -1,0 +1,132 @@
+{
+  "name": "Telegram AI Support Bot",
+  "nodes": [
+    {
+      "id": "wf05-node01",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300],
+      "parameters": { "updates": ["message", "callback_query"], "options": {} }
+    },
+    {
+      "id": "wf05-node02",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2.0,
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "const update = $input.first().json;\n\nlet messageText, chatId, userId, username, messageId;\n\nif (update.callback_query) {\n  messageText = update.callback_query.data;\n  chatId = update.callback_query.message.chat.id;\n  userId = update.callback_query.from.id;\n  username = update.callback_query.from.username || update.callback_query.from.first_name;\n  messageId = update.callback_query.message.message_id;\n} else {\n  messageText = update.message?.text || '';\n  chatId = update.message?.chat?.id;\n  userId = update.message?.from?.id;\n  username = update.message?.from?.username || update.message?.from?.first_name || 'User';\n  messageId = update.message?.message_id;\n}\n\nif (!messageText) {\n  return [{ json: { skip: true, reason: 'non_text_message' } }];\n}\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    user_id: userId,\n    username: username,\n    message_text: messageText,\n    message_id: messageId,\n    is_command: messageText.startsWith('/'),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "wf05-node03",
+      "name": "Check for Commands",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2.0,
+      "position": [650, 300],
+      "parameters": {
+        "dataType": "boolean",
+        "value1": "={{ $json.is_command }}",
+        "rules": [
+          { "value1": true, "outputKey": "command" },
+          { "value1": false, "outputKey": "query" }
+        ]
+      }
+    },
+    {
+      "id": "wf05-node04",
+      "name": "Handle /start & /help",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2.0,
+      "position": [850, 150],
+      "parameters": {
+        "jsCode": "const cmd = $input.first().json.message_text.split(' ')[0];\nlet response = '';\n\nswitch(cmd) {\n  case '/start':\n    response = '👋 Welcome! I am your AI Support Bot.\\nAvailable commands:\\n/help - Show this message\\n/about - Learn what I can do\\n\\nJust type any question to get started!';\n    break;\n  case '/help':\n    response = 'I can help you with:\\n- Technical support questions\\n- Product information\\n- General inquiries\\n- Troubleshooting\\n\\nJust send me your question and I will analyze it!';\n    break;\n  case '/about':\n    response = 'I am an AI-powered support bot built on n8n.\\nI use GPT-4o-mini to understand and respond to inquiries.\\n\\nBuilt with ❤️ using n8n + OpenAI.';\n    break;\n  default:\n    response = 'Unknown command. Type /help to see available commands.';\n}\n\nreturn [{ json: { ...$input.first().json, ai_reply: response } }];"
+      }
+    },
+    {
+      "id": "wf05-node05",
+      "name": "Get Conversation History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:5678/webhook/conversation-history",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "user_id", "value": "={{ $json.user_id }}" },
+            { "name": "limit", "value": 6 }
+          ]
+        },
+        "options": { "timeout": 5000, "retryOnFail": true, "maxTries": 2, "continueOnFail": true }
+      }
+    },
+    {
+      "id": "wf05-node06",
+      "name": "AI Generate Reply",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 3.0,
+      "position": [1050, 300],
+      "parameters": {
+        "modelId": "gpt-4o-mini",
+        "prompt": "You are a helpful customer support agent. Respond to the user's inquiry professionally and concisely.\n\nUser: {{ $json.username }}\nMessage: {{ $json.message_text }}\n\n{{ $json.previousMessages ? '\\nRecent conversation context:\\n' + $json.previousMessages : '' }}\n\nRespond in a friendly, helpful tone. Keep responses under 3 paragraphs. If you cannot answer, suggest the user contact a human agent.",
+        "options": { "temperature": 0.7, "maxTokens": 500 }
+      }
+    },
+    {
+      "id": "wf05-node07",
+      "name": "Format & Send Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2.0,
+      "position": [1250, 300],
+      "parameters": {
+        "jsCode": "const aiReply = $input.first().json.output || $input.first().json.text || 'Sorry, I could not process your request.';\nconst truncated = aiReply.length > 4000 ? aiReply.substring(0, 3997) + '...' : aiReply;\n\nreturn [{\n  json: {\n    chat_id: $json.chat_id,\n    text: truncated,\n    parse_mode: 'Markdown',\n    reply_to_message_id: $json.message_id,\n    user_message: $json.message_text,\n    response_tokens: Math.round(truncated.length / 4),\n    processing_time_ms: 'real-time'\n  }\n}];"
+      }
+    },
+    {
+      "id": "wf05-node08",
+      "name": "Telegram Send Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 2.1,
+      "position": [1450, 300],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "options": { "replyTo": "={{ $json.reply_to_message_id }}", "parseMode": "Markdown" }
+      }
+    },
+    {
+      "id": "wf05-node09",
+      "name": "Store Interaction Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [1650, 300],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO support_logs (user_id, username, user_message, ai_reply, created_at) VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT DO NOTHING",
+        "queryParams": "={{ [$json.user_id, $json.username, $json.user_message, $json.text] }}"
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": { "main": [[{"node": "Extract Message", "type": "main", "index": 0}]] },
+    "Extract Message": {
+      "main": [[{"node": "Check for Commands", "type": "main", "index": 0}]]
+    },
+    "Check for Commands": {
+      "main": [
+        [{"node": "Handle /start & /help", "type": "main", "index": 0}],
+        [{"node": "Get Conversation History", "type": "main", "index": 0}]
+      ]
+    },
+    "Handle /start & /help": { "main": [[{"node": "Telegram Send Message", "type": "main", "index": 0}]] },
+    "Get Conversation History": { "main": [[{"node": "AI Generate Reply", "type": "main", "index": 0}]] },
+    "AI Generate Reply": { "main": [[{"node": "Format & Send Reply", "type": "main", "index": 0}]] },
+    "Format & Send Reply": { "main": [[{"node": "Telegram Send Message", "type": "main", "index": 0}]] },
+    "Telegram Send Message": { "main": [[{"node": "Store Interaction Log", "type": "main", "index": 0}]] }
+  },
+  "settings": { "executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "all" }
+}

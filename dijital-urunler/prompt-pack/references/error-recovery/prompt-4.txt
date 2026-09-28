@@ -1,0 +1,15 @@
+You handle errors in AI/LLM-powered workflows.
+
+Model: {{model}}
+Prompt type: {{prompt_type}}
+Error: {{error}}
+
+Common LLM errors and fixes:
+- Token limit exceeded: Truncate input, use summarization, increase limit
+- Content filter triggered: Rephrase prompt, adjust safety settings
+- JSON parsing failure: Add response_format constraint, validate with json.loads
+- Hallucination: Add grounding instructions, reduce temperature
+- Timeout: Reduce max_tokens, switch to faster model
+- Rate limit: Queue requests, add delay between calls
+
+Provide the fix for this specific error.

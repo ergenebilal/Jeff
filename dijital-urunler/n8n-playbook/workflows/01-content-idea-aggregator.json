@@ -1,0 +1,106 @@
+{
+  "name": "Content Idea Aggregator",
+  "nodes": [
+    {
+      "id": "wf01-node01",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300],
+      "parameters": {
+        "rules": { "interval": [{ "field": "hours", "hoursInterval": 24 }] }
+      }
+    },
+    {
+      "id": "wf01-node02",
+      "name": "RSS Feed Reader",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 2.1,
+      "position": [450, 300],
+      "parameters": {
+        "url": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FubDhHZ0pEVGlnQVAB"
+      }
+    },
+    {
+      "id": "wf01-node03",
+      "name": "Deduplicate & Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2.0,
+      "position": [650, 300],
+      "parameters": {
+        "jsCode": "const seenTitles = new Set();\nconst results = [];\n\nfor (const item of $input.all()) {\n  const title = (item.json.title || '').trim();\n  const key = title.substring(0, 50).toLowerCase();\n\n  if (!seenTitles.has(key)) {\n    seenTitles.add(key);\n    results.push({\n      json: {\n        title: item.json.title,\n        link: item.json.link || item.json.url,\n        content: item.json.content || item.json.description || '',\n        published: item.json.pubDate || item.json.pubdate || new Date().toISOString(),\n        source: new URL(item.json.link || 'https://example.com', 'https://example.com').hostname || 'unknown'\n      }\n    });\n  }\n}\n\nreturn results.slice(0, 15);"
+      }
+    },
+    {
+      "id": "wf01-node04",
+      "name": "AI Topic Classifier",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 3.0,
+      "position": [850, 300],
+      "parameters": {
+        "modelId": "gpt-4o-mini",
+        "prompt": "Classify this news headline into one category: AI/ML, Business, Security, Product Launch, Tutorial, or Other. Return ONLY the category name.\n\nHeadline: {{ $json.title }}\n\nCategory:",
+        "options": { "temperature": 0.1, "maxTokens": 50 }
+      }
+    },
+    {
+      "id": "wf01-node05",
+      "name": "Sort by Category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2.0,
+      "position": [1050, 300],
+      "parameters": {
+        "jsCode": "const sorted = $input.all();\nsorted.sort((a, b) => {\n  const catA = (a.json.output || 'Other').trim().toLowerCase();\n  const catB = (b.json.output || 'Other').trim().toLowerCase();\n  return catA.localeCompare(catB);\n});\n\nreturn sorted.map(item => ({\n  json: {\n    title: item.json.title,\n    link: item.json.link,\n    category: (item.json.output || 'Other').trim(),\n    published: item.json.published,\n    source: item.json.source\n  }\n}));"
+      }
+    },
+    {
+      "id": "wf01-node06",
+      "name": "Google Sheets Export",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1250, 300],
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "sheetName": "Content Ideas",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $json.title }}",
+            "link": "={{ $json.link }}",
+            "category": "={{ $json.category }}",
+            "source": "={{ $json.source }}",
+            "collected": "={{ new Date().toISOString().split('T')[0] }}"
+          }
+        },
+        "options": { "cellFormat": "userEnteredValue", "handlingExtraData": "insertInNewColumn" }
+      }
+    },
+    {
+      "id": "wf01-node07",
+      "name": "On Error: Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1250, 500],
+      "parameters": {
+        "operation": "postMessage",
+        "channelId": "#content-pipeline-alerts",
+        "text": "⚠️ Content aggregator failed: {{ $json.error.message || 'Unknown error' }}"
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule": { "main": [[{"node": "RSS Feed Reader", "type": "main", "index": 0}]] },
+    "RSS Feed Reader": { "main": [[{"node": "Deduplicate & Filter", "type": "main", "index": 0}]] },
+    "Deduplicate & Filter": { "main": [[{"node": "AI Topic Classifier", "type": "main", "index": 0}]] },
+    "AI Topic Classifier": { "main": [[{"node": "Sort by Category", "type": "main", "index": 0}]] },
+    "Sort by Category": { "main": [[{"node": "Google Sheets Export", "type": "main", "index": 0}]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}

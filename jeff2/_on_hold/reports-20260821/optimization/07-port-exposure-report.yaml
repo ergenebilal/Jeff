@@ -1,0 +1,140 @@
+# Port Exposure Report
+# Generated: 2026-08-17T14:15:00+03:00
+
+listening_ports:
+  - port: 22
+    protocol: tcp
+    process: sshd
+    publicly_reachable: YES (UFW allows)
+    auth: key-based
+    tls: no
+    risk: MEDIUM — brute-force risk (fail2ban active)
+    ufw_rule: "22/tcp ALLOW IN Anywhere"
+
+  - port: 80
+    protocol: tcp
+    process: hmpanel-nginx
+    publicly_reachable: YES (UFW allows)
+    tls: redirect to 443
+    risk: LOW
+    ufw_rule: "80/tcp ALLOW IN Anywhere"
+
+  - port: 443
+    protocol: tcp
+    process: hmpanel-nginx
+    publicly_reachable: YES (UFW allows)
+    tls: yes
+    risk: LOW
+    ufw_rule: "443/tcp ALLOW IN Anywhere"
+
+  - port: 5678
+    protocol: tcp
+    process: n8n
+    publicly_reachable: YES (UFW allows)
+    auth: n8n auth (if configured)
+    tls: no (behind nginx?)
+    risk: HIGH — n8n public without confirmed auth
+    ufw_rule: "5678/tcp ALLOW IN Anywhere"
+    recommendation: Restrict to Tailscale or VPN only
+
+  - port: 8000
+    protocol: tcp
+    process: coolify
+    bind: "0.0.0.0:8000->8080"
+    publicly_reachable: NOT_IN_UFW (but Docker binds 0.0.0.0)
+    auth: Coolify auth
+    risk: MEDIUM — accessible if UFW doesn't block
+    note: UFW may not cover Docker-published ports
+
+  - port: 8090
+    protocol: tcp
+    process: beszel
+    bind: "0.0.0.0:8090->8090"
+    publicly_reachable: NOT_IN_UFW (but Docker binds 0.0.0.0)
+    auth: beszel auth
+    risk: MEDIUM
+
+  - port: 8642
+    protocol: tcp
+    process: hermes-gateway
+    publicly_reachable: YES (UFW allows)
+    auth: unknown
+    risk: HIGH — gateway public without confirmed auth
+    ufw_rule: "8642/tcp ALLOW IN Anywhere"
+    recommendation: Restrict to Tailscale only
+
+  - port: 8765
+    protocol: tcp
+    process: hermes-vm
+    bind: "0.0.0.0:8765->8765"
+    publicly_reachable: NOT_IN_UFW (but Docker binds 0.0.0.0)
+    auth: unknown
+    risk: MEDIUM
+
+  - port: 8767
+    protocol: tcp
+    process: hermes-vm
+    bind: "0.0.0.0:8767->8767"
+    publicly_reachable: NOT_IN_UFW (but Docker binds 0.0.0.0)
+    auth: unknown
+    risk: MEDIUM
+
+  - port: 6001-6002
+    protocol: tcp
+    process: coolify-realtime
+    bind: "0.0.0.0:6001-6002->6001-6002"
+    publicly_reachable: NOT_IN_UFW (but Docker binds 0.0.0.0)
+    auth: unknown
+    risk: MEDIUM
+
+  - port: 5432
+    protocol: tcp
+    process: hmpanel-postgres
+    bind: internal only (hmpanel_network)
+    publicly_reachable: NO
+    risk: LOW
+
+  - port: 6379
+    protocol: tcp
+    process: hmpanel-redis / coolify-redis
+    bind: internal only
+    publicly_reachable: NO
+    risk: LOW
+
+ufw_summary:
+  status: active
+  default_incoming: deny
+  default_outgoing: allow
+  default_routed: deny
+  rules:
+    - "22/tcp ALLOW IN Anywhere"
+    - "80/tcp ALLOW IN Anywhere"
+    - "443/tcp ALLOW IN Anywhere"
+    - "5678/tcp ALLOW IN Anywhere"
+    - "8642/tcp ALLOW IN Anywhere"
+    - "100.64.0.0/10 ALLOW IN (Tailscale)"
+
+critical_findings:
+  - finding: "Docker-published ports may bypass UFW"
+    severity: HIGH
+    detail: |
+      UFW operates at iptables level, but Docker manipulates iptables
+      directly. Ports published via Docker (-p) may be accessible even
+      if UFW doesn't explicitly allow them. Ports 8000, 8090, 8765,
+      8767, 6001-6002 bind to 0.0.0.0 but are not in UFW rules.
+      Test with: nmap -p 8000,8090,8765,8767,6001,6002 193.164.4.149
+    verification_needed: external port scan
+
+  - finding: "n8n (5678) publicly accessible"
+    severity: HIGH
+    detail: |
+      n8n webhook portu tüm internete açık. Eğer n8n auth
+      yapılandırılmamışsa, herkes workflow'ları tetikleyebilir.
+      UFW'den kaldırılıp Tailscale'e kısıtlanmalı.
+    verification_needed: n8n auth durumu kontrol
+
+  - finding: "Hermes gateway (8642) publicly accessible"
+    severity: HIGH
+    detail: |
+      Hermes gateway portu tüm internete açık. Auth doğrulanmalı.
+    verification_needed: auth mechanism check

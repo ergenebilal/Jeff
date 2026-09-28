@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kabine Sohbeti</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#050807;color:#e8e8e8;height:100vh;display:flex;flex-direction:column}
+
+/* Başlık */
+.baslik{display:flex;align-items:center;gap:8px;padding:10px 16px;background:#0a0a0a;border-bottom:1px solid rgba(255,255,255,0.06)}
+.baslik .logo{font-size:15px;font-weight:700;color:#81E36F}
+.baslik .kim{font-size:11px;color:#888}
+.baslik .sag{font-size:10px;color:#555;margin-left:auto}
+
+/* Sohbet akışı */
+.akis{padding:12px 16px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px}
+
+/* Mesaj */
+.mesaj{display:flex;align-items:flex-start;gap:8px;padding:4px 0}
+.mesaj .av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;margin-top:2px}
+.mesaj .govde{flex:1;min-width:0}
+.mesaj .govde .ust{display:flex;align-items:baseline;gap:6px;margin-bottom:1px}
+.mesaj .govde .ad{font-size:12px;font-weight:600}
+.mesaj .govde .zaman{font-size:9px;color:#555}
+.mesaj .govde .metin{font-size:13px;color:#d0d0d0;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.mesaj .govde .alt{display:flex;gap:6px;margin-top:3px}
+.mesaj .govde .etiket{font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.04);color:#888}
+
+/* Bölücü */
+.ayrac{text-align:center;padding:8px 0;font-size:9px;color:#333;text-transform:uppercase;letter-spacing:1px}
+
+/* Onay görseli */
+.onay-kutu{margin:2px 0 2px 38px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.12);font-size:11px;color:#d0d0d0}
+.onay-kutu .bas{color:#F59E0B;font-weight:600;font-size:10px;margin-bottom:2px}
+.onay-kutu .det{font-size:10px;color:#999}
+.onay-kutu .sonuc{font-size:10px;font-weight:600;margin-top:3px}
+
+/* Mod seçici */
+.mod-bar{display:flex;gap:4px;padding:6px 16px;background:#0a0a0a;border-bottom:1px solid rgba(255,255,255,0.04);justify-content:center;flex-wrap:wrap}
+.mod-btn{padding:4px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#888;font-size:11px;cursor:pointer;transition:all 0.2s}
+.mod-btn:hover{color:#e8e8e8;border-color:rgba(255,255,255,0.15)}
+.mod-btn.aktif{color:#e8e8e8;border-color:#81E36F;background:rgba(129,227,111,0.08);font-weight:600}
+
+/* Brifing */
+.brifing{margin:4px 12px;padding:10px 14px;border-radius:8px;background:rgba(129,227,111,0.04);border:1px solid rgba(129,227,111,0.1)}
+.brifing .b-bas{font-size:13px;font-weight:700;color:#81E36F;margin-bottom:6px}
+.brifing .b-uyari{font-size:10px;color:#F59E0B;margin-bottom:4px}
+.brifing .b-madde{display:flex;gap:8px;padding:3px 0;font-size:11px;color:#c0c0c0;border-bottom:1px solid rgba(255,255,255,0.03)}
+.brifing .b-madde:last-child{border-bottom:none}
+.brifing .b-sira{width:16px;font-size:9px;color:#555;text-align:right;flex-shrink:0}
+.brifing .b-baslik{font-weight:600;color:#e0e0e0;min-width:90px;flex-shrink:0;font-size:11px}
+.brifing .b-icerik{color:#aaa;font-size:11px;line-height:1.4}
+.brifing .b-sessiz{text-align:center;padding:6px 0;font-size:11px;color:#555;font-style:italic}
+
+@media(max-width:600px){.baslik{padding:8px 12px}.akis{padding:8px 10px}.mesaj .av{width:26px;height:26px;font-size:12px}.mesaj .govde .metin{font-size:12px}}
+</style>
+</head>
+<body>
+
+<div class="baslik">
+    <span class="logo">⚡ ErgeneAI</span>
+    <span class="kim" id="baslik-mod">💼 İş</span>
+    <span class="sag" id="saat"></span>
+</div>
+
+<div class="mod-bar" id="mod-bar">
+    <button class="mod-btn aktif" onclick="modDegistir('is')">💼 İş</button>
+    <button class="mod-btn" onclick="modDegistir('ozel')">🏠 Özel</button>
+    <button class="mod-btn" onclick="modDegistir('sosyal')">🎉 Sosyal</button>
+</div>
+
+<div class="akis" id="akis">
+    <div id="brifing-alani"></div>
+    <div id="feed-alani"></div>
+</div>
+
+<script>
+let AKTIF_MOD = 'is'
+const MOD_ETIKET = {'is':'💼 İş','ozel':'🏠 Özel','sosyal':'🎉 Sosyal'}
+const AKIS = document.getElementById('akis')
+const BRIFING = document.getElementById('brifing-alani')
+const FEED = document.getElementById('feed-alani')
+
+async function modDurum() {
+    try {
+        const r = await fetch('/api/durum')
+        const d = await r.json()
+        AKTIF_MOD = d.aktif_mod || 'is'
+        document.getElementById('baslik-mod').textContent = '🧭 ' + (MOD_ETIKET[AKTIF_MOD] || AKTIF_MOD)
+        document.querySelectorAll('.mod-btn').forEach(b => {
+            b.classList.toggle('aktif', b.textContent.includes(MOD_ETIKET[AKTIF_MOD] ? MOD_ETIKET[AKTIF_MOD].split(' ')[1] : AKTIF_MOD))
+        })
+    } catch(e) {}
+}
+
+async function modDegistir(mod) {
+    try {
+        const r = await fetch('/api/mod/set', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mod})})
+        const d = await r.json()
+        if (d.ok) {
+            AKTIF_MOD = mod
+            document.getElementById('baslik-mod').textContent = '🧭 ' + MOD_ETIKET[mod]
+            document.querySelectorAll('.mod-btn').forEach(b => b.classList.remove('aktif'))
+            document.querySelectorAll('.mod-btn').forEach(b => {if(b.textContent.includes(MOD_ETIKET[mod].split(' ')[1])) b.classList.add('aktif')})
+            yukleBrifing()
+            yukle()
+        }
+    } catch(e) {}
+}
+
+async function yukleBrifing() {
+    try {
+        const r = await fetch('/api/brief?mod=' + AKTIF_MOD)
+        const b = await r.json()
+        if (b.sessiz) {
+            BRIFING.innerHTML = '<div class="brifing"><div class="b-sessiz">Bugün bu modda yeni bir şey yok</div></div>'
+            return
+        }
+        let html = '<div class="brifing">'
+        html += '<div class="b-bas">' + b.baslik + '</div>'
+        if (b.uyari) html += '<div class="b-uyari">' + b.uyari + '</div>'
+        b.maddeler.forEach(m => {
+            html += '<div class="b-madde">'
+            html += '<span class="b-sira">' + m.sira + '.</span>'
+            html += '<span class="b-baslik">' + m.baslik + '</span>'
+            html += '<span class="b-icerik">' + m.icerik + '</span>'
+            html += '</div>'
+        })
+        html += '</div>'
+        BRIFING.innerHTML = html
+    } catch(e) {}
+}
+
+async function yukle() {
+    try {
+        const r = await fetch('/api/feed?mod=' + AKTIF_MOD)
+        const feed = await r.json()
+        
+        const son = feed.slice(-100)
+        
+        if (!son.length) {
+            FEED.innerHTML = '<div style="text-align:center;color:#333;padding:20px;font-size:12px">Bu modda henüz konuşma yok</div>'
+            return
+        }
+        
+        let html = ''
+        let sonTarih = ''
+        
+        son.forEach(m => {
+            const tarih = m.t ? m.t.split('T')[0] : ''
+            if (tarih && tarih !== sonTarih) {
+                html += `<div class="ayrac">${tarih}</div>`
+                sonTarih = tarih
+            }
+            
+            const zaman = m.t ? m.t.split('T')[1].slice(0,5) : ''
+            
+            let ad = m.k || ''
+            let avatar = '🧿'
+            let renk = '#81E36F'
+            
+            if (ad.includes('Patronus') || ad.includes('Sistem')) {
+                avatar = '🧿'; ad = 'Patronus'; renk = 'rgba(129,227,111,0.12)'
+            } else if (ad.includes('Hırslı')) {
+                avatar = '📈'; ad = 'Hırslı'; renk = 'rgba(34,197,94,0.12)'
+            } else if (ad.includes('Estetik')) {
+                avatar = '🎨'; ad = 'Estetik'; renk = 'rgba(129,227,111,0.12)'
+            } else if (ad.includes('Pragmatik')) {
+                avatar = '⚙️'; ad = 'Pragmatik'; renk = 'rgba(59,130,246,0.12)'
+            } else if (ad.includes('Maliyetçi')) {
+                avatar = '💰'; ad = 'Maliyetçi'; renk = 'rgba(245,158,11,0.12)'
+            } else if (ad.includes('Bilge')) {
+                avatar = '🧠'; ad = 'Bilge'; renk = 'rgba(139,92,246,0.12)'
+            }
+            
+            let altEtiket = ''
+            if (m.tip === 'hedef') altEtiket = '<span class="etiket" style="color:#81E36F">🎯 hedef</span>'
+            else if (m.tip === 'onay') altEtiket = '<span class="etiket" style="color:#F59E0B">⏳ onay</span>'
+            else if (m.tip === 'sonuc') altEtiket = '<span class="etiket" style="color:#81E36F">✅ sonuç</span>'
+            else if (m.tip === 'kabine') altEtiket = '<span class="etiket" style="color:#F59E0B">🏛️ kabine</span>'
+            else if (m.tip === 'sistem') altEtiket = '<span class="etiket" style="color:#8B5CF6">⚙️ sistem</span>'
+            
+            html += `<div class="mesaj">
+                <div class="av" style="background:${renk}">${avatar}</div>
+                <div class="govde">
+                    <div class="ust"><span class="ad">${ad}</span><span class="zaman">${zaman}</span></div>
+                    <div class="metin">${m.m || ''}</div>
+                    ${altEtiket ? '<div class="alt">' + altEtiket + '</div>' : ''}
+                </div>
+            </div>`
+        })
+        
+        FEED.innerHTML = html
+        AKIS.scrollTo(0, AKIS.scrollHeight)
+    } catch(e) {}
+}
+
+document.getElementById('saat').textContent = new Date().toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit'})
+
+modDurum()
+yukleBrifing()
+yukle()
+setInterval(yukle, 3000)
+setInterval(yukleBrifing, 30000)  // brifing 30 saniyede bir yenilenir
+</script>
+</body>
+</html>

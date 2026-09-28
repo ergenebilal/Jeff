@@ -1,0 +1,172 @@
+# 23-Port-Exposure-Retest.yaml
+# Generated: 2026-08-17T15:00:00+03:00
+
+test_metadata:
+  date: 2026-08-17
+  public_ip: 193.164.4.149
+  method: bash /dev/tcp + nc
+  ufw_status: active (deny incoming default)
+
+intended_public_ports:
+  - port: 22
+    service: SSH
+    status: OPEN
+    ufw: ALLOW IN Anywhere
+    ipv6: ALLOW IN Anywhere (v6)
+    verdict: INTENDED_PUBLIC
+
+  - port: 80
+    service: HTTP (Caddy/Nginx)
+    status: OPEN
+    ufw: ALLOW IN Anywhere
+    ipv6: ALLOW IN Anywhere (v6)
+    verdict: INTENDED_PUBLIC
+
+  - port: 443
+    service: HTTPS (Caddy/Nginx)
+    status: OPEN
+    ufw: ALLOW IN Anywhere
+    ipv6: ALLOW IN Anywhere (v6)
+    verdict: INTENDED_PUBLIC
+
+unauthorized_public_ports:
+  - port: 8000
+    service: Coolify Panel
+    status: OPEN ❌
+    ufw: ALLOW IN Anywhere (docker0 DENY exists but not effective for external)
+    docker_user_chain: DROP rules exist (9 packets matched)
+    finding: |
+      DOCKER-USER chain'de DROP kuralı var ama çalışmıyor.
+      Sebep: Docker DNAT trafiği INPUT chain'den geçiyor, FORWARD değil.
+      UFW ufw-user-input'da port 8000 için ALLOW kuralı var.
+      SONUÇ: Port dışarıdan erişilebilir.
+    risk: HIGH
+
+  - port: 8090
+    service: Beszel Monitoring
+    status: OPEN ❌
+    ufw: ALLOW IN Anywhere (docker0 DENY exists)
+    docker_user_chain: DROP rules exist
+    finding: "Aynı sorun — UFW INPUT'ta ALLOW var"
+    risk: HIGH
+
+  - port: 8642
+    service: Hermes Gateway
+    status: OPEN ❌
+    ufw: ALLOW IN Anywhere
+    docker_user_chain: DROP rules exist
+    finding: "Aynı sorun — UFW INPUT'ta ALLOW var. aiohttp çalıştığını doğruladık."
+    risk: HIGH
+    verified: "HTTP 404 — Python/3.11 aiohttp/3.13.4 yanıtı alındı"
+
+  - port: 6001
+    service: Coolify Realtime
+    status: OPEN ❌
+    ufw: ALLOW IN (via docker compose)
+    docker_user_chain: DROP rules exist
+    finding: "Aynı sorun"
+    risk: HIGH
+
+  - port: 6002
+    service: Coolify Realtime 2
+    status: OPEN ❌
+    ufw: ALLOW IN (via docker compose)
+    docker_user_chain: DROP rules exist
+    finding: "Aynı sorun"
+    risk: HIGH
+
+  - port: 5678
+    service: n8n Webhook
+    status: CLOSED ✅
+    ufw: ALLOW IN Anywhere
+    finding: "Docker bridge üzerinden engellenmiş görünüyor"
+    risk: OK
+
+unexpected_host_ports:
+  - port: 8080
+    process: bilinmeyen (Docker container)
+    status: OPEN
+    ufw: No explicit rule
+    risk: HIGH
+
+  - port: 8081
+    process: "python3 (pid 2909386)"
+    status: OPEN
+    risk: HIGH
+
+  - port: 8099
+    process: "python3 (pid 3899539)"
+    status: OPEN
+    risk: HIGH
+
+  - port: 8644
+    process: "hermes (pid 2706175)"
+    status: OPEN
+    risk: MEDIUM (Hermes internal)
+
+  - port: 8766
+    process: "python3 (pid 1498137)"
+    status: OPEN
+    risk: HIGH
+
+  - port: 8877
+    process: "python3 (pid 1497996)"
+    status: OPEN
+    risk: HIGH
+
+  - port: 8889
+    process: "python3.12 (pid 3890584)"
+    status: OPEN
+    risk: HIGH
+
+safe_ports:
+  - port: 8765
+    service: Hermes VM (Docker)
+    status: CLOSED ✅
+    finding: "DOCKER-USER DROP + DNAT Engellenmiş"
+
+  - port: 8767
+    service: Hermes VM 2 (Docker)
+    status: CLOSED ✅
+    finding: "DOCKER-USER DROP + DNAT Engellenmiş"
+
+  - port: 5432
+    service: PostgreSQL
+    status: CLOSED ✅
+    finding: "Docker port mapping yok, dışarıdan erişilemez"
+
+docker_user_chain_analysis:
+  status: "PARTIALLY EFFECTIVE"
+  finding: |
+    DOCKER-USER chain'deki DROP kuralları DOĞRU çalışıyor — Docker bridge
+    üzerinden gelen trafiği engelliyor (8765, 8767 kapandı).
+    ANCAK: Docker publish port'larından gelen dış trafik INPUT chain'den
+    geçiyor. UFW ufw-user-input'da bu portlar için ALLOW kuralı var.
+    DOCKER-USER sadece FORWARD chain'de çalışır, INPUT'ta çalışmaz.
+
+  recommendation: |
+    1. UFW'den 8000, 8090, 8642, 6001, 6002 için ALLOW kurallarını KALDIR
+    2. Veya docker-compose.yml'den bu port mapping'lerini kaldır
+    3. DOCKER-USER chain'i tek başına yeterli değil
+
+reboot_persistence:
+  restore_script: /usr/local/bin/restore-docker-user-rules.sh
+  status: "SCRIPT BOŞ — dosya mevcut ama içerik yok"
+  crontab_reboot: "YOK — @reboot kuralı eklenmemiş"
+  finding: |
+    Önceki turda oluşturulan restore script'i boş.
+    crontab'a @reboot kuralı eklenmemiş.
+    Sunucu yeniden başlatılırsa DOCKER-USER kuralları SİLİNECEK.
+
+ipv6_analysis:
+  global_ipv6: "YOK — yalnızca link-local (fe80) adresleri mevcut"
+  risk: "Düşük — global IPv6 yok, IPv6 üzerinden dış erişim mümkün değil"
+  ufw_ipv6_rules: "Tanımlı ama etkisiz (global IPv6 yok)"
+
+summary:
+  intended_public: 3 (22, 80, 443)
+  unauthorized_public: 7 (8000, 8090, 8642, 6001, 6002, 8080, 8081, 8099, 8766, 8877, 8889)
+  blocked: 3 (8765, 8767, 5432)
+  docker_user_effective: "Yalnızca bridge trafiği — dış trafik etkilenmedi"
+  reboot_safe: NO
+  overall_risk: CRITICAL

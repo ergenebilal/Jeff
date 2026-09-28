@@ -1,0 +1,98 @@
+[
+  {
+    "num": 1,
+    "name": "Basit Ping",
+    "status": "PASS",
+    "duration_ms": 255.05,
+    "details": "Server Exec: 0.01ms, Client RTT: 254.92ms",
+    "proof": "{\"pong\": true, \"host\": \"LENOVO\", \"platform\": \"Windows 11 (AMD64)\", \"python\": \"3.13.15\", \"uptime_sec\": 352.46, \"version\": \"3.0.0-direct\", \"echo\": \"suite-ping-test\"}"
+  },
+  {
+    "num": 2,
+    "name": "Screenshot Capture & Download",
+    "status": "PASS",
+    "duration_ms": 591.2,
+    "details": "Size: 266062 bytes (1920x1200)",
+    "proof": "Saved to /tmp/alfred_test_screen.png"
+  },
+  {
+    "num": 3,
+    "name": "Browser A\u00e7",
+    "status": "PASS",
+    "duration_ms": 2412.91,
+    "details": "Default browser opened successfully",
+    "proof": "{'opened': True, 'url': 'https://google.com', 'page_title': 'Google', 'engine': 'playwright'}"
+  },
+  {
+    "num": 4,
+    "name": "URL A\u00e7",
+    "status": "PASS",
+    "duration_ms": 1551.73,
+    "details": "Opened URL: https://ergeneai.com",
+    "proof": "{'opened': True, 'url': 'https://ergeneai.com', 'page_title': 'Ergene AI | \u0130\u015fletmeler i\u00e7in AI Otomasyon \u00c7\u00f6z\u00fcmleri', 'engine': 'playwright'}"
+  },
+  {
+    "num": 5,
+    "name": "Terminal / PowerShell Komutu",
+    "status": "PASS",
+    "duration_ms": 3969.99,
+    "details": "Exit: 0, Windows Server Exec: 3607.18ms",
+    "proof": "{\"WindowsProductName\":\"Windows 10 Pro\",\"OsHardwareAbstractionLayer\":\"10.0.26100."
+  },
+  {
+    "num": 6,
+    "name": "Dosya Yazma + Okuma",
+    "status": "PASS",
+    "duration_ms": 429.73,
+    "details": "Wrote and read back 38 bytes correctly",
+    "proof": "C:\\Users\\lenovo\\.hermes\\test_bridge_file.txt"
+  },
+  {
+    "num": 7,
+    "name": "Hata Y\u00f6netimi (File Not Found)",
+    "status": "PASS",
+    "duration_ms": 149.48,
+    "details": "Error returned as structured JSON: File not found: C:\\NonExistentPath_12345\\impossible.txt",
+    "proof": "File not found: C:\\NonExistentPath_12345\\impossible.txt"
+  },
+  {
+    "num": 8,
+    "name": "Offline / Connection Failure Handling",
+    "status": "PASS",
+    "duration_ms": 3005.21,
+    "details": "Clean exception caught: timeout - Request timed out after 1.5s: HTTPConnectionPool(host='100.8",
+    "proof": ""
+  },
+  {
+    "num": 9,
+    "name": "5x Paralel E\u015fzamanl\u0131 \u0130stek",
+    "status": "PASS",
+    "duration_ms": 220.33,
+    "details": "All 5 returned 200 OK concurrently in 220.33ms total",
+    "proof": "Avg per call in pool: 44.07ms"
+  },
+  {
+    "num": 10,
+    "name": "Uzun G\u00f6rev (Async Job Mode)",
+    "status": "PASS",
+    "duration_ms": 3083.08,
+    "details": "Accepted immediately -> completed in 2423.92ms",
+    "proof": "Job: job_2a16717c83eb"
+  },
+  {
+    "num": 11,
+    "name": "Yinelenen \u0130stek (Idempotency Cache)",
+    "status": "PASS",
+    "duration_ms": 480.66,
+    "details": "Second identical request caught by cache, returned cached payload without re-execution",
+    "proof": "Cached response returned in 158.53ms"
+  },
+  {
+    "num": 12,
+    "name": "U\u00e7tan Uca D\u00f6ng\u00fc (Think->Act->Observe)",
+    "status": "PASS",
+    "duration_ms": 1211.06,
+    "details": "Full 3-step autonomous tool loop executed: Drive C has 760.29 GB free. System healthy at 2026-09-21 15:02:45",
+    "proof": "3 sequential roundtrips took 1211.06ms total (~403.7ms/action)"
+  }
+]

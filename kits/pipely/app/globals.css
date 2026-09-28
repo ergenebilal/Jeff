@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ───────────────────────────────────────────────────────────────────────────
+   PIPELY — a LIGHT, clean, confident sales-CRM palette. Light is the default;
+   there is intentionally no dark class on <html>. White surfaces, hairline
+   borders (≈ #ECECEE), a sales-green primary, tabular-num deal values
+   (Plus Jakarta Sans + JetBrains Mono). The guided setup edits the hue values
+   below to match a brand — everything is oklch(L C H); to recolor, mostly
+   change H. BRAND HUE for this kit ≈ 150 (sales green).
+   ─────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --font-sans: var(--font-sans-app), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-app), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-app), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-xs: 0.5rem;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+
+  /* App canvas — a near-white, faintly green-cool gray. Lots of light. */
+  --color-background: oklch(98.6% 0.004 150);
+  --color-foreground: oklch(25% 0.02 160);
+
+  --color-muted: oklch(96.8% 0.006 150);
+  --color-muted-foreground: oklch(54% 0.02 158);
+
+  /* Hairline borders ≈ #ECECEE */
+  --color-border: oklch(93.4% 0.004 150);
+  --color-input: oklch(92% 0.005 150);
+  --color-ring: oklch(60% 0.14 150);
+
+  /* Pure white surfaces — cards, sidebar, tables, kanban columns. */
+  --color-card: oklch(100% 0 0);
+  --color-card-foreground: oklch(25% 0.02 160);
+
+  --color-popover: oklch(100% 0 0);
+  --color-popover-foreground: oklch(25% 0.02 160);
+
+  /* Brand accent — sales green. Change H to recolor the whole app. */
+  --color-primary: oklch(60% 0.14 150);
+  --color-primary-foreground: oklch(99% 0.01 150);
+
+  --color-accent: oklch(60% 0.14 150);
+  --color-accent-foreground: oklch(99% 0.01 150);
+
+  --color-secondary: oklch(96.6% 0.01 150);
+  --color-secondary-foreground: oklch(30% 0.02 160);
+
+  --color-destructive: oklch(60% 0.2 22);
+  --color-destructive-foreground: oklch(99% 0.01 150);
+
+  --color-warning: oklch(78% 0.14 75);
+  --color-warning-foreground: oklch(40% 0.07 60);
+
+  --color-success: oklch(62% 0.15 152);
+  --color-success-foreground: oklch(99% 0.01 150);
+
+  --color-info: oklch(62% 0.13 240);
+  --color-info-foreground: oklch(99% 0.01 150);
+
+  /* Sidebar — white surface with a hairline right border (the signature shell). */
+  --color-sidebar: oklch(100% 0 0);
+  --color-sidebar-foreground: oklch(30% 0.02 160);
+  --color-sidebar-muted: oklch(55% 0.018 158);
+  --color-sidebar-active: oklch(60% 0.14 150);
+  --color-sidebar-border: oklch(93.4% 0.004 150);
+
+  /* Pipeline stage palette — one swatch per kanban column. Cool→warm→win. */
+  --stage-lead:        oklch(62% 0.04 250);
+  --stage-qualified:   oklch(62% 0.13 232);
+  --stage-proposal:    oklch(64% 0.15 290);
+  --stage-negotiation: oklch(74% 0.14 70);
+  --stage-won:         oklch(62% 0.15 152);
+  --stage-lost:        oklch(60% 0.2 22);
+
+  /* Rep / chart accent swatches (segmented bars, leaderboard). */
+  --seg-1: oklch(60% 0.14 150);
+  --seg-2: oklch(62% 0.13 232);
+  --seg-3: oklch(64% 0.15 290);
+  --seg-4: oklch(74% 0.14 70);
+
+  /* Signature gradients — restrained. */
+  --grad-brand: linear-gradient(140deg, oklch(66% 0.15 158) 0%, oklch(54% 0.13 168) 100%);
+  /* Faint green wash for the very top of the app + hero. */
+  --grad-hero: radial-gradient(110% 70% at 50% -10%, oklch(96% 0.05 150) 0%, oklch(98% 0.018 150) 45%, oklch(99% 0.004 150) 100%);
+
+  /* Very subtle shadows. */
+  --shadow-soft: 0 1px 2px oklch(40% 0.03 160 / 0.04), 0 4px 14px oklch(40% 0.03 160 / 0.05);
+  --shadow-pop: 0 1px 2px oklch(40% 0.03 160 / 0.05), 0 10px 30px oklch(40% 0.03 160 / 0.09);
+  --shadow-pill: 0 1px 1px oklch(40% 0.03 160 / 0.04), 0 1px 3px oklch(40% 0.03 160 / 0.08);
+}
+
+/* A dark theme is provided for completeness, but light is the default and the
+   app never sets a .dark class on <html>. */
+.dark {
+  --color-background: oklch(18% 0.012 160);
+  --color-foreground: oklch(94% 0.008 150);
+  --color-muted: oklch(24% 0.013 160);
+  --color-muted-foreground: oklch(68% 0.012 150);
+  --color-border: oklch(28% 0.014 160);
+  --color-input: oklch(28% 0.014 160);
+  --color-card: oklch(21% 0.013 160);
+  --color-card-foreground: oklch(94% 0.008 150);
+  --color-popover: oklch(21% 0.013 160);
+  --color-popover-foreground: oklch(94% 0.008 150);
+  --color-secondary: oklch(26% 0.014 160);
+  --color-secondary-foreground: oklch(92% 0.008 150);
+  --color-sidebar: oklch(20% 0.013 160);
+  --color-sidebar-foreground: oklch(90% 0.008 150);
+  --color-sidebar-border: oklch(28% 0.014 160);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv01", "cv11";
+  letter-spacing: -0.011em;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--color-primary) 20%, transparent);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+  border: 2px solid var(--color-background);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted-foreground); }
+
+/* ── Type helpers ─────────────────────────────────────────────────────────── */
+.font-display { font-family: var(--font-display); }
+.font-mono { font-family: var(--font-mono); }
+.tnum { font-variant-numeric: tabular-nums; font-family: var(--font-mono); letter-spacing: -0.02em; }
+
+.label-mono {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.shadow-soft { box-shadow: var(--shadow-soft); }
+.shadow-pop { box-shadow: var(--shadow-pop); }
+.shadow-pill { box-shadow: var(--shadow-pill); }
+
+/* The active nav pill — white with hairline border + tiny shadow. */
+.nav-pill-active {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-pill);
+}
+
+/* ── Restrained motion: fade/rise on load, soft pulse ─────────────────────── */
+@keyframes floatUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate-float-up { animation: floatUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.animate-fade-in { animation: fadeIn 0.6s ease both; }
+
+@keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.pulse-dot { animation: pulseDot 1.9s infinite; }
+
+@keyframes sweepFlow { 0% { transform: translateX(-120%); } 100% { transform: translateX(420%); } }
+.sweep-flow { animation: sweepFlow 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+@keyframes drift { 0%,100% { transform: translate(0,0); } 50% { transform: translate(8px,-10px); } }
+.drift { animation: drift 12s ease-in-out infinite; }
+
+/* A brief flash when a deal card lands in a new stage. */
+@keyframes wonPop { 0% { transform: scale(0.96); box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-success) 50%, transparent); } 60% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--color-success) 0%, transparent); } 100% { transform: scale(1); } }
+.won-pop { animation: wonPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Staggered children helper for landing sections. */
+.stagger > * { opacity: 0; animation: floatUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.04s; }
+.stagger > *:nth-child(2) { animation-delay: 0.10s; }
+.stagger > *:nth-child(3) { animation-delay: 0.16s; }
+.stagger > *:nth-child(4) { animation-delay: 0.22s; }
+.stagger > *:nth-child(5) { animation-delay: 0.28s; }
+.stagger > *:nth-child(6) { animation-delay: 0.34s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, .animate-float-up, .stagger > *, .sweep-flow, .drift, .won-pop { animation: none !important; }
+}
