@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -30,6 +31,9 @@ class BridgeTests(unittest.TestCase):
         self.runner=load('aider_runner')
         self.api.DB_PATH=self.runner.DB_PATH=str(self.root/'bridge.db')
         self.api.BRIDGE_KEY='test-key'
+        worker_env=patch.dict(os.environ, {'TASK_WORKER_KEY':'fixture-worker-key',
+                                        'PABLO_WORKER_ID':'fixture-worker'})
+        worker_env.start();self.addCleanup(worker_env.stop)
         asyncio.run(self.api.init_db())
         self.coder=self.root/'coder'
         script='from pathlib import Path\nPath("answer.py").write_text("def add(a,b): return a+b\\n")\nprint("coder fixture")\n'
@@ -90,11 +94,13 @@ class BridgeTests(unittest.TestCase):
     def test_result_is_not_redelivered_as_task(self):
         body=self.api.AlfredTaskRequest(task_id='win1',type='ping',payload={})
         asyncio.run(self.api.create_alfred_task(body,'test-key'))
-        claimed=asyncio.run(self.api.alfred_get_tasks(1,'test-key','fixture-worker'))['tasks'][0]
+        claimed=asyncio.run(self.api.alfred_get_tasks(
+            1,'test-key','fixture-worker','fixture-worker-key'))['tasks'][0]
         result=self.api.AlfredResult(task_id='win1',type='ping',status='ERROR',ok=False,
                                      request_id='win1',result='test error',digest=claimed['digest'],
                                      worker_id='fixture-worker',attempt=claimed['attempt'])
-        asyncio.run(self.api.alfred_result(result,'test-key'))
+        asyncio.run(self.api.alfred_result(
+            result,'test-key','fixture-worker-key','fixture-worker'))
         latest=asyncio.run(self.api.alfred_task_status('win1','test-key'))
         self.assertEqual(latest['status'],'unverified')
         with sqlite3.connect(self.api.DB_PATH) as db:

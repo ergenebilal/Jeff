@@ -14,6 +14,7 @@ import requests
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 import jeff_bridge_api as bridge
+from pablo.pablo_task_guard import TaskGuard
 
 
 class BridgeSecurityTests(unittest.TestCase):
@@ -22,6 +23,10 @@ class BridgeSecurityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.old_db = bridge.DB_PATH
         self.old_key = bridge.BRIDGE_KEY
+        worker_env = patch.dict(os.environ, {'TASK_WORKER_KEY': 'fixture-worker-key',
+                                          'PABLO_WORKER_ID': 'fake-pablo'})
+        worker_env.start()
+        self.addCleanup(worker_env.stop)
         bridge.DB_PATH = str(Path(self.temp.name) / 'bridge.sqlite3')
         bridge.BRIDGE_KEY = 'fixture-bridge-key'
         self.addCleanup(setattr, bridge, 'DB_PATH', self.old_db)
@@ -39,6 +44,16 @@ class BridgeSecurityTests(unittest.TestCase):
 
     def test_default_host_is_loopback(self):
         self.assertEqual(bridge.host_from_environment({}), '127.0.0.1')
+
+    def test_worker_auth_fails_closed_without_distinct_key_and_identity(self):
+        with patch.dict(os.environ, {'TASK_WORKER_KEY': 'fixture-bridge-key'}):
+            with self.assertRaises(bridge.HTTPException) as same_key:
+                bridge.require_pablo_worker('fixture-bridge-key', 'fake-pablo')
+        self.assertEqual(same_key.exception.status_code, 401)
+        with patch.dict(os.environ, {'PABLO_WORKER_ID': ''}):
+            with self.assertRaises(bridge.HTTPException) as no_identity:
+                bridge.require_pablo_worker('fixture-worker-key', 'fake-pablo')
+        self.assertEqual(no_identity.exception.status_code, 403)
 
     def test_same_id_same_content_is_one_event(self):
         first = self.submit({'url': 'https://example.test'})
@@ -64,8 +79,10 @@ class BridgeSecurityTests(unittest.TestCase):
 
     def test_unknown_result_cannot_create_success(self):
         result = bridge.AlfredResult(task_id='forged', type='BROWSER_ACTION',
-                                     status='SUCCESS', ok=True, result='claimed')
-        response = asyncio.run(bridge.alfred_result(result, 'fixture-bridge-key'))
+                                     status='SUCCESS', ok=True, result='claimed',
+                                     worker_id='fake-pablo', request_id='forged')
+        response = asyncio.run(bridge.alfred_result(
+            result, 'fixture-bridge-key', 'fixture-worker-key', 'fake-pablo'))
         self.assertNotEqual(response.get('status'), 'verified')
         with sqlite3.connect(bridge.DB_PATH) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM alfred_events WHERE task_id='forged' AND status='result'").fetchone()[0], 0)
@@ -83,6 +100,37 @@ class BridgeSecurityTests(unittest.TestCase):
         status = asyncio.run(bridge.alfred_task_status('old', 'fixture-bridge-key'))
         self.assertEqual(status['status'], 'legacy_unverified')
         self.assertFalse(status['ok'])
+
+
+class TaskGuardNotificationTests(unittest.TestCase):
+    def test_replayed_approval_claims_one_notification_across_restart(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            path = Path(temp) / 'guard.sqlite3'
+            actions = {'browser_open': lambda _: {'ok': True}}
+            guard = TaskGuard(path, actions, owner='42', desktop_ready=lambda: True)
+            request = guard.execute('browser_open', {'url': 'https://example.test'}, 'repeat-1')
+            self.assertEqual(request['status'], 'APPROVAL_REQUIRED')
+            self.assertTrue(guard.claim_approval_notification('repeat-1'))
+            self.assertFalse(guard.claim_approval_notification('repeat-1'))
+            reopened = TaskGuard(path, actions, owner='42', desktop_ready=lambda: True)
+            self.assertEqual(reopened.execute('browser_open', {'url': 'https://example.test'},
+                                              'repeat-1')['status'], 'APPROVAL_REQUIRED')
+            self.assertFalse(reopened.claim_approval_notification('repeat-1'))
+
+    def test_existing_taskguard_database_migrates_without_losing_requests(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            path = Path(temp) / 'legacy-guard.sqlite3'
+            with sqlite3.connect(path) as db:
+                db.execute('CREATE TABLE requests (id TEXT PRIMARY KEY, digest TEXT, action TEXT, '
+                           'params TEXT, status TEXT, response TEXT, approval TEXT, expires REAL, '
+                           'consumed INTEGER DEFAULT 0)')
+                db.execute("INSERT INTO requests(id,status,response) VALUES('old','SUCCESS',?)",
+                           ('{"request_id":"old","status":"SUCCESS","ok":true}',))
+            guard = TaskGuard(path, {}, owner='42', desktop_ready=lambda: True)
+            self.assertEqual(guard.get('old')['status'], 'SUCCESS')
+            with sqlite3.connect(path) as db:
+                self.assertIn('approval_notified',
+                              {row[1] for row in db.execute('PRAGMA table_info(requests)')})
 
 
 class RealHttpSmokeTests(unittest.TestCase):
@@ -110,13 +158,16 @@ class RealHttpSmokeTests(unittest.TestCase):
             db_path = str(Path(temp) / 'bridge.sqlite3')
             env = os.environ.copy()
             env.update(BRIDGE_KEY='fixture-bridge-key', BRIDGE_DB_PATH=db_path,
-                       BRIDGE_HOST='127.0.0.1', BRIDGE_PORT=str(port))
+                       BRIDGE_HOST='127.0.0.1', BRIDGE_PORT=str(port),
+                       TASK_WORKER_KEY='fixture-worker-key', PABLO_WORKER_ID='fake-pablo')
             proc = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'jeff_bridge_api:app',
                                      '--host', '127.0.0.1', '--port', str(port), '--log-level', 'error'],
                                     cwd=ROOT, env=env, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL)
             base = f'http://127.0.0.1:{port}'
             headers = {'X-Bridge-Key': 'fixture-bridge-key'}
+            worker_headers = {**headers, 'X-Task-Worker-Key': 'fixture-worker-key',
+                              'X-Worker-ID': 'fake-pablo'}
             for _ in range(100):
                 try:
                     if requests.get(base + '/health', timeout=.2).status_code == 200:
@@ -130,22 +181,43 @@ class RealHttpSmokeTests(unittest.TestCase):
             try:
                 self.assertEqual(requests.get(base + '/alfred_client', timeout=2).status_code, 401)
                 self.assertEqual(requests.get(base + '/alfred_client', headers=headers, timeout=2).status_code, 404)
+                self.assertEqual(requests.get(base + '/alfred/tasks?timeout=1',
+                                              headers={**headers, 'X-Worker-ID': 'fake-pablo'},
+                                              timeout=3).status_code, 401)
+                self.assertEqual(requests.get(base + '/alfred/tasks?timeout=1',
+                                              headers={**worker_headers, 'X-Worker-ID': 'other-pablo'},
+                                              timeout=3).status_code, 403)
+                self.assertEqual(requests.post(base + '/alfred/heartbeat', json={'agent': 'pablo'},
+                                               headers=headers, timeout=2).status_code, 401)
                 body = {'task_id': 'smoke-1', 'type': 'BROWSER_ACTION',
                         'payload': {'url': 'https://example.test'}}
                 first = requests.post(base + '/alfred/task', json=body, headers=headers, timeout=2)
                 self.assertEqual(first.status_code, 200, first.text)
+                self.assertEqual(requests.get(base + '/alfred/tasks?timeout=1',
+                                              headers={**worker_headers, 'X-Worker-ID': 'other-pablo'},
+                                              timeout=3).status_code, 403)
+                with sqlite3.connect(db_path) as db:
+                    self.assertEqual(db.execute(
+                        "SELECT status FROM alfred_events WHERE task_id='smoke-1'"
+                    ).fetchone()[0], 'pending')
                 self.assertEqual(requests.post(base + '/alfred/task', json=body, headers=headers, timeout=2).status_code, 200)
                 changed = dict(body, payload={'url': 'https://changed.test'})
                 self.assertEqual(requests.post(base + '/alfred/task', json=changed, headers=headers, timeout=2).status_code, 409)
                 polled = requests.get(base + '/alfred/tasks?timeout=1',
-                                      headers={**headers, 'X-Worker-ID': 'fake-pablo'}, timeout=3).json()['tasks']
+                                      headers=worker_headers, timeout=3).json()['tasks']
                 self.assertEqual(len(polled), 1)
                 task = polled[0]
+                spoofed = {'task_id': 'smoke-1', 'type': 'BROWSER_ACTION',
+                           'status': 'SUCCESS', 'request_id': 'smoke-1',
+                           'digest': task['digest'], 'worker_id': 'other-pablo',
+                           'attempt': task['attempt']}
+                self.assertEqual(requests.post(base + '/alfred/result', json=spoofed,
+                                               headers=worker_headers, timeout=2).status_code, 403)
                 forged = {'task_id': 'smoke-1', 'type': 'BROWSER_ACTION', 'status': 'SUCCESS',
                           'ok': True, 'request_id': 'smoke-1', 'digest': 'wrong',
                           'worker_id': 'fake-pablo', 'attempt': task['attempt']}
                 self.assertEqual(requests.post(base + '/alfred/result', json=forged,
-                                               headers=headers, timeout=2).json()['status'], 'quarantined')
+                                               headers=worker_headers, timeout=2).json()['status'], 'quarantined')
                 count = []
                 guard = TaskGuard(Path(temp) / 'guard.sqlite3',
                                   {'browser_open': lambda params: count.append(params) or {'ok': True}},
@@ -156,11 +228,11 @@ class RealHttpSmokeTests(unittest.TestCase):
                 pending_result = {**pending, 'type': 'BROWSER_ACTION', 'digest': task['digest'],
                                   'worker_id': 'fake-pablo', 'attempt': task['attempt']}
                 self.assertEqual(requests.post(base + '/alfred/result', json=pending_result,
-                                               headers=headers, timeout=2).json()['status'], 'approval_required')
+                                               headers=worker_headers, timeout=2).json()['status'], 'approval_required')
                 with sqlite3.connect(db_path) as db:
                     db.execute("UPDATE alfred_events SET delivered_at=0 WHERE task_id='smoke-1'")
                 reconciliation = requests.get(base + '/alfred/tasks?timeout=1',
-                                              headers={**headers, 'X-Worker-ID': 'fake-pablo'}, timeout=3).json()['tasks']
+                                              headers=worker_headers, timeout=3).json()['tasks']
                 self.assertEqual(len(reconciliation), 1)
                 self.assertTrue(reconciliation[0]['reconcile_only'])
                 self.assertEqual(guard.get('smoke-1')['status'], 'APPROVAL_REQUIRED')
@@ -171,9 +243,15 @@ class RealHttpSmokeTests(unittest.TestCase):
                 self.assertEqual(len(count), 1)
                 result = {**approved, 'type': 'BROWSER_ACTION', 'digest': task['digest'],
                           'worker_id': 'fake-pablo', 'attempt': task['attempt']}
-                response = requests.post(base + '/alfred/result', json=result, headers=headers, timeout=2)
+                self.assertEqual(requests.post(base + '/alfred/result', json=result,
+                                               headers=headers, timeout=2).status_code, 401)
+                with sqlite3.connect(db_path) as db:
+                    self.assertEqual(db.execute(
+                        "SELECT count(*) FROM alfred_results WHERE task_id='smoke-1'"
+                    ).fetchone()[0], 0)
+                response = requests.post(base + '/alfred/result', json=result, headers=worker_headers, timeout=2)
                 self.assertEqual(response.json()['status'], 'unverified')
-                self.assertEqual(requests.post(base + '/alfred/result', json=result, headers=headers, timeout=2).json()['status'], 'quarantined')
+                self.assertEqual(requests.post(base + '/alfred/result', json=result, headers=worker_headers, timeout=2).json()['status'], 'quarantined')
                 with sqlite3.connect(db_path) as db:
                     self.assertEqual(db.execute("SELECT count(*) FROM alfred_events WHERE task_id='smoke-1'").fetchone()[0], 1)
                     self.assertEqual(db.execute("SELECT count(*) FROM alfred_results WHERE task_id='smoke-1'").fetchone()[0], 1)

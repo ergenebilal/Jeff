@@ -63,6 +63,7 @@ CONFIG = {
     "listen_host": "0.0.0.0",
     "listen_port": 7788,
     "auth_token": "",
+    "task_worker_key": os.environ.get("TASK_WORKER_KEY", ""),
     "jeff_core_url": "http://100.124.217.48:9119",
     "antigravity_proxy_url": "http://100.124.217.48:8999",
     "jeff_bridge_api_url": "http://100.124.217.48:7700",
@@ -80,6 +81,8 @@ if CONFIG_FILE.exists():
             CONFIG.update(json.load(f))
     except Exception as e:
         print(f"[WARN] Config yukleme hatasi: {e}")
+if os.environ.get("TASK_WORKER_KEY"):
+    CONFIG["task_worker_key"] = os.environ["TASK_WORKER_KEY"]
 
 # ── LOGGING ──────────────────────────────────────────────────────────────────
 LOG_FILE = LOGS_DIR / f"pablo_node_{time.strftime('%Y%m%d')}.log"
@@ -207,7 +210,8 @@ def task_guard():
 
 def execute_request(action, params, request_id=None):
     result = task_guard().execute(action, normalize_tool_params(params), request_id)
-    if result['status'] == 'APPROVAL_REQUIRED':
+    if (result['status'] == 'APPROVAL_REQUIRED'
+            and task_guard().claim_approval_notification(result['request_id'])):
         send_telegram_approval_request(CONFIG.get('telegram_default_chat_id'),
             result['approval_id'], action, {}, 'Exact request: ' + result['request_id'])
     return result
@@ -1398,10 +1402,24 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
 
 # ── JEFF BRIDGE LONG-POLL & HEARTBEAT ────────────────────────────────────────
 
+def bridge_worker_headers():
+    worker_key = CONFIG.get('task_worker_key')
+    bridge_key = CONFIG.get('auth_token')
+    worker_id = CONFIG.get('node_id')
+    if not worker_key or not bridge_key or worker_key == bridge_key or not worker_id:
+        raise RuntimeError('Separate Bridge and worker credentials plus node ID are required')
+    return {'X-Bridge-Key': bridge_key, 'X-Task-Worker-Key': worker_key,
+            'X-Worker-ID': worker_id}
+
+
 def run_bridge_worker():
     """Sunucu Jeff Bridge (:7700) ve Jeff Core (:9119) ile çift yönlü iletişim döngüsü."""
     jeff_bridge_url = CONFIG["jeff_bridge_api_url"]
-    bridge_key = CONFIG["auth_token"]
+    try:
+        worker_headers = bridge_worker_headers()
+    except RuntimeError as exc:
+        log("ERROR", str(exc))
+        return
     last_hb = 0.0
 
     log("INFO", f"Jeff Bridge Worker baslatildi. Hedef: {jeff_bridge_url}")
@@ -1423,7 +1441,7 @@ def run_bridge_worker():
                 req = urllib.request.Request(
                     f"{jeff_bridge_url}/alfred/heartbeat",
                     data=hb_payload,
-                    headers={"Content-Type": "application/json", "X-Bridge-Key": bridge_key}
+                    headers={"Content-Type": "application/json", **worker_headers}
                 )
                 try:
                     with urllib.request.urlopen(req, timeout=5) as resp:
@@ -1435,7 +1453,7 @@ def run_bridge_worker():
             # 2. Task Poll (Long Polling)
             req = urllib.request.Request(
                 f"{jeff_bridge_url}/alfred/tasks?timeout=15",
-                headers={"X-Bridge-Key": bridge_key, "X-Worker-ID": CONFIG['node_id']}
+                headers=worker_headers
             )
             try:
                 with urllib.request.urlopen(req, timeout=20) as resp:
@@ -1456,7 +1474,7 @@ def run_bridge_worker():
 def send_bridge_result(payload):
     req = urllib.request.Request(f"{CONFIG['jeff_bridge_api_url']}/alfred/result",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", "X-Bridge-Key": CONFIG['auth_token']})
+        headers={"Content-Type": "application/json", **bridge_worker_headers()})
     with urllib.request.urlopen(req, timeout=10) as response:
         if response.status != 200 or json.loads(response.read().decode()).get('status') == 'quarantined':
             raise RuntimeError('Bridge did not acknowledge result')

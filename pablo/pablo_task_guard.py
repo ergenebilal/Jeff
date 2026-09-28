@@ -33,7 +33,11 @@ class TaskGuard:
         self.desktop_ready, self.clock, self.ttl = desktop_ready, clock, ttl
         self.lock = threading.RLock()
         with self.connect() as db:
-            db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, action TEXT, params TEXT, status TEXT, response TEXT, approval TEXT, expires REAL, consumed INTEGER DEFAULT 0)')
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, action TEXT, params TEXT, status TEXT, response TEXT, approval TEXT, expires REAL, consumed INTEGER DEFAULT 0, approval_notified INTEGER DEFAULT 0)')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(requests)')}
+            if 'approval_notified' not in columns:
+                db.execute('ALTER TABLE requests ADD COLUMN approval_notified INTEGER DEFAULT 0')
             db.execute('CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, payload TEXT)')
 
     @contextmanager
@@ -56,6 +60,16 @@ class TaskGuard:
         with self.connect() as db:
             row = db.execute('SELECT response FROM requests WHERE id=?', (rid,)).fetchone()
             return json.loads(row[0]) if row else self.response(rid, 'NOT_FOUND', error='Unknown request')
+
+    def claim_approval_notification(self, rid):
+        """Claim the owner notification once before sending it externally."""
+        with self.lock, self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            changed = db.execute(
+                "UPDATE requests SET approval_notified=1 WHERE id=? AND status='APPROVAL_REQUIRED' AND approval_notified=0",
+                (rid,),
+            )
+            return changed.rowcount == 1
 
     def queue_result(self, payload):
         with self.connect() as db:

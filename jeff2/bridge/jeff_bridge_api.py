@@ -174,6 +174,15 @@ def require_task_worker_key(x_task_worker_key: Optional[str]):
         raise HTTPException(status_code=401, detail='Invalid or missing X-Task-Worker-Key')
 
 
+def require_pablo_worker(x_task_worker_key: Optional[str], x_worker_id: Optional[str]):
+    """Bind the worker credential to the configured Pablo identity."""
+    require_task_worker_key(x_task_worker_key)
+    expected_id = os.environ.get('PABLO_WORKER_ID')
+    if (not expected_id or not x_worker_id
+            or not hmac.compare_digest(expected_id, x_worker_id)):
+        raise HTTPException(status_code=403, detail='Worker identity mismatch')
+
+
 def task_health_probe():
     """Verifier-owned observation of a configured local worker health endpoint."""
     url = os.environ.get('TASK_WORKER_HEALTH_URL', '')
@@ -432,8 +441,13 @@ async def create_alfred_task(body: AlfredTaskRequest, x_bridge_key: Optional[str
 
 
 @app.post("/alfred/result")
-async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header(default=None)):
+async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header(default=None),
+                        x_task_worker_key: Optional[str] = Header(default=None),
+                        x_worker_id: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
+    require_pablo_worker(x_task_worker_key, x_worker_id)
+    if body.worker_id != x_worker_id:
+        raise HTTPException(status_code=403, detail='Worker identity mismatch')
     now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute('BEGIN IMMEDIATE')
@@ -487,10 +501,10 @@ async def alfred_get_tasks(
     timeout: int = 30,
     x_bridge_key: Optional[str] = Header(default=None),
     x_worker_id: Optional[str] = Header(default=None),
+    x_task_worker_key: Optional[str] = Header(default=None),
 ):
     require_key(x_bridge_key)
-    if not x_worker_id or len(x_worker_id) > 128:
-        raise HTTPException(status_code=422, detail='X-Worker-ID required')
+    require_pablo_worker(x_task_worker_key, x_worker_id)
     start_time = time.time()
     max_wait = min(max(timeout, 1), 60)
 
@@ -526,8 +540,11 @@ async def alfred_get_tasks(
 
 
 @app.post("/alfred/heartbeat")
-async def alfred_heartbeat(body: AlfredHeartbeat, x_bridge_key: Optional[str] = Header(default=None)):
+async def alfred_heartbeat(body: AlfredHeartbeat, x_bridge_key: Optional[str] = Header(default=None),
+                           x_task_worker_key: Optional[str] = Header(default=None),
+                           x_worker_id: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
+    require_pablo_worker(x_task_worker_key, x_worker_id)
     now = time.time()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
