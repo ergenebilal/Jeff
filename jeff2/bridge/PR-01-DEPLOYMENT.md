@@ -38,5 +38,20 @@ SQLite columns and tables. This rollback reintroduces the old Bridge security
 weaknesses and should only be temporary. Do not restore the database backup
 over a live database: that would discard tasks created after deployment.
 
+After stopping Pablo, restore the server source with:
+
+```sh
+ssh hermes 'cp /home/hermes/pr01-20260928-deploy-backup/home/hermes/jeff2/bridge/jeff_bridge_api.py /home/hermes/jeff2/bridge/jeff_bridge_api.py && sudo systemctl restart jeff-bridge.service'
+```
+
+On Windows, restore the worker source while leaving `config.json` untouched:
+
+```powershell
+Copy-Item -LiteralPath 'C:\CyberGene\change-backups\pr01-20260928-deploy\hermes_node.py' -Destination 'C:\CyberGene\HermesNode\hermes_node.py' -Force
+```
+
+Restart the Pablo process after this copy. Keep both bot service drop-ins and
+the new environment file so every client continues to use the rotated key.
+
 The prior code and config backups are recovery artifacts, not deployment
 defaults. Historical credentials in the Git history require separate rotation.
