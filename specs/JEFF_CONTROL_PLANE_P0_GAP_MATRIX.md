@@ -24,6 +24,10 @@ Bridge ortamında `BRIDGE_KEY`, ondan farklı bir `TASK_WORKER_KEY` ve Pablo'nun
 
 `python scripts/run_active_tests.py --group bridge`, `--group contract`, `python scripts/compile_active.py`, `python scripts/lint_active.py`, `python scripts/ci_secret_scan.py` çalıştırılır. HTTP/SQLite smoke testi yalnız `127.0.0.1`, geçici DB ve sahte TaskGuard eylemi kullanır; yetkisiz isteğin görev claim'i veya sonuç kaydı oluşturmadığını kontrol eder. Yayından önce staging'de yeni worker kimlik bilgileriyle tam handshake doğrulanmalıdır. Bu değişiklik üretim servisine gönderilmedi.
 
+Yerel staging handshake'i, Pablo'nun gerçek `pablo_bridge_auth.py` modülünden başlıkları üretip geçici Bridge HTTP sunucusuna gönderir. Genel anahtarla polling/heartbeat `401`, yanlış worker kimliği `403` döner. Doğru kimlikle heartbeat sağlık kontrolünde `alfred_online=true` olur; görev bir kez claim edilir, sahte TaskGuard eylemi bir kez çalışır, sonuç bir kez kaydedilir ve duplicate karantinaya alınır. Bu kanıt canlı sunucu handshake'inin yerine geçmez.
+
+Yayın engeli: Pablo'nun doğrudan Telegram botu hem onay düğmelerini işler hem insana mesaj gönderir. Etkin Jeff onay tüketicisi doğrulanmadan bu yol kaldırılırsa onaylar işlenemez. Jeff tarafındaki sahip ve callback sözleşmesi belirlenip ayrı testle doğrulanmalıdır.
+
 ## Geri alma
 
 Dalın P0 commit'i `git revert <p0-commit>` ile geri alınabilir. Eklenen `approval_notified` SQLite sütunu geride kalabilir; eski kod sütunu yok sayar ve mevcut kayıtlar korunur. Önce eski worker sürümü geri yüklenmeli, ardından yalnız bu değişiklik için eklenen worker kimlik ayarları kaldırılmalıdır.

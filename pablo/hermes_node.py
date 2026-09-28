@@ -171,6 +171,7 @@ def normalize_tool_params(raw_args: any) -> dict:
 import uuid
 
 from pablo_task_guard import TaskGuard, allowed_ip
+from pablo_bridge_auth import bridge_worker_headers
 
 _task_guard = None
 
@@ -1402,21 +1403,11 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
 
 # ── JEFF BRIDGE LONG-POLL & HEARTBEAT ────────────────────────────────────────
 
-def bridge_worker_headers():
-    worker_key = CONFIG.get('task_worker_key')
-    bridge_key = CONFIG.get('auth_token')
-    worker_id = CONFIG.get('node_id')
-    if not worker_key or not bridge_key or worker_key == bridge_key or not worker_id:
-        raise RuntimeError('Separate Bridge and worker credentials plus node ID are required')
-    return {'X-Bridge-Key': bridge_key, 'X-Task-Worker-Key': worker_key,
-            'X-Worker-ID': worker_id}
-
-
 def run_bridge_worker():
     """Sunucu Jeff Bridge (:7700) ve Jeff Core (:9119) ile çift yönlü iletişim döngüsü."""
     jeff_bridge_url = CONFIG["jeff_bridge_api_url"]
     try:
-        worker_headers = bridge_worker_headers()
+        worker_headers = bridge_worker_headers(CONFIG)
     except RuntimeError as exc:
         log("ERROR", str(exc))
         return
@@ -1474,7 +1465,7 @@ def run_bridge_worker():
 def send_bridge_result(payload):
     req = urllib.request.Request(f"{CONFIG['jeff_bridge_api_url']}/alfred/result",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", **bridge_worker_headers()})
+        headers={"Content-Type": "application/json", **bridge_worker_headers(CONFIG)})
     with urllib.request.urlopen(req, timeout=10) as response:
         if response.status != 200 or json.loads(response.read().decode()).get('status') == 'quarantined':
             raise RuntimeError('Bridge did not acknowledge result')

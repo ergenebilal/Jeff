@@ -15,6 +15,7 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 import jeff_bridge_api as bridge
 from pablo.pablo_task_guard import TaskGuard
+from pablo.pablo_bridge_auth import bridge_worker_headers
 
 
 class BridgeSecurityTests(unittest.TestCase):
@@ -133,6 +134,14 @@ class TaskGuardNotificationTests(unittest.TestCase):
                               {row[1] for row in db.execute('PRAGMA table_info(requests)')})
 
 
+class PabloWorkerHeaderTests(unittest.TestCase):
+    def test_missing_or_reused_worker_secret_fails_closed(self):
+        config = {'auth_token': 'fixture-bridge-key', 'node_id': 'fake-pablo'}
+        for worker_key in (None, '', 'fixture-bridge-key'):
+            with self.subTest(worker_key=worker_key), self.assertRaises(RuntimeError):
+                bridge_worker_headers({**config, 'task_worker_key': worker_key})
+
+
 class RealHttpSmokeTests(unittest.TestCase):
     def test_process_rejects_missing_secret(self):
         env = os.environ.copy()
@@ -166,8 +175,11 @@ class RealHttpSmokeTests(unittest.TestCase):
                                     stderr=subprocess.DEVNULL)
             base = f'http://127.0.0.1:{port}'
             headers = {'X-Bridge-Key': 'fixture-bridge-key'}
-            worker_headers = {**headers, 'X-Task-Worker-Key': 'fixture-worker-key',
-                              'X-Worker-ID': 'fake-pablo'}
+            worker_headers = bridge_worker_headers({
+                'auth_token': 'fixture-bridge-key',
+                'task_worker_key': 'fixture-worker-key',
+                'node_id': 'fake-pablo',
+            })
             for _ in range(100):
                 try:
                     if requests.get(base + '/health', timeout=.2).status_code == 200:
@@ -189,6 +201,9 @@ class RealHttpSmokeTests(unittest.TestCase):
                                               timeout=3).status_code, 403)
                 self.assertEqual(requests.post(base + '/alfred/heartbeat', json={'agent': 'pablo'},
                                                headers=headers, timeout=2).status_code, 401)
+                self.assertEqual(requests.post(base + '/alfred/heartbeat', json={'agent': 'pablo'},
+                                               headers=worker_headers, timeout=2).status_code, 200)
+                self.assertTrue(requests.get(base + '/health', timeout=2).json()['alfred_online'])
                 body = {'task_id': 'smoke-1', 'type': 'BROWSER_ACTION',
                         'payload': {'url': 'https://example.test'}}
                 first = requests.post(base + '/alfred/task', json=body, headers=headers, timeout=2)
@@ -255,7 +270,7 @@ class RealHttpSmokeTests(unittest.TestCase):
                 with sqlite3.connect(db_path) as db:
                     self.assertEqual(db.execute("SELECT count(*) FROM alfred_events WHERE task_id='smoke-1'").fetchone()[0], 1)
                     self.assertEqual(db.execute("SELECT count(*) FROM alfred_results WHERE task_id='smoke-1'").fetchone()[0], 1)
-                print('HTTP_SQLITE_SMOKE: events=1 executions=1 results=1 duplicate=quarantined')
+                print('HTTP_SQLITE_SMOKE: heartbeat=online events=1 executions=1 results=1 duplicate=quarantined')
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)
