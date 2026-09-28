@@ -14,6 +14,18 @@
 - **İş bölümü:** Metin/rapor hazırlığı Jeff — gönderim Bilal'in kendi numarasından ELLE. Mesaj otomasyonu ve numarayı sisteme bağlamak yasak.
 - **Kırmızı çizgi:** "Dijitaliniz zayıf" cümlesi kullanılmaz; yalnız **ölçümle kanıtlanmış kırık** şey söylenir (ölü alan adı, açılmayan site, kendinden imzalı sertifika).
 
+## Fikir Listesi (aktif pipeline)
+
+### 💡 Pazaryeri Para Geri Kazanım Hizmeti (28.09.2026 — KOŞULLU GEÇTİ)
+- **Ne:** Trendyol satıcılarının desi hatası ve hatalı kesintiler yüzünden kaybettiği parayı bulan, itiraz dosyasını hazırlayan, sadece geri kazanılan paradan komisyon alan hizmet.
+- **Model:** Geri kazanılan tutarın %25-30'u. Risk yok, peşin yok.
+- **Hedef:** Aylık 500+ sipariş, Trendyol anlaşmalı kargo, büyük hacimli ürün satıcıları.
+- **Durum:** OBSERVE ✅ · VERIFY ✅ · REASON ✅ · TEST INTEREST ⏳ · NEED ❓ · PAYMENT ❓
+- **Kill kriteri:** Satıcı başına aylık bulunabilir tutar < 2.000 TL → dur.
+- **Sonraki adım:** 5 Trendyol satıcısına "desi hatası yaşadınız mı, ne kadar kaybettiniz?" sorusu. Rakam gelmeden satış stratejisi kurulmaz.
+- **Rakip durumu:** KarPanel ve Sentos tespit ediyor ama itirazı satıcı yapıyor. Başarı primiyle yapan Türkiye'de bulunamadı.
+- **Platform riski:** Trendyol desi ölçümünü düzeltirse niş küçülür (uzun vadeli, şimdi değil).
+
 ## Veri durumu (14.09 ölçümü)
 - 229 işletme tarandı · 40 öncelikli havuz · 12 doğrulanmış kusur (6 ölü alan adı, 4 tarayıcıda açılmıyor, 2 görünürlük boş).
 - Takip tablosu: 3 hazır mesaj yazıldı (Vetorka, Vena, Best Vet) · gönderilen 0 · yanıt 0 · satış 0.
