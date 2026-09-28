@@ -32,8 +32,15 @@ class BridgeTests(unittest.TestCase):
         self.api.BRIDGE_KEY='test-key'
         asyncio.run(self.api.init_db())
         self.coder=self.root/'coder'
-        self.coder.write_text('#!/usr/bin/python3\nfrom pathlib import Path\nPath("answer.py").write_text("def add(a,b): return a+b\\n")\nprint("coder fixture")\n')
-        self.coder.chmod(0o700)
+        script='from pathlib import Path\nPath("answer.py").write_text("def add(a,b): return a+b\\n")\nprint("coder fixture")\n'
+        if sys.platform == 'win32':
+            fixture=self.root/'coder.py'
+            fixture.write_text(script)
+            self.coder=self.root/'coder.cmd'
+            self.coder.write_text(f'@echo off\r\n"{sys.executable}" "{fixture}" %*\r\n')
+        else:
+            self.coder.write_text('#!/usr/bin/python3\n'+script)
+            self.coder.chmod(0o700)
         self.runner.AIDER_BIN=str(self.coder)
         (self.root/'test_answer.py').write_text('import unittest\nfrom answer import add\nclass Addition(unittest.TestCase):\n def test_add(self): self.assertEqual(add(2,3),5)\n')
 
