@@ -122,7 +122,7 @@ critical_findings:
       directly. Ports published via Docker (-p) may be accessible even
       if UFW doesn't explicitly allow them. Ports 8000, 8090, 8765,
       8767, 6001-6002 bind to 0.0.0.0 but are not in UFW rules.
-      Test with: nmap -p 8000,8090,8765,8767,6001,6002 193.164.4.149
+      Test with: nmap -p 8000,8090,8765,8767,6001,6002 13.140.183.88
     verification_needed: external port scan
 
   - finding: "n8n (5678) publicly accessible"

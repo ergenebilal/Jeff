@@ -14,7 +14,7 @@ Kurulum (Windows):
 Ortam degiskenleri (opsiyonel):
   TELEGRAM_BOT_TOKEN  — Telegram bot token
   TELEGRAM_CHAT_ID    — Bilal'in chat ID'si
-  JEFF_HOST           — Jeff'in IP'si (varsayilan: 193.164.4.149)
+  JEFF_HOST           — Jeff'in IP'si (varsayilan: 13.140.183.88)
   BRIDGE_DIR          — Kopru klasoru (varsayilan: ~/.hermes/alfred_bridge)
 """
 
@@ -51,7 +51,7 @@ INBOX_DIR   = BRIDGE_DIR / "inbox"
 LISTEN_HOST = "0.0.0.0"
 LISTEN_PORT = 7788
 
-JEFF_HOST         = os.environ.get("JEFF_HOST", "193.164.4.149")
+JEFF_HOST         = os.environ.get("JEFF_HOST", "13.140.183.88")
 JEFF_RESPONSE_URL = f"http://{JEFF_HOST}:7789/response"
 
 HTTP_TIMEOUT  = 5

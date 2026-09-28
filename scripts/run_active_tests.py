@@ -9,6 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_TESTS = [
+    'scripts.test_server_ip',
     'scripts.test_executive_briefing',
     'scripts.test_ci_secret_scan',
     'jeff2.bridge.test_task_contract',

@@ -1,7 +1,7 @@
 # Aider ↔ Jeff ↔ Alfred Entegrasyon Köprüsü — Teknik Spec v1.0
 
 ## 🎯 Amaç
-Jeff (sunucu, 193.164.4.149), Alfred (yerel Windows, Tailscale 100.89.26.86) ve Aider CLI
+Jeff (sunucu, 13.140.183.88), Alfred (yerel Windows, Tailscale 100.89.26.86) ve Aider CLI
 arasında kesintisiz, çift yönlü görev ve sonuç iletişimi sağlamak.
 
 ## 🏗️ Mimari
@@ -14,7 +14,7 @@ Bilal (A2A / Telegram)
    ├── Aider CLI (http://127.0.0.1:8999/v1 — Antigravity Proxy)
    └── Bridge API (FastAPI, :7700)
               │
-              │  HTTP REST (Tailscale VPN)
+              │  HTTP REST (:7700)
               ▼
    Alfred (Windows, 100.89.26.86)
    └── Alfred Bridge Client (polling + webhook)
@@ -22,8 +22,8 @@ Bilal (A2A / Telegram)
 
 ## 📦 Bileşenler
 
-### 1. Jeff Bridge API — `/home/hermes/jeff2/bridge/jeff_bridge_api.py`
-FastAPI servisi, port **7700**, Tailscale üzerinden Alfred'e açık.
+### 1. Jeff Bridge API — `/home/hermes/jeff_repo/jeff2/bridge/jeff_bridge_api.py`
+FastAPI servisi, sunucuda `http://127.0.0.1:7700`, dışarıdan `http://13.140.183.88:7700` adresinde.
 
 **Endpoint'ler:**
 - `POST /aider/task` — Yeni Aider görevi kuyruğa ekle
@@ -41,12 +41,12 @@ FastAPI servisi, port **7700**, Tailscale üzerinden Alfred'e açık.
   - Response: `{status: "ok", aider_ready, alfred_online, queued_tasks}`
 
 **Özellikler:**
-- SQLite DB: `/home/hermes/jeff2/bridge/bridge.db` (tasks, alfred_events tabloları)
+- SQLite DB: `/home/hermes/jeff_repo/jeff2/bridge/bridge.db` (tasks, alfred_events tabloları)
 - Aider görevleri async subprocess ile çalışır (asyncio + subprocess)
 - Alfred 60 saniyedir heartbeat göndermemişse `alfred_online: false`
-- Tüm olaylar audit log'a yazılır: `/home/hermes/jeff2/bridge/bridge.log`
+- Tüm olaylar audit log'a yazılır: `/home/hermes/jeff_repo/jeff2/bridge/bridge.log`
 
-### 2. Aider Runner — `/home/hermes/jeff2/bridge/aider_runner.py`
+### 2. Aider Runner — `/home/hermes/jeff_repo/jeff2/bridge/aider_runner.py`
 Görev kuyruğunu işleyen arka plan worker.
 
 **İşleyiş:**
@@ -57,18 +57,17 @@ Görev kuyruğunu işleyen arka plan worker.
 - Timeout: 300 saniye
 - Eş zamanlı max 2 görev
 
-### 3. Alfred Bridge Client — `/home/hermes/jeff2/bridge/alfred_client.py`
+### 3. Alfred Bridge Client — `/home/hermes/jeff_repo/jeff2/bridge/alfred_client.py`
 Alfred (Windows) tarafında çalışacak Python client scripti.
 
 **İşleyiş:**
-- Her 10 saniyede `GET http://100.89.26.86:7700/alfred/tasks` poll et (kendi IP'si değil Jeff'in)
-  NOT: Jeff'in Tailscale IP'si değişken — sabit hostname `jeff` veya `193.164.4.149:7700` kullan
+- Her 10 saniyede `GET http://13.140.183.88:7700/alfred/tasks` poll et.
 - Bekleyen görev varsa işle:
   - `WHATSAPP_DRAFT`: Konsola yaz + dosyaya kaydet (onay sonrası Alfred gönderir)
   - `SCREENSHOT_REQUEST`: Ekran görüntüsü al, base64 encode, `POST /alfred/result`'a gönder
   - `AIDER_RESULT_NOTIFY`: Aider tamamlandı bildirimi — Telegram'a ilet veya log'a yaz
   - `BROWSER_ACTION`: URL aç (webbrowser.open)
-- Her 30 saniyede `POST /jeff-ip:7700/alfred/heartbeat` gönder
+- Her 30 saniyede `POST http://13.140.183.88:7700/alfred/heartbeat` gönder
 - Bağlantı kesilirse 5 saniye bekle, tekrar dene (sonsuz retry)
 - Log: `%USERPROFILE%\.hermes\alfred_bridge.log`
 
@@ -83,8 +82,8 @@ After=network.target
 [Service]
 Type=simple
 User=hermes
-WorkingDirectory=/home/hermes/jeff2/bridge
-ExecStart=/usr/bin/python3 /home/hermes/jeff2/bridge/jeff_bridge_api.py
+WorkingDirectory=/home/hermes/jeff_repo/jeff2/bridge
+ExecStart=/home/hermes/.venv/bin/python /home/hermes/jeff_repo/jeff2/bridge/jeff_bridge_api.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -95,12 +94,12 @@ WantedBy=multi-user.target
 
 ## 🔐 Güvenlik
 - API key header zorunlu: `X-Bridge-Key: cybergene-bridge-2026`
-- Sadece Tailscale arayüzünden dinle (bind: `100.89.26.86`'nın ulaşabileceği Tailscale IP'si)
+- Dış uç `http://13.140.183.88:7700` için kimlik doğrulama ve ağ erişim kuralları zorunlu.
 - Alfred heartbeat olmadan görev gönderme (uyarı ver)
 
 ## 📋 Dosya Yapısı
 ```
-/home/hermes/jeff2/bridge/
+/home/hermes/jeff_repo/jeff2/bridge/
 ├── jeff_bridge_api.py     # FastAPI ana servis
 ├── aider_runner.py        # Aider task worker
 ├── alfred_client.py       # Alfred tarafı client (Windows'a kopyalanır)

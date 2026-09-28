@@ -41,7 +41,7 @@ MIT License — Free to use, modify, resell.
 
 ---
 DEMO VIDEO: https://youtube.com/@ergeneai
-LIVE SERVER: 193.164.4.149 (production - Hermes + n8n running since May 2026)
+LIVE SERVER: 13.140.183.88 (production - Hermes + n8n running since May 2026)
 GITHUB: https://github.com/ergenebilal/Jeff
 
 This guide was written on a live production system. Screenshots in this package are from actual running instances.

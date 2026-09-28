@@ -26,7 +26,7 @@
 
 | Özellik | Değer |
 |---------|-------|
-| Sunucu | 193.164.4.149, Ubuntu 22.04 |
+| Sunucu | 13.140.183.88, Ubuntu 22.04 |
 | Kernel | 5.15.0-181-generic |
 | RAM | 7.8GB (4.3GB available) |
 | Disk | 158G (54G free, %69) |

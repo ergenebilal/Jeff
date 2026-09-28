@@ -30,5 +30,5 @@ canlı yedeğidir.
   - GitHub push: manuel (Bilal talimatıyla)
 
 Tarih: 2026-06-10 (v6.0 tamamlandı)
-Sunucu: 193.164.4.149 (Ubuntu 22.04)
+Sunucu: 13.140.183.88 (Ubuntu 22.04)
 Sistem: timezone Europe/Istanbul (UTC+3)

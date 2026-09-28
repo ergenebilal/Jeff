@@ -73,7 +73,7 @@ def build_system_prompt(is_task: bool = True) -> str:
     topology = """
 ## 🌐 CYBERGENE MİMARİSİ VE STACK TOPOLOJİSİ
 1. SEN (JEFF / HERMES):
-   - Konum: Linux Sunucu (Ubuntu 22.04 - IP: 193.164.4.149), /opt/hermes dizini, 'hermes' kullanıcısı.
+   - Konum: Linux Sunucu (Ubuntu 22.04 - IP: 13.140.183.88), /home/hermes/jeff_repo dizini, 'hermes' kullanıcısı.
    - Rol: Bilal'in tam yetkili otonom operatörü, 2. beyni ve strateji ortağı.
    - Doğrudan Erişim: Hem yerel Linux sunucusuna (run_linux_command) hem de Windows bilgisayarına (Alfred :7788) tam yetkili erişimin var.
 
@@ -273,7 +273,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_linux_command",
-            "description": "Jeff'in üzerinde çalıştığı yerel Linux sunucusunda (Ubuntu 22.04 - 193.164.4.149) bash komutu çalıştırır. Servisleri (systemctl), süreçleri (ps), Docker konteynerlerini, MCP servislerini veya disk durumunu denetlemek için kullan.",
+            "description": "Jeff'in üzerinde çalıştığı yerel Linux sunucusunda (Ubuntu 22.04 - 13.140.183.88) bash komutu çalıştırır. Servisleri (systemctl), süreçleri (ps), Docker konteynerlerini, MCP servislerini veya disk durumunu denetlemek için kullan.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -305,7 +305,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Okunacak dosyanın tam yolu (ör: /opt/hermes/... veya C:\\Users\\...)"},
+                    "path": {"type": "string", "description": "Okunacak dosyanın tam yolu (ör: /home/hermes/jeff_repo/... veya C:\\Users\\...)"},
                     "max_lines": {"type": "integer", "description": "Maksimum okunacak satır sayısı (varsayılan 200)"}
                 },
                 "required": ["path"]
@@ -1113,7 +1113,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"📊 **Jeff System Status**\n"
             f"{task_info}\n"
-            f"• Linux Sunucu (193.164.4.149): ✅ Online\n"
+            f"• Linux Sunucu (13.140.183.88): ✅ Online\n"
             f"• Alfred (Windows Direct :7788): {alfred_st}\n"
             f"• Aider (Bridge :7700): {aider_st}\n"
             f"• Model: {MODEL}\n"

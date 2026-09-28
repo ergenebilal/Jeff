@@ -28,10 +28,10 @@ Documentation: https://ergene.gumroad.com/l/zero-to-ai-agent
 
 ---
 DEMO: https://youtube.com/@ergeneai
-LIVE: 193.164.4.149 (34 production workflows running since May 2026)
+LIVE: 13.140.183.88 (34 production workflows running since May 2026)
 GITHUB: https://github.com/ergenebilal/Jeff
 
 ---
 DEMO: https://youtube.com/@ergeneai
-LIVE: 193.164.4.149 (34 production workflows running since May 2026)
+LIVE: 13.140.183.88 (34 production workflows running since May 2026)
 GITHUB: https://github.com/ergenebilal/Jeff
