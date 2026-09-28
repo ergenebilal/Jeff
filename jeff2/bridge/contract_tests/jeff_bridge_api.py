@@ -109,7 +109,7 @@ app = FastAPI(title="Jeff Bridge API", version="1.0.0", lifespan=lifespan)
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 def require_key(x_bridge_key: Optional[str] = Header(default=None)):
-    if x_bridge_key != BRIDGE_KEY:
+    if not BRIDGE_KEY or not x_bridge_key or x_bridge_key != BRIDGE_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing X-Bridge-Key")
 
 
