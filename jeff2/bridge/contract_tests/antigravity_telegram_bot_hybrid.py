@@ -5,7 +5,7 @@ ANTIGRAVITY 24/7 HYBRID TELEGRAM CONTROLLER & AUTONOMOUS SURGEON
 -----------------------------------------------------------------
 Host: Jeff Linux Server (100.124.217.48 - Always Online 24/7)
 Remote Node: Lenovo Windows Laptop (100.89.26.86:7788 - Pablo)
-Bot: @Antigravity_cybrgn_bot (8837468670:AAEJfmvZHUrrW5R72wJVkYDopByJnnJ4myA)
+Bot: configured via TELEGRAM_BOT_TOKEN
 Owner & Operator: Bilal Ergene (chat_id: 5506784207)
 """
 

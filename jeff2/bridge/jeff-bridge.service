@@ -10,7 +10,7 @@ ExecStart=/usr/bin/python3 /home/hermes/jeff2/bridge/jeff_bridge_api.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-Environment=BRIDGE_KEY=cybergene-bridge-2026
+EnvironmentFile=/etc/jeff-bridge.env
 
 [Install]
 WantedBy=multi-user.target

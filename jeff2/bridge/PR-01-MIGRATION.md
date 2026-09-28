@@ -1,6 +1,8 @@
 # PR-01 Bridge migration and rollback
 
 The Bridge now requires `BRIDGE_KEY`. It binds to `127.0.0.1` by default.
+The systemd unit reads `BRIDGE_KEY` from `/etc/jeff-bridge.env`; provision that
+file with owner-only permissions before starting the unit.
 Set `BRIDGE_HOST` and `BRIDGE_ALLOWED_IPS` explicitly when remote workers need
 access. The Pablo worker must send its stable `node_id` as `X-Worker-ID`.
 The legacy Alfred client now only sends heartbeats; Pablo/Hermes executes tasks.
