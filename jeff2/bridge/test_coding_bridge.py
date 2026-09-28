@@ -21,7 +21,7 @@ def load(name):
 
 class BridgeTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.tmp=tempfile.TemporaryDirectory(ignore_cleanup_errors=True);self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         # Bridge import logging must remain inside the isolated directory.
         import logging
@@ -83,10 +83,13 @@ class BridgeTests(unittest.TestCase):
     def test_result_is_not_redelivered_as_task(self):
         body=self.api.AlfredTaskRequest(task_id='win1',type='ping',payload={})
         asyncio.run(self.api.create_alfred_task(body,'test-key'))
-        result=self.api.AlfredResult(task_id='win1',type='ping',status='ERROR',ok=False,request_id='win1',result='test error')
+        claimed=asyncio.run(self.api.alfred_get_tasks(1,'test-key','fixture-worker'))['tasks'][0]
+        result=self.api.AlfredResult(task_id='win1',type='ping',status='ERROR',ok=False,
+                                     request_id='win1',result='test error',digest=claimed['digest'],
+                                     worker_id='fixture-worker',attempt=claimed['attempt'])
         asyncio.run(self.api.alfred_result(result,'test-key'))
         latest=asyncio.run(self.api.alfred_task_status('win1','test-key'))
-        self.assertEqual(latest['status'],'ERROR')
+        self.assertEqual(latest['status'],'unverified')
         with sqlite3.connect(self.api.DB_PATH) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM alfred_events WHERE status='pending'").fetchone()[0],0)
 
