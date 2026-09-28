@@ -170,7 +170,7 @@ def normalize_tool_params(raw_args: any) -> dict:
 # ── APPROVAL GATE (KIRMIZI ÇİZGİLER & ÇİFT KATMANLI GÜVENLİK) ─────────────────
 import uuid
 
-from pablo_task_guard import TaskGuard, allowed_ip
+from pablo_task_guard import TaskGuard, allowed_ip, READ_ACTIONS
 from pablo_bridge_auth import bridge_worker_headers, validate_bridge_result_ack
 from pablo_approval_handoff import apply_approval_decision
 
@@ -1385,6 +1385,16 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             action_name = data.get("action")
             raw_params = data.get("params", {})
             params = normalize_tool_params(raw_params)
+
+            if action_name not in READ_ACTIONS:
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "ok": False, "status": "BLOCKED", "request_id": data.get("request_id"),
+                    "error": "Direct side-effect execution is disabled; use Jeff Bridge",
+                }).encode("utf-8"))
+                return
 
             res = execute_request(action_name, params, data.get('request_id'))
 

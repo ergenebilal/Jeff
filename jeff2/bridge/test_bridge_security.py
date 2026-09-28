@@ -200,6 +200,23 @@ class BridgeSecurityTests(unittest.TestCase):
 
 
 class TaskGuardNotificationTests(unittest.TestCase):
+    def test_side_effect_capable_actions_always_require_approval(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            executed = []
+            actions = {name: lambda params: executed.append(params) or {'ok': True}
+                       for name in ('vision_grounding', 'screenshot', 'browser_read')}
+            guard = TaskGuard(Path(temp) / 'guard.sqlite3', actions,
+                              owner='42', desktop_ready=lambda: True)
+            for index, (action, params) in enumerate((
+                ('vision_grounding', {'click': True}),
+                ('screenshot', {'save_path': 'C:/fixture/overwrite.txt'}),
+                ('browser_read', {'url': 'http://127.0.0.1/private'}),
+            )):
+                with self.subTest(action=action):
+                    result = guard.execute(action, params, f'risky-{index}')
+                    self.assertEqual(result['status'], 'APPROVAL_REQUIRED')
+            self.assertEqual(executed, [])
+
     def test_replayed_approval_claims_one_notification_across_restart(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             path = Path(temp) / 'guard.sqlite3'

@@ -21,7 +21,7 @@ def allowed_ip(address, allowlist):
         return False
 
 
-READ_ACTIONS = {'ping', 'window_list', 'gui_coords', 'screenshot', 'vision_grounding', 'browser_read', 'pilot_status'}
+READ_ACTIONS = {'ping', 'window_list', 'gui_coords', 'pilot_status'}
 GUI_ACTIONS = {'window_focus', 'gui_click', 'gui_drag', 'gui_scroll', 'gui_type', 'screenshot',
                'vision_grounding', 'browser_open', 'browser_read', 'browser_act', 'browser_session',
                'pilot_run_session', 'youtube_play', 'whatsapp_send', 'whatsapp_draft'}
