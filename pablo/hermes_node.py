@@ -1435,7 +1435,7 @@ def run_bridge_worker():
             # 2. Task Poll (Long Polling)
             req = urllib.request.Request(
                 f"{jeff_bridge_url}/alfred/tasks?timeout=15",
-                headers={"X-Bridge-Key": bridge_key}
+                headers={"X-Bridge-Key": bridge_key, "X-Worker-ID": CONFIG['node_id']}
             )
             try:
                 with urllib.request.urlopen(req, timeout=20) as resp:
@@ -1458,8 +1458,21 @@ def send_bridge_result(payload):
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json", "X-Bridge-Key": CONFIG['auth_token']})
     with urllib.request.urlopen(req, timeout=10) as response:
-        if response.status != 200:
+        if response.status != 200 or json.loads(response.read().decode()).get('status') == 'quarantined':
             raise RuntimeError('Bridge did not acknowledge result')
+
+def bridge_claim_metadata(task_id):
+    req = urllib.request.Request(
+        f"{CONFIG['jeff_bridge_api_url']}/alfred/task/{urllib.parse.quote(task_id)}",
+        headers={'X-Bridge-Key': CONFIG['auth_token']})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            claim = json.loads(response.read().decode())
+    except Exception:
+        return None
+    if claim.get('worker_id') != CONFIG['node_id'] or claim.get('status') != 'delivered':
+        return None
+    return claim
 
 def handle_bridge_task(task: dict):
     aliases = {'BROWSER_ACTION': 'browser_open', 'YOUTUBE_PLAY': 'youtube_play',
@@ -1468,8 +1481,24 @@ def handle_bridge_task(task: dict):
     rid = task.get('task_id')
     if not rid:
         return
-    result = execute_request(action, task.get('payload'), rid)
-    payload = dict(result, type=task.get('type'), result=json.dumps(result))
+    params = task.get('payload')
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except json.JSONDecodeError:
+            params = {'raw': params}
+    if not isinstance(params, dict):
+        params = {'value': params}
+    if task.get('reconcile_only'):
+        result = task_guard().get(rid)
+        if result['status'] in ('NOT_FOUND', 'IN_PROGRESS'):
+            log('WARN', f'Bridge task {rid} requires manual reconciliation: {result["status"]}')
+            return
+    else:
+        result = execute_request(action, params, rid)
+    payload = dict(result, type=task.get('type'), result=json.dumps(result),
+                   digest=task.get('digest'), worker_id=CONFIG['node_id'],
+                   attempt=task.get('attempt'))
     task_guard().queue_result(payload)
     task_guard().flush_results(send_bridge_result)
 
@@ -1591,7 +1620,11 @@ def run_telegram_worker():
                         if result['status'] != 'REJECTED':
                             send_telegram_msg(CONFIG.get('telegram_default_chat_id'),
                                 json.dumps(result, ensure_ascii=False))
-                            task_guard().queue_result(dict(result, type='ACTION_RESULT', result=json.dumps(result)))
+                            claim = bridge_claim_metadata(result['request_id'])
+                            if claim:
+                                task_guard().queue_result(dict(result, type=claim['type'],
+                                    result=json.dumps(result), digest=claim['digest'],
+                                    worker_id=claim['worker_id'], attempt=claim['attempt']))
                     continue
 
                 # 2. Normal Mesaj İşleme

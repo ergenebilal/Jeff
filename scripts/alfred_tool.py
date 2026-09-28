@@ -52,13 +52,15 @@ except ImportError:
 ALFRED_HOST = os.environ.get("ALFRED_HOST", "100.89.26.86")
 ALFRED_PORT = int(os.environ.get("ALFRED_PORT", "7788"))
 ALFRED_BASE_URL = f"http://{ALFRED_HOST}:{ALFRED_PORT}"
-BRIDGE_KEY = os.environ.get("BRIDGE_KEY", "cybergene-bridge-2026")
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 
 _session: Optional[requests.Session] = None
 
 
 def get_session() -> requests.Session:
     global _session
+    if not BRIDGE_KEY:
+        raise RuntimeError('BRIDGE_KEY is required')
     if _session is None:
         _session = requests.Session()
         _session.headers.update({

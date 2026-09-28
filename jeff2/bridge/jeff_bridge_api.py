@@ -5,6 +5,9 @@ Port: 7700 | Auth: X-Bridge-Key header | DB: SQLite bridge.db
 """
 
 import asyncio
+import hashlib
+import hmac
+import ipaddress
 import json
 from coding_contract import validate_contract
 import logging
@@ -16,16 +19,36 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-BRIDGE_KEY = os.environ.get("BRIDGE_KEY", "cybergene-bridge-2026")
-DB_PATH = os.path.join(os.path.dirname(__file__), "bridge.db")
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
+DB_PATH = os.environ.get("BRIDGE_DB_PATH", os.path.join(os.path.dirname(__file__), "bridge.db"))
 LOG_PATH = os.path.join(os.path.dirname(__file__), "bridge.log")
 ALFRED_TIMEOUT_SEC = 60
-HOST = "0.0.0.0"
-PORT = 7700
+HOST = None
+PORT = int(os.environ.get("BRIDGE_PORT", "7700"))
+
+def validate_bridge_key(key):
+    if not key or key.strip() != key or key.lower() in {
+        'cybergene-bridge-2026', 'changeme', 'change-me', 'test', 'development', 'placeholder'
+    }:
+        raise ValueError('BRIDGE_KEY must be configured with a non-placeholder secret')
+    return key
+
+def host_from_environment(environ):
+    host = environ.get('BRIDGE_HOST', '127.0.0.1')
+    if not host:
+        raise ValueError('BRIDGE_HOST cannot be empty')
+    return host
+
+HOST = host_from_environment(os.environ)
+
+def task_digest(type_, payload, policy):
+    canonical = json.dumps({'type': type_, 'payload': payload, 'policy': policy},
+                           sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -85,6 +108,15 @@ async def init_db():
             event_columns = {row[1] for row in await cursor.fetchall()}
         if 'delivered_at' not in event_columns:
             await db.execute('ALTER TABLE alfred_events ADD COLUMN delivered_at REAL')
+        for column, definition in {
+            'digest': 'TEXT', 'policy': 'TEXT', 'worker_id': 'TEXT',
+            'attempt': 'INTEGER DEFAULT 0'
+        }.items():
+            if column not in event_columns:
+                await db.execute(f'ALTER TABLE alfred_events ADD COLUMN {column} {definition}')
+        await db.execute('CREATE TABLE IF NOT EXISTS alfred_task_claims (task_id TEXT PRIMARY KEY, digest TEXT NOT NULL)')
+        await db.execute('CREATE TABLE IF NOT EXISTS alfred_results (task_id TEXT PRIMARY KEY, digest TEXT NOT NULL, worker_id TEXT NOT NULL, attempt INTEGER NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL)')
+        await db.execute('CREATE TABLE IF NOT EXISTS alfred_result_quarantine (id INTEGER PRIMARY KEY, task_id TEXT, reason TEXT, created_at TEXT)')
         await db.commit()
     log.info("DB initialised at %s", DB_PATH)
 
@@ -92,9 +124,13 @@ async def init_db():
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_bridge_key(BRIDGE_KEY)
+    if HOST == '0.0.0.0':
+        log.warning('Bridge configured to bind all interfaces')
     await init_db()
     from aider_runner import start_runner
     runner_task = asyncio.create_task(start_runner())
+    app.state.runner_task = runner_task
     log.info("Aider runner started")
     yield
     runner_task.cancel()
@@ -106,10 +142,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Jeff Bridge API", version="1.0.0", lifespan=lifespan)
 
+@app.middleware('http')
+async def enforce_ip_allowlist(request: Request, call_next):
+    from fastapi.responses import JSONResponse
+    raw = os.environ.get('BRIDGE_ALLOWED_IPS', '')
+    allowed = {part.strip() for part in raw.split(',') if part.strip()}
+    try:
+        client_ip = ipaddress.ip_address(request.client.host)
+        permitted = client_ip.is_loopback or any(client_ip == ipaddress.ip_address(item) for item in allowed)
+    except (ValueError, AttributeError):
+        permitted = False
+    if not permitted:
+        return JSONResponse(status_code=403, content={'detail': 'Client IP not allowed'})
+    return await call_next(request)
+
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 def require_key(x_bridge_key: Optional[str] = Header(default=None)):
-    if x_bridge_key != BRIDGE_KEY:
+    if not BRIDGE_KEY or not x_bridge_key or not hmac.compare_digest(x_bridge_key, BRIDGE_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing X-Bridge-Key")
 
 
@@ -135,6 +185,9 @@ class AlfredResult(BaseModel):
     approval_id: Optional[str] = None
     error: Optional[str] = None
     timestamp: Optional[str] = None
+    digest: Optional[str] = None
+    worker_id: Optional[str] = None
+    attempt: Optional[int] = None
 
 
 class AlfredHeartbeat(BaseModel):
@@ -190,48 +243,69 @@ class AlfredTaskRequest(BaseModel):
     task_id: Optional[str] = None
     type: str  # WHATSAPP_DRAFT, SCREENSHOT_REQUEST, BROWSER_ACTION, etc.
     payload: dict | str
+    policy: dict = {}
 
 
 @app.post("/alfred/task")
 async def create_alfred_task(body: AlfredTaskRequest, x_bridge_key: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
-    import json
     task_id = body.task_id or str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
-    payload_str = json.dumps(body.payload) if isinstance(body.payload, dict) else str(body.payload)
+    payload_str = json.dumps(body.payload, sort_keys=True, ensure_ascii=False)
+    digest = task_digest(body.type, body.payload, body.policy)
 
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('BEGIN IMMEDIATE')
+        async with db.execute('SELECT type,payload,policy,digest,status FROM alfred_events WHERE task_id=?', (task_id,)) as cursor:
+            existing = await cursor.fetchone()
+        if existing:
+            old_digest = existing[3] or task_digest(existing[0], json.loads(existing[1]), json.loads(existing[2] or '{}'))
+            if old_digest != digest:
+                raise HTTPException(status_code=409, detail='Task ID content conflict')
+            return {'task_id': task_id, 'status': existing[4], 'type': body.type, 'digest': digest}
+        await db.execute('INSERT INTO alfred_task_claims(task_id,digest) VALUES(?,?)', (task_id,digest))
         await db.execute(
-            "INSERT INTO alfred_events (task_id, type, payload, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
-            (task_id, body.type, payload_str, now),
+            "INSERT INTO alfred_events (task_id,type,payload,status,created_at,digest,policy) VALUES (?,?,?,'pending',?,?,?)",
+            (task_id, body.type, payload_str, now, digest, json.dumps(body.policy, sort_keys=True)),
         )
         await db.commit()
 
     log.info("ALFRED_TASK_QUEUED  task_id=%s  type=%s", task_id, body.type)
-    return {"task_id": task_id, "status": "queued", "type": body.type}
+    return {"task_id": task_id, "status": "queued", "type": body.type, "digest": digest}
 
 
 @app.post("/alfred/result")
 async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
-    import json
     now = datetime.now(timezone.utc).isoformat()
-    payload = json.dumps({
-        "result": body.result,
-        "status": body.status, "ok": body.ok, "request_id": body.request_id,
-        "approval_id": body.approval_id, "error": body.error,
-        "screenshot_b64": body.screenshot_b64[:40] + "..." if body.screenshot_b64 else None,
-    })
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO alfred_events (task_id, type, payload, created_at, status) VALUES (?, ?, ?, ?, 'result')",
-            (body.task_id, body.type, payload, now),
-        )
-        await db.execute("UPDATE alfred_events SET status=? WHERE task_id=? AND status IN ('pending','delivered')",
-                         (body.status, body.task_id))
+        await db.execute('BEGIN IMMEDIATE')
+        async with db.execute('SELECT type,digest,worker_id,attempt,status FROM alfred_events WHERE task_id=?', (body.task_id,)) as cursor:
+            event = await cursor.fetchone()
+        reason = None
+        if not event:
+            reason = 'unknown_task'
+        elif (event[0] != body.type or event[1] != body.digest or event[2] != body.worker_id
+              or event[3] != body.attempt or event[4] != 'delivered'
+              or body.request_id != body.task_id):
+            reason = 'binding_mismatch_or_late_result'
+        if reason:
+            await db.execute('INSERT INTO alfred_result_quarantine(task_id,reason,created_at) VALUES(?,?,?)',
+                             (body.task_id, reason, now))
+            await db.commit()
+            return {'status': 'quarantined', 'task_id': body.task_id}
+        if body.status == 'APPROVAL_REQUIRED':
+            await db.commit()
+            return {'status': 'approval_required', 'task_id': body.task_id}
+        payload = json.dumps({'result': body.result, 'status': body.status, 'ok': False,
+                              'request_id': body.request_id, 'approval_id': body.approval_id,
+                              'error': body.error})
+        await db.execute('INSERT INTO alfred_results(task_id,digest,worker_id,attempt,status,payload,created_at) VALUES(?,?,?,?,?,?,?)',
+                         (body.task_id, body.digest, body.worker_id, body.attempt, 'unverified', payload, now))
+        await db.execute("UPDATE alfred_events SET status='unverified' WHERE task_id=?", (body.task_id,))
         await db.commit()
     log.info("ALFRED_RESULT  task_id=%s  type=%s", body.task_id, body.type)
-    return {"status": "received", "task_id": body.task_id}
+    return {"status": "unverified", "task_id": body.task_id}
 
 
 @app.get('/alfred/task/{task_id}')
@@ -243,33 +317,48 @@ async def alfred_task_status(task_id: str, x_bridge_key: Optional[str] = Header(
             row = await cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail='Unknown task')
-    if row['status'] == 'result':
-        return dict(task_id=task_id, **json.loads(row['payload']))
-    return {'task_id': task_id, 'status': row['status'], 'ok': False}
+    if row['status'] == 'unverified':
+        return {'task_id': task_id, 'status': 'unverified', 'ok': False}
+    return {'task_id': task_id, 'status': row['status'], 'ok': False,
+            'type': row['type'], 'digest': row['digest'], 'worker_id': row['worker_id'],
+            'attempt': row['attempt']}
 
 @app.get("/alfred/tasks")
 async def alfred_get_tasks(
     timeout: int = 30,
-    x_bridge_key: Optional[str] = Header(default=None)
+    x_bridge_key: Optional[str] = Header(default=None),
+    x_worker_id: Optional[str] = Header(default=None),
 ):
     require_key(x_bridge_key)
+    if not x_worker_id or len(x_worker_id) > 128:
+        raise HTTPException(status_code=422, detail='X-Worker-ID required')
     start_time = time.time()
     max_wait = min(max(timeout, 1), 60)
 
     while True:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
+            await db.execute('BEGIN IMMEDIATE')
             async with db.execute(
-                "SELECT * FROM alfred_events WHERE status = 'pending' OR (status='delivered' AND (delivered_at IS NULL OR delivered_at < ?)) ORDER BY created_at ASC LIMIT 10", (time.time()-120,)
+                "SELECT * FROM alfred_events WHERE status='pending' OR (status='delivered' AND worker_id=? AND delivered_at < ?) ORDER BY created_at ASC LIMIT 10",
+                (x_worker_id, time.time() - 120),
             ) as cur:
                 rows = await cur.fetchall()
 
             if rows:
-                tasks = [dict(r) for r in rows]
+                tasks = []
                 for r in rows:
-                    await db.execute("UPDATE alfred_events SET status = 'delivered', delivered_at=? WHERE id = ?", (time.time(), r["id"]))
+                    reconcile_only = r['status'] == 'delivered'
+                    attempt = (r['attempt'] or 0) if reconcile_only else 1
+                    worker_id = r['worker_id'] if reconcile_only else x_worker_id
+                    await db.execute("UPDATE alfred_events SET status='delivered', delivered_at=?,worker_id=?,attempt=? WHERE id=?",
+                                     (time.time(), worker_id, attempt, r['id']))
+                    task = dict(r)
+                    task.update(worker_id=worker_id, attempt=attempt, reconcile_only=reconcile_only)
+                    tasks.append(task)
                 await db.commit()
                 return {"tasks": tasks}
+            await db.commit()
 
         if time.time() - start_time >= max_wait:
             return {"tasks": []}
@@ -296,7 +385,10 @@ async def alfred_heartbeat(body: AlfredHeartbeat, x_bridge_key: Optional[str] = 
 
 
 @app.get("/alfred_client")
-async def get_alfred_client():
+async def get_alfred_client(x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    if os.environ.get('BRIDGE_ALLOW_CLIENT_DOWNLOAD') != '1':
+        raise HTTPException(status_code=404, detail='Client download disabled')
     from fastapi.responses import FileResponse
     client_path = os.path.join(os.path.dirname(__file__), "alfred_client.py")
     return FileResponse(client_path, media_type="text/x-python", filename="alfred_client.py")
@@ -308,16 +400,16 @@ async def health():
     queued = 0
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT last_seen FROM alfred_heartbeat WHERE id = 1") as cur:
+        async with db.execute("SELECT agent,last_seen FROM alfred_heartbeat WHERE id = 1") as cur:
             hb = await cur.fetchone()
-        if hb and (time.time() - hb["last_seen"]) < ALFRED_TIMEOUT_SEC:
+        if hb and hb['agent'] == 'pablo' and (time.time() - hb["last_seen"]) < ALFRED_TIMEOUT_SEC:
             alfred_online = True
         async with db.execute("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'queued'") as cur:
             row = await cur.fetchone()
         queued = row["cnt"] if row else 0
     return {
         "status": "ok",
-        "aider_ready": True,
+        "aider_ready": bool(getattr(app.state, 'runner_task', None) and not app.state.runner_task.done()),
         "alfred_online": alfred_online,
         "queued_tasks": queued,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -327,4 +419,5 @@ async def health():
 # ── Main ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
+    validate_bridge_key(BRIDGE_KEY)
     uvicorn.run("jeff_bridge_api:app", host=HOST, port=PORT, reload=False, log_level="info")

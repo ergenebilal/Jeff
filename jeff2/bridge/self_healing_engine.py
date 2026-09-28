@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:7700")
-BRIDGE_KEY = os.environ.get("BRIDGE_KEY", "cybergene-bridge-2026")
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 
 class SelfHealingEngine:
     def __init__(self, bridge_url=None, bridge_key=None):
