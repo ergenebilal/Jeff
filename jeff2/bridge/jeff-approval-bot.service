@@ -1,0 +1,20 @@
+[Unit]
+Description=Jeff approval Telegram consumer
+After=network-online.target jeff-bridge.service
+Wants=network-online.target
+Requires=jeff-bridge.service
+
+[Service]
+Type=simple
+User=hermes
+WorkingDirectory=/home/hermes/jeff_repo/jeff2/bridge
+ExecStart=/home/hermes/.venv/bin/python /home/hermes/jeff_repo/jeff2/bridge/jeff_approval_bot.py
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/jeff-approval-bot.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,7 @@
 {
   "production_entrypoints": [
     "jeff2/bridge/jeff_bridge_api.py",
+    "jeff2/bridge/jeff_approval_bot.py",
     "pablo/hermes_node.py",
     "scripts/jeff-morning-brief.py",
     "scripts/proactive_lead_radar.py"
@@ -11,10 +12,13 @@
     "jeff2/bridge/task_contract.py",
     "skills/jcode/scripts/verified_coding.py",
     "pablo/pablo_task_guard.py",
+    "pablo/pablo_bridge_auth.py",
+    "pablo/pablo_approval_handoff.py",
     "scripts/executive_briefing.py"
   ],
   "active_tests": [
     "jeff2/bridge/test_bridge_security.py",
+    "jeff2/bridge/test_jeff_approval_bot.py",
     "jeff2/bridge/test_coding_bridge.py",
     "jeff2/bridge/test_task_contract.py",
     "jeff2/bridge/test_task_http.py",
@@ -23,7 +27,8 @@
     "scripts/test_executive_briefing.py"
   ],
   "service_files": [
-    "jeff2/bridge/jeff-bridge.service"
+    "jeff2/bridge/jeff-bridge.service",
+    "jeff2/bridge/jeff-approval-bot.service"
   ],
   "deprecated": [
     "jeff2/bridge/contract_tests/test_contract_coding_bridge.py",

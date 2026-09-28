@@ -61,6 +61,11 @@ class TaskGuard:
             row = db.execute('SELECT response FROM requests WHERE id=?', (rid,)).fetchone()
             return json.loads(row[0]) if row else self.response(rid, 'NOT_FOUND', error='Unknown request')
 
+    def approval_matches(self, rid, approval_id):
+        with self.connect() as db:
+            return db.execute('SELECT 1 FROM requests WHERE id=? AND approval=?',
+                              (rid, approval_id)).fetchone() is not None
+
     def claim_approval_notification(self, rid):
         """Claim the owner notification once before sending it externally."""
         with self.lock, self.connect() as db:

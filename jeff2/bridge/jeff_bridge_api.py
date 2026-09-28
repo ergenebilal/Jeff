@@ -120,6 +120,13 @@ async def init_db():
         await db.execute('CREATE TABLE IF NOT EXISTS alfred_task_claims (task_id TEXT PRIMARY KEY, digest TEXT NOT NULL)')
         await db.execute('CREATE TABLE IF NOT EXISTS alfred_results (task_id TEXT PRIMARY KEY, digest TEXT NOT NULL, worker_id TEXT NOT NULL, attempt INTEGER NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL)')
         await db.execute('CREATE TABLE IF NOT EXISTS alfred_result_quarantine (id INTEGER PRIMARY KEY, task_id TEXT, reason TEXT, created_at TEXT)')
+        await db.execute('''CREATE TABLE IF NOT EXISTS alfred_approvals (
+            task_id TEXT PRIMARY KEY, digest TEXT NOT NULL, worker_id TEXT NOT NULL,
+            attempt INTEGER NOT NULL, approval_id TEXT NOT NULL UNIQUE,
+            notified INTEGER NOT NULL DEFAULT 0,
+            decision TEXT, actor_id TEXT, chat_id TEXT, created_at TEXT NOT NULL,
+            decided_at TEXT)''')
+        await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS alfred_approvals_approval_id_unique ON alfred_approvals(approval_id)')
         await db.commit()
     await asyncio.to_thread(TaskLedger(DB_PATH).initialize)
     log.info("DB initialised at %s", DB_PATH)
@@ -181,6 +188,15 @@ def require_pablo_worker(x_task_worker_key: Optional[str], x_worker_id: Optional
     if (not expected_id or not x_worker_id
             or not hmac.compare_digest(expected_id, x_worker_id)):
         raise HTTPException(status_code=403, detail='Worker identity mismatch')
+
+
+def require_jeff_approval_key(x_jeff_approval_key: Optional[str]):
+    configured = os.environ.get('JEFF_APPROVAL_KEY')
+    worker_key = os.environ.get('TASK_WORKER_KEY')
+    if (not configured or configured in (BRIDGE_KEY, worker_key)
+            or not x_jeff_approval_key
+            or not hmac.compare_digest(configured, x_jeff_approval_key)):
+        raise HTTPException(status_code=401, detail='Invalid or missing Jeff approval key')
 
 
 def task_health_probe():
@@ -351,6 +367,14 @@ class AlfredHeartbeat(BaseModel):
     timestamp: Optional[str] = None
 
 
+class AlfredApprovalDecision(BaseModel):
+    approval_id: str
+    digest: str
+    decision: str
+    actor_id: str
+    chat_id: str
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 @app.get('/aider/capabilities')
 async def aider_capabilities(x_bridge_key: Optional[str] = Header(default=None)):
@@ -460,14 +484,46 @@ async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header
               or event[3] != body.attempt or event[4] != 'delivered'
               or body.request_id != body.task_id):
             reason = 'binding_mismatch_or_late_result'
+        elif body.status == 'APPROVAL_REQUIRED' and not body.approval_id:
+            reason = 'missing_approval_id'
+        if body.status == 'APPROVAL_REQUIRED' and not reason:
+            async with db.execute(
+                'SELECT digest,worker_id,attempt,approval_id,decision FROM alfred_approvals WHERE task_id=?',
+                (body.task_id,),
+            ) as cursor:
+                previous = await cursor.fetchone()
+            if previous and tuple(previous[:4]) != (
+                    body.digest, body.worker_id, body.attempt, body.approval_id):
+                reason = 'approval_binding_mismatch'
+            if not previous and not reason:
+                async with db.execute('SELECT task_id FROM alfred_approvals WHERE approval_id=?',
+                                      (body.approval_id,)) as cursor:
+                    used_id = await cursor.fetchone()
+                if used_id:
+                    reason = 'approval_id_reused'
+        elif not reason:
+            async with db.execute('SELECT decision FROM alfred_approvals WHERE task_id=?',
+                                  (body.task_id,)) as cursor:
+                approval = await cursor.fetchone()
+            if approval and (not approval[0] or (approval[0] == 'reject' and body.status != 'REJECTED')):
+                reason = 'approval_not_decided_or_rejected'
         if reason:
             await db.execute('INSERT INTO alfred_result_quarantine(task_id,reason,created_at) VALUES(?,?,?)',
                              (body.task_id, reason, now))
             await db.commit()
             return {'status': 'quarantined', 'task_id': body.task_id}
         if body.status == 'APPROVAL_REQUIRED':
+            if not previous:
+                await db.execute(
+                    '''INSERT INTO alfred_approvals
+                       (task_id,digest,worker_id,attempt,approval_id,created_at)
+                       VALUES(?,?,?,?,?,?)''',
+                    (body.task_id, body.digest, body.worker_id, body.attempt,
+                     body.approval_id, now),
+                )
             await db.commit()
-            return {'status': 'approval_required', 'task_id': body.task_id}
+            return {'status': 'approval_required', 'task_id': body.task_id,
+                    'handoff': 'stored'}
         payload = json.dumps({'result': body.result, 'status': body.status, 'ok': False,
                               'request_id': body.request_id, 'approval_id': body.approval_id,
                               'error': body.error})
@@ -477,6 +533,115 @@ async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header
         await db.commit()
     log.info("ALFRED_RESULT  task_id=%s  type=%s", body.task_id, body.type)
     return {"status": "unverified", "task_id": body.task_id}
+
+
+@app.get('/alfred/approvals')
+async def alfred_get_approvals(x_bridge_key: Optional[str] = Header(default=None),
+                               x_jeff_approval_key: Optional[str] = Header(default=None)):
+    """Jeff's durable, unsent approval cards; no Telegram call occurs here."""
+    require_key(x_bridge_key)
+    require_jeff_approval_key(x_jeff_approval_key)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('''SELECT a.task_id,a.approval_id,a.digest,a.worker_id,a.attempt,
+                                       e.type,e.payload,a.created_at
+                                FROM alfred_approvals a JOIN alfred_events e
+                                  ON e.task_id=a.task_id AND e.digest=a.digest
+                                 AND e.worker_id=a.worker_id AND e.attempt=a.attempt
+                                WHERE a.notified=0 AND a.decision IS NULL
+                                ORDER BY a.created_at LIMIT 100''') as cursor:
+            rows = await cursor.fetchall()
+    return {'approvals': [dict(row) for row in rows]}
+
+
+@app.get('/alfred/approval-card/{approval_id}')
+async def alfred_approval_card(approval_id: str,
+                               x_bridge_key: Optional[str] = Header(default=None),
+                               x_jeff_approval_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    require_jeff_approval_key(x_jeff_approval_key)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('''SELECT task_id,approval_id,digest,worker_id,attempt,
+                                       notified,decision FROM alfred_approvals
+                                WHERE approval_id=?''', (approval_id,)) as cursor:
+            row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail='Unknown approval')
+    return {**dict(row), 'notified': bool(row['notified'])}
+
+
+@app.post('/alfred/approvals/{task_id}/claim')
+async def alfred_claim_approval(task_id: str, x_bridge_key: Optional[str] = Header(default=None),
+                                x_jeff_approval_key: Optional[str] = Header(default=None)):
+    """Claim once before external delivery; uncertain sends need reconciliation."""
+    require_key(x_bridge_key)
+    require_jeff_approval_key(x_jeff_approval_key)
+    if not os.environ.get('APPROVAL_OWNER_ID'):
+        raise HTTPException(status_code=503, detail='Approval owner is not configured')
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('BEGIN IMMEDIATE')
+        async with db.execute('SELECT 1 FROM alfred_approvals WHERE task_id=?', (task_id,)) as cursor:
+            if not await cursor.fetchone():
+                raise HTTPException(status_code=404, detail='Unknown approval task')
+        changed = await db.execute('''UPDATE alfred_approvals SET notified=1
+                                      WHERE task_id=? AND notified=0 AND decision IS NULL''',
+                                   (task_id,))
+        await db.commit()
+    return {'task_id': task_id, 'claimed': changed.rowcount == 1}
+
+
+@app.post('/alfred/approvals/{task_id}/decision')
+async def alfred_decide_approval(task_id: str, body: AlfredApprovalDecision,
+                                 x_bridge_key: Optional[str] = Header(default=None),
+                                 x_jeff_approval_key: Optional[str] = Header(default=None)):
+    """Record Jeff's owner-checked decision; Pablo still enforces TaskGuard."""
+    require_key(x_bridge_key)
+    require_jeff_approval_key(x_jeff_approval_key)
+    owner = os.environ.get('APPROVAL_OWNER_ID')
+    if not owner:
+        raise HTTPException(status_code=503, detail='Approval owner is not configured')
+    if (not hmac.compare_digest(str(body.actor_id), owner)
+            or not hmac.compare_digest(str(body.chat_id), owner)):
+        raise HTTPException(status_code=403, detail='Approval owner mismatch')
+    if body.decision not in ('approve', 'reject'):
+        raise HTTPException(status_code=422, detail='Invalid approval decision')
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('BEGIN IMMEDIATE')
+        async with db.execute('''SELECT digest,approval_id,notified,decision
+                                 FROM alfred_approvals WHERE task_id=?''', (task_id,)) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Unknown approval task')
+        if row[0] != body.digest or row[1] != body.approval_id or not row[2] or row[3]:
+            raise HTTPException(status_code=409, detail='Approval binding or state conflict')
+        await db.execute('''UPDATE alfred_approvals
+                            SET decision=?,actor_id=?,chat_id=?,decided_at=? WHERE task_id=?''',
+                         (body.decision, body.actor_id, body.chat_id,
+                          datetime.now(timezone.utc).isoformat(), task_id))
+        await db.commit()
+    return {'task_id': task_id, 'status': 'decided'}
+
+
+@app.get('/alfred/approval-decisions')
+async def alfred_get_approval_decisions(
+        x_bridge_key: Optional[str] = Header(default=None),
+        x_worker_id: Optional[str] = Header(default=None),
+        x_task_worker_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    require_pablo_worker(x_task_worker_key, x_worker_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('''SELECT a.task_id,a.approval_id,a.digest,a.worker_id,a.attempt,
+                                       a.decision,a.actor_id,a.chat_id,e.type
+                                FROM alfred_approvals a JOIN alfred_events e
+                                  ON e.task_id=a.task_id AND e.digest=a.digest
+                                 AND e.worker_id=a.worker_id AND e.attempt=a.attempt
+                                WHERE a.worker_id=? AND a.decision IS NOT NULL
+                                  AND e.status='delivered'
+                                ORDER BY a.decided_at LIMIT 100''', (x_worker_id,)) as cursor:
+            rows = await cursor.fetchall()
+    return {'decisions': [dict(row) for row in rows]}
 
 
 @app.get('/alfred/task/{task_id}')

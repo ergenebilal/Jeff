@@ -15,7 +15,9 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 import jeff_bridge_api as bridge
 from pablo.pablo_task_guard import TaskGuard
-from pablo.pablo_bridge_auth import bridge_worker_headers
+from pablo.pablo_bridge_auth import bridge_worker_headers, validate_bridge_result_ack
+from pablo.pablo_approval_handoff import apply_approval_decision
+from jeff2.bridge.jeff_approval_bot import JeffApprovalBot
 
 
 class BridgeSecurityTests(unittest.TestCase):
@@ -55,6 +57,13 @@ class BridgeSecurityTests(unittest.TestCase):
             with self.assertRaises(bridge.HTTPException) as no_identity:
                 bridge.require_pablo_worker('fixture-worker-key', 'fake-pablo')
         self.assertEqual(no_identity.exception.status_code, 403)
+
+    def test_jeff_approval_key_cannot_reuse_bridge_or_worker_key(self):
+        for key in ('fixture-bridge-key', 'fixture-worker-key', ''):
+            with self.subTest(key=key), patch.dict(os.environ, {'JEFF_APPROVAL_KEY': key}):
+                with self.assertRaises(bridge.HTTPException) as rejected:
+                    bridge.require_jeff_approval_key(key)
+                self.assertEqual(rejected.exception.status_code, 401)
 
     def test_same_id_same_content_is_one_event(self):
         first = self.submit({'url': 'https://example.test'})
@@ -102,6 +111,93 @@ class BridgeSecurityTests(unittest.TestCase):
         self.assertEqual(status['status'], 'legacy_unverified')
         self.assertFalse(status['ok'])
 
+    def test_approval_handoff_is_bound_single_use_and_worker_scoped(self):
+        self.submit({'url': 'https://example.test'})
+        task = asyncio.run(bridge.alfred_get_tasks(
+            1, 'fixture-bridge-key', 'fake-pablo', 'fixture-worker-key'))['tasks'][0]
+        pending = bridge.AlfredResult(
+            task_id='task-1', type='BROWSER_ACTION', status='APPROVAL_REQUIRED',
+            request_id='task-1', approval_id='approval-1', digest=task['digest'],
+            worker_id='fake-pablo', attempt=task['attempt'])
+        self.assertEqual(asyncio.run(bridge.alfred_result(
+            pending, 'fixture-bridge-key', 'fixture-worker-key', 'fake-pablo'))['status'],
+            'approval_required')
+        self.assertEqual(asyncio.run(bridge.alfred_result(
+            pending.model_copy(update={'approval_id': 'changed'}),
+            'fixture-bridge-key', 'fixture-worker-key', 'fake-pablo'))['status'],
+            'quarantined')
+        self.assertEqual(asyncio.run(bridge.alfred_result(
+            pending.model_copy(update={'approval_id': None}),
+            'fixture-bridge-key', 'fixture-worker-key', 'fake-pablo'))['status'],
+            'quarantined')
+        self.assertEqual(asyncio.run(bridge.alfred_result(
+            pending.model_copy(update={'status': 'SUCCESS', 'ok': True}),
+            'fixture-bridge-key', 'fixture-worker-key', 'fake-pablo'))['status'],
+            'quarantined')
+        self.submit({'url': 'https://other.test'}, task_id='task-2')
+        other = asyncio.run(bridge.alfred_get_tasks(
+            1, 'fixture-bridge-key', 'fake-pablo', 'fixture-worker-key'))['tasks'][0]
+        reused_id = pending.model_copy(update={
+            'task_id': 'task-2', 'request_id': 'task-2', 'digest': other['digest'],
+            'attempt': other['attempt']})
+        self.assertEqual(asyncio.run(bridge.alfred_result(
+            reused_id, 'fixture-bridge-key', 'fixture-worker-key', 'fake-pablo'))['status'],
+            'quarantined')
+        with sqlite3.connect(bridge.DB_PATH) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM alfred_approvals').fetchone()[0], 1)
+        with patch.dict(os.environ, {'APPROVAL_OWNER_ID': '42',
+                                      'JEFF_APPROVAL_KEY': 'fixture-jeff-approval-key'}):
+            with self.assertRaises(bridge.HTTPException) as unauthorized:
+                asyncio.run(bridge.alfred_get_approvals('fixture-bridge-key', None))
+            self.assertEqual(unauthorized.exception.status_code, 401)
+            approvals = asyncio.run(bridge.alfred_get_approvals(
+                'fixture-bridge-key', 'fixture-jeff-approval-key'))['approvals']
+            self.assertEqual(len(approvals), 1)
+            self.assertEqual(approvals[0]['digest'], task['digest'])
+            card = asyncio.run(bridge.alfred_approval_card(
+                'approval-1', 'fixture-bridge-key', 'fixture-jeff-approval-key'))
+            self.assertEqual(card['task_id'], 'task-1')
+            self.assertFalse(card['notified'])
+            with patch.dict(os.environ, {'APPROVAL_OWNER_ID': ''}):
+                with self.assertRaises(bridge.HTTPException) as unconfigured:
+                    asyncio.run(bridge.alfred_claim_approval(
+                        'task-1', 'fixture-bridge-key', 'fixture-jeff-approval-key'))
+                self.assertEqual(unconfigured.exception.status_code, 503)
+            self.assertTrue(asyncio.run(bridge.alfred_claim_approval(
+                'task-1', 'fixture-bridge-key', 'fixture-jeff-approval-key'))['claimed'])
+            self.assertTrue(asyncio.run(bridge.alfred_approval_card(
+                'approval-1', 'fixture-bridge-key', 'fixture-jeff-approval-key'))['notified'])
+            self.assertFalse(asyncio.run(bridge.alfred_claim_approval(
+                'task-1', 'fixture-bridge-key', 'fixture-jeff-approval-key'))['claimed'])
+            with self.assertRaises(bridge.HTTPException) as wrong_owner:
+                asyncio.run(bridge.alfred_decide_approval(
+                    'task-1', bridge.AlfredApprovalDecision(
+                        approval_id='approval-1', digest=task['digest'], decision='approve',
+                        actor_id='other', chat_id='42'), 'fixture-bridge-key',
+                    'fixture-jeff-approval-key'))
+            self.assertEqual(wrong_owner.exception.status_code, 403)
+            decision = bridge.AlfredApprovalDecision(
+                approval_id='approval-1', digest=task['digest'], decision='approve',
+                actor_id='42', chat_id='42')
+            self.assertEqual(asyncio.run(bridge.alfred_decide_approval(
+                'task-1', decision, 'fixture-bridge-key',
+                'fixture-jeff-approval-key'))['status'], 'decided')
+            with self.assertRaises(bridge.HTTPException) as replay:
+                asyncio.run(bridge.alfred_decide_approval(
+                    'task-1', decision, 'fixture-bridge-key', 'fixture-jeff-approval-key'))
+            self.assertEqual(replay.exception.status_code, 409)
+            with self.assertRaises(bridge.HTTPException) as wrong_worker:
+                asyncio.run(bridge.alfred_get_approval_decisions(
+                    'fixture-bridge-key', 'other-pablo', 'fixture-worker-key'))
+            self.assertEqual(wrong_worker.exception.status_code, 403)
+            decisions = asyncio.run(bridge.alfred_get_approval_decisions(
+                'fixture-bridge-key', 'fake-pablo', 'fixture-worker-key'))['decisions']
+            self.assertEqual(len(decisions), 1)
+            self.assertEqual(decisions[0]['approval_id'], 'approval-1')
+            asyncio.run(bridge.init_db())
+            self.assertEqual(len(asyncio.run(bridge.alfred_get_approval_decisions(
+                'fixture-bridge-key', 'fake-pablo', 'fixture-worker-key'))['decisions']), 1)
+
 
 class TaskGuardNotificationTests(unittest.TestCase):
     def test_replayed_approval_claims_one_notification_across_restart(self):
@@ -141,6 +237,53 @@ class PabloWorkerHeaderTests(unittest.TestCase):
             with self.subTest(worker_key=worker_key), self.assertRaises(RuntimeError):
                 bridge_worker_headers({**config, 'task_worker_key': worker_key})
 
+    def test_approval_result_requires_durable_handoff_ack(self):
+        pending = {'status': 'APPROVAL_REQUIRED'}
+        with self.assertRaises(RuntimeError):
+            validate_bridge_result_ack(pending, {'status': 'approval_required'})
+        self.assertTrue(validate_bridge_result_ack(
+            pending, {'status': 'approval_required', 'handoff': 'stored'}))
+
+
+class PabloApprovalHandoffTests(unittest.TestCase):
+    def test_decision_checks_local_approval_and_executes_once(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            effects, sent = [], []
+            guard = TaskGuard(Path(temp) / 'guard.sqlite3',
+                              {'browser_open': lambda params: effects.append(params) or {'ok': True}},
+                              owner='42', desktop_ready=lambda: True)
+            pending = guard.execute('browser_open', {'url': 'https://example.test'}, 'task-1')
+            decision = {'task_id': 'task-1', 'approval_id': pending['approval_id'],
+                        'digest': 'fixture-digest', 'worker_id': 'fake-pablo', 'attempt': 1,
+                        'type': 'BROWSER_ACTION', 'decision': 'approve',
+                        'actor_id': '42', 'chat_id': '42'}
+            self.assertFalse(apply_approval_decision(
+                guard, {**decision, 'approval_id': 'forged'}, 'fake-pablo', sent.append))
+            self.assertFalse(apply_approval_decision(
+                guard, {**decision, 'worker_id': 'other-pablo'}, 'fake-pablo', sent.append))
+            self.assertEqual(len(effects), 0)
+            self.assertTrue(apply_approval_decision(guard, decision, 'fake-pablo', sent.append))
+            self.assertTrue(apply_approval_decision(guard, decision, 'fake-pablo', sent.append))
+            self.assertEqual(len(effects), 1)
+            self.assertEqual(sent[0]['request_id'], 'task-1')
+            self.assertEqual(sent[0]['digest'], 'fixture-digest')
+
+    def test_rejection_never_executes(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            effects, sent = [], []
+            guard = TaskGuard(Path(temp) / 'guard.sqlite3',
+                              {'browser_open': lambda params: effects.append(params) or {'ok': True}},
+                              owner='42', desktop_ready=lambda: True)
+            pending = guard.execute('browser_open', {'url': 'https://example.test'}, 'reject-1')
+            decision = {'task_id': 'reject-1', 'approval_id': pending['approval_id'],
+                        'digest': 'fixture-digest', 'worker_id': 'fake-pablo', 'attempt': 1,
+                        'type': 'BROWSER_ACTION', 'decision': 'reject',
+                        'actor_id': '42', 'chat_id': '42'}
+            self.assertTrue(apply_approval_decision(guard, decision, 'fake-pablo', sent.append))
+            self.assertEqual(guard.get('reject-1')['status'], 'REJECTED')
+            self.assertEqual(sent[0]['status'], 'REJECTED')
+            self.assertEqual(effects, [])
+
 
 class RealHttpSmokeTests(unittest.TestCase):
     def test_process_rejects_missing_secret(self):
@@ -168,13 +311,15 @@ class RealHttpSmokeTests(unittest.TestCase):
             env = os.environ.copy()
             env.update(BRIDGE_KEY='fixture-bridge-key', BRIDGE_DB_PATH=db_path,
                        BRIDGE_HOST='127.0.0.1', BRIDGE_PORT=str(port),
-                       TASK_WORKER_KEY='fixture-worker-key', PABLO_WORKER_ID='fake-pablo')
+                       TASK_WORKER_KEY='fixture-worker-key', PABLO_WORKER_ID='fake-pablo',
+                       APPROVAL_OWNER_ID='42', JEFF_APPROVAL_KEY='fixture-jeff-approval-key')
             proc = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'jeff_bridge_api:app',
                                      '--host', '127.0.0.1', '--port', str(port), '--log-level', 'error'],
                                     cwd=ROOT, env=env, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL)
             base = f'http://127.0.0.1:{port}'
             headers = {'X-Bridge-Key': 'fixture-bridge-key'}
+            jeff_headers = {**headers, 'X-Jeff-Approval-Key': 'fixture-jeff-approval-key'}
             worker_headers = bridge_worker_headers({
                 'auth_token': 'fixture-bridge-key',
                 'task_worker_key': 'fixture-worker-key',
@@ -242,8 +387,53 @@ class RealHttpSmokeTests(unittest.TestCase):
                 self.assertEqual(len(count), 0)
                 pending_result = {**pending, 'type': 'BROWSER_ACTION', 'digest': task['digest'],
                                   'worker_id': 'fake-pablo', 'attempt': task['attempt']}
-                self.assertEqual(requests.post(base + '/alfred/result', json=pending_result,
-                                               headers=worker_headers, timeout=2).json()['status'], 'approval_required')
+                approval_response = requests.post(base + '/alfred/result', json=pending_result,
+                                                  headers=worker_headers, timeout=2).json()
+                self.assertTrue(validate_bridge_result_ack(pending_result, approval_response))
+                self.assertEqual(requests.get(base + '/alfred/approvals', timeout=2).status_code, 401)
+                self.assertEqual(requests.get(base + '/alfred/approvals', headers=headers,
+                                              timeout=2).status_code, 401)
+                approval_cards = requests.get(base + '/alfred/approvals', headers=jeff_headers,
+                                              timeout=2).json()['approvals']
+                self.assertEqual(len(approval_cards), 1)
+                self.assertEqual(approval_cards[0]['approval_id'], pending['approval_id'])
+
+                def jeff_bridge_call(method, path, payload=None):
+                    response = requests.request(method, base + path, json=payload,
+                                                headers=jeff_headers, timeout=2)
+                    response.raise_for_status()
+                    return response.json()
+
+                telegram_calls = []
+                bot = JeffApprovalBot('42', jeff_bridge_call,
+                                      lambda method, payload: telegram_calls.append((method, payload)))
+                bot.send_pending()
+                bot.send_pending()
+                self.assertEqual(len([call for call in telegram_calls if call[0] == 'sendMessage']), 1)
+                self.assertFalse(requests.post(base + '/alfred/approvals/smoke-1/claim',
+                                               headers=jeff_headers, timeout=2).json()['claimed'])
+                decision = {'approval_id': pending['approval_id'], 'digest': task['digest'],
+                            'decision': 'approve', 'actor_id': '42', 'chat_id': '42'}
+                self.assertEqual(requests.post(base + '/alfred/approvals/smoke-1/decision',
+                                               json={**decision, 'actor_id': 'other'},
+                                               headers=jeff_headers, timeout=2).status_code, 403)
+                self.assertEqual(requests.post(base + '/alfred/approvals/smoke-1/decision',
+                                               json={**decision, 'digest': 'changed'},
+                                               headers=jeff_headers, timeout=2).status_code, 409)
+                update = {'callback_query': {'id': 'fixture-callback',
+                    'data': 'a:' + pending['approval_id'], 'from': {'id': 42},
+                    'message': {'chat': {'id': 42}}}}
+                bot.handle_update(update)
+                bot.handle_update(update)
+                self.assertEqual(len([call for call in telegram_calls
+                                      if call[0] == 'answerCallbackQuery']), 2)
+                self.assertEqual(requests.post(base + '/alfred/approvals/smoke-1/decision',
+                                               json=decision, headers=jeff_headers, timeout=2).status_code, 409)
+                self.assertEqual(requests.get(base + '/alfred/approval-decisions',
+                                              headers=headers, timeout=2).status_code, 401)
+                decisions = requests.get(base + '/alfred/approval-decisions',
+                                         headers=worker_headers, timeout=2).json()['decisions']
+                self.assertEqual(len(decisions), 1)
                 with sqlite3.connect(db_path) as db:
                     db.execute("UPDATE alfred_events SET delivered_at=0 WHERE task_id='smoke-1'")
                 reconciliation = requests.get(base + '/alfred/tasks?timeout=1',
@@ -252,12 +442,12 @@ class RealHttpSmokeTests(unittest.TestCase):
                 self.assertTrue(reconciliation[0]['reconcile_only'])
                 self.assertEqual(guard.get('smoke-1')['status'], 'APPROVAL_REQUIRED')
                 self.assertEqual(len(count), 0)
-                approved = guard.approve(pending['approval_id'], '42', '42')
-                self.assertEqual(approved['status'], 'SUCCESS')
+                sent = []
+                self.assertTrue(apply_approval_decision(guard, decisions[0], 'fake-pablo', sent.append))
+                self.assertEqual(sent[0]['status'], 'SUCCESS')
                 self.assertEqual(guard.execute('browser_open', body['payload'], 'smoke-1')['status'], 'SUCCESS')
                 self.assertEqual(len(count), 1)
-                result = {**approved, 'type': 'BROWSER_ACTION', 'digest': task['digest'],
-                          'worker_id': 'fake-pablo', 'attempt': task['attempt']}
+                result = sent[0]
                 self.assertEqual(requests.post(base + '/alfred/result', json=result,
                                                headers=headers, timeout=2).status_code, 401)
                 with sqlite3.connect(db_path) as db:
@@ -270,7 +460,8 @@ class RealHttpSmokeTests(unittest.TestCase):
                 with sqlite3.connect(db_path) as db:
                     self.assertEqual(db.execute("SELECT count(*) FROM alfred_events WHERE task_id='smoke-1'").fetchone()[0], 1)
                     self.assertEqual(db.execute("SELECT count(*) FROM alfred_results WHERE task_id='smoke-1'").fetchone()[0], 1)
-                print('HTTP_SQLITE_SMOKE: heartbeat=online events=1 executions=1 results=1 duplicate=quarantined')
+                print('HTTP_SQLITE_SMOKE: heartbeat=online approval_cards=1 decisions=1 '
+                      'events=1 executions=1 results=1 duplicate=quarantined')
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)

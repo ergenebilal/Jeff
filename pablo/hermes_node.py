@@ -171,7 +171,8 @@ def normalize_tool_params(raw_args: any) -> dict:
 import uuid
 
 from pablo_task_guard import TaskGuard, allowed_ip
-from pablo_bridge_auth import bridge_worker_headers
+from pablo_bridge_auth import bridge_worker_headers, validate_bridge_result_ack
+from pablo_approval_handoff import apply_approval_decision
 
 _task_guard = None
 
@@ -210,12 +211,7 @@ def task_guard():
     return _task_guard
 
 def execute_request(action, params, request_id=None):
-    result = task_guard().execute(action, normalize_tool_params(params), request_id)
-    if (result['status'] == 'APPROVAL_REQUIRED'
-            and task_guard().claim_approval_notification(result['request_id'])):
-        send_telegram_approval_request(CONFIG.get('telegram_default_chat_id'),
-            result['approval_id'], action, {}, 'Exact request: ' + result['request_id'])
-    return result
+    return task_guard().execute(action, normalize_tool_params(params), request_id)
 
 
 # ── WIN32 FOCUS SHIELD (0ms ODAK VE PENCERE ÖNE ALMA) ────────────────────────
@@ -1412,6 +1408,7 @@ def run_bridge_worker():
         log("ERROR", str(exc))
         return
     last_hb = 0.0
+    last_approval_poll = 0.0
 
     log("INFO", f"Jeff Bridge Worker baslatildi. Hedef: {jeff_bridge_url}")
 
@@ -1419,6 +1416,10 @@ def run_bridge_worker():
         try:
             now = time.time()
             task_guard().flush_results(send_bridge_result)
+
+            if now - last_approval_poll >= 5:
+                poll_bridge_approval_decisions(worker_headers)
+                last_approval_poll = now
 
             # 1. Heartbeat
             if now - last_hb >= CONFIG["heartbeat_interval_sec"]:
@@ -1467,8 +1468,24 @@ def send_bridge_result(payload):
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json", **bridge_worker_headers(CONFIG)})
     with urllib.request.urlopen(req, timeout=10) as response:
-        if response.status != 200 or json.loads(response.read().decode()).get('status') == 'quarantined':
+        if response.status != 200:
             raise RuntimeError('Bridge did not acknowledge result')
+        validate_bridge_result_ack(payload, json.loads(response.read().decode()))
+
+
+def poll_bridge_approval_decisions(worker_headers):
+    req = urllib.request.Request(
+        f"{CONFIG['jeff_bridge_api_url']}/alfred/approval-decisions",
+        headers=worker_headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            decisions = json.loads(response.read().decode('utf-8')).get('decisions', [])
+    except Exception as exc:
+        log('WARN', f'Bridge approval handoff unavailable: {type(exc).__name__}')
+        return
+    for decision in decisions:
+        if not apply_approval_decision(task_guard(), decision, CONFIG['node_id'], send_bridge_result):
+            log('WARN', f"Approval decision needs reconciliation: {decision.get('task_id')}")
 
 def bridge_claim_metadata(task_id):
     req = urllib.request.Request(
@@ -1717,18 +1734,14 @@ def main():
     print(f"  Jeff Bridge: {CONFIG['jeff_bridge_api_url']}")
     print("  Focus Mode : Win32 Focus Shield HWND_TOPMOST (0ms Latency)")
     print("  Security   : Token Auth (401) + Tailscale IP Guard (403) + Gate")
-    print("  Auto-Healing: Tailscale Watchdog + Telegram Approval Buttons")
+    print("  Approval   : Jeff Bridge decision handoff via TaskGuard")
     print("=" * 70)
 
     # 1. Bridge thread başlat
     bridge_thread = threading.Thread(target=run_bridge_worker, daemon=True)
     bridge_thread.start()
 
-    # 2. Telegram thread başlat
-    telegram_thread = threading.Thread(target=run_telegram_worker, daemon=True)
-    telegram_thread.start()
-
-    # 3. Tailscale Watchdog thread başlat
+    # 2. Tailscale Watchdog thread başlat
     ts_watchdog_thread = threading.Thread(target=run_tailscale_watchdog, daemon=True)
     ts_watchdog_thread.start()
 
