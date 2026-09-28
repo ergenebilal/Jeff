@@ -52,7 +52,7 @@ except ImportError:
 ALFRED_HOST = os.environ.get("ALFRED_HOST", "100.89.26.86")
 ALFRED_PORT = int(os.environ.get("ALFRED_PORT", "7788"))
 ALFRED_BASE_URL = f"http://{ALFRED_HOST}:{ALFRED_PORT}"
-BRIDGE_KEY = os.environ.get("BRIDGE_KEY", "cybergene-bridge-2026")
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 
 _session: Optional[requests.Session] = None
 

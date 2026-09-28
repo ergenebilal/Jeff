@@ -46,7 +46,7 @@ if not BOT_TOKEN:
 
 ANTIGRAVITY_URL = "http://127.0.0.1:8999/v1/chat/completions"
 BRIDGE_API_URL = "http://127.0.0.1:7700"  # Aider tasks (:7700)
-BRIDGE_KEY = "cybergene-bridge-2026"
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 MODEL = "gemini-3.8-flash-high"
 FALLBACK_MODEL = "claude-3-5-sonnet-latest"
 MAX_MESSAGE_LENGTH = 4000

@@ -25,13 +25,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 # ── CONFIGURATION ─────────────────────────────────────────────────────────────
-BOT_TOKEN = "8837468670:AAEJfmvZHUrrW5R72wJVkYDopByJnnJ4myA"
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 AUTHORIZED_CHATS = [5506784207]  # Bilal Ergene
 
 WINDOWS_TAILSCALE_IP = "100.89.26.86"
 WINDOWS_NODE_PORT = 7788
 WINDOWS_NODE_URL = f"http://{WINDOWS_TAILSCALE_IP}:{WINDOWS_NODE_PORT}"
-BRIDGE_KEY = "cybergene-bridge-2026"
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 
 # LLM Proxy is on Jeff localhost port 8999
 LLM_PROXY_URL = "http://127.0.0.1:8999/v1/chat/completions"

@@ -20,7 +20,7 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-BRIDGE_KEY = os.environ.get("BRIDGE_KEY", "cybergene-bridge-2026")
+BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 DB_PATH = os.path.join(os.path.dirname(__file__), "bridge.db")
 LOG_PATH = os.path.join(os.path.dirname(__file__), "bridge.log")
 ALFRED_TIMEOUT_SEC = 60
