@@ -26,7 +26,11 @@ Bridge ortamında `BRIDGE_KEY`, ondan farklı bir `TASK_WORKER_KEY` ve Pablo'nun
 
 Yerel staging handshake'i, Pablo'nun gerçek `pablo_bridge_auth.py` modülünden başlıkları üretip geçici Bridge HTTP sunucusuna gönderir. Genel anahtarla polling/heartbeat `401`, yanlış worker kimliği `403` döner. Doğru kimlikle heartbeat sağlık kontrolünde `alfred_online=true` olur; görev bir kez claim edilir, sahte TaskGuard eylemi bir kez çalışır, sonuç bir kez kaydedilir ve duplicate karantinaya alınır. Bu kanıt canlı sunucu handshake'inin yerine geçmez.
 
-Yayın engeli: Pablo'nun doğrudan Telegram botu hem onay düğmelerini işler hem insana mesaj gönderir. Etkin Jeff onay tüketicisi doğrulanmadan bu yol kaldırılırsa onaylar işlenemez. Jeff tarafındaki sahip ve callback sözleşmesi belirlenip ayrı testle doğrulanmalıdır.
+Yayın engeli: Pablo'nun doğrudan Telegram botu hem onay düğmelerini işler hem insana mesaj gönderir. Bu, JSON'daki "Pablo hiçbir insana doğrudan mesaj göndermez" sahiplik kuralını henüz sağlamaz. Etkin Jeff onay tüketicisi doğrulanmadan bu yol kaldırılırsa onaylar işlenemez. Jeff tarafındaki sahip ve callback sözleşmesi belirlenip ayrı testle doğrulanmalıdır.
+
+Depodaki eski dağıtım kayıtları `telegram-claude-bot.service` ve `/opt/hermes/telegram_claude_bot.py` dosyasını aday gösterir. Söz konusu botun repo kopyasındaki `request_human_approval` akışı kendi görev durumunu değiştirir; Pablo TaskGuard onay kimliğini tüketmez. Ayrıca kayıtların Bridge yolu `/home/hermes/jeff2/bridge/` iken güncel sunucu bilgisi aktif repoyu `/home/hermes/jeff_repo` olarak tanımlar. Bu kayıtlar yeni sunucunun canlı botunu kanıtlamaz. `hermes@13.140.183.88` için salt-okunur SSH denemesi kimlik doğrulamada reddedildiğinden çalışan servis ve kod yolu doğrulanamadı. İnceleme dalı canlıya alınmadan önce sunucuda çalışan Jeff botu, TaskGuard onay callback'i ve tek Telegram polling sahibi salt-okunur biçimde tespit edilmelidir.
+
+Eski `jeff2/bridge/contract_tests/` ağacı ayrıca üretim dosyalarının kopyalarını barındırır. Bu daldaki gerçek HTTP/SQLite güvenlik smoke testi aktif `pablo/pablo_bridge_auth.py` modülünü kullanır; eski kopyaların geçmesi canlı Pablo sürümünün doğru olduğunu tek başına kanıtlamaz.
 
 ## Geri alma
 
