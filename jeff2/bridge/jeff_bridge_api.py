@@ -319,6 +319,8 @@ async def alfred_task_status(task_id: str, x_bridge_key: Optional[str] = Header(
         raise HTTPException(status_code=404, detail='Unknown task')
     if row['status'] == 'unverified':
         return {'task_id': task_id, 'status': 'unverified', 'ok': False}
+    if row['digest'] is None:
+        return {'task_id': task_id, 'status': 'legacy_unverified', 'ok': False}
     return {'task_id': task_id, 'status': row['status'], 'ok': False,
             'type': row['type'], 'digest': row['digest'], 'worker_id': row['worker_id'],
             'attempt': row['attempt']}

@@ -80,6 +80,9 @@ class BridgeSecurityTests(unittest.TestCase):
         with sqlite3.connect(legacy) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM alfred_events WHERE task_id='old'").fetchone()[0], 1)
             self.assertIn('digest', {row[1] for row in db.execute('PRAGMA table_info(alfred_events)')})
+        status = asyncio.run(bridge.alfred_task_status('old', 'fixture-bridge-key'))
+        self.assertEqual(status['status'], 'legacy_unverified')
+        self.assertFalse(status['ok'])
 
 
 class RealHttpSmokeTests(unittest.TestCase):
