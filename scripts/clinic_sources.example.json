@@ -1,0 +1,22 @@
+[
+  {
+    "company_name": "DentOniks",
+    "city": "Bursa",
+    "website": "https://dentoniks.com/",
+    "source_url": "https://dentoniks.com/",
+    "contact_channel": "email",
+    "contact_value": "info@dentoniks.com",
+    "problem_hypothesis": "A public appointment journey review might identify opportunities; no problem is asserted.",
+    "fit_score": 50
+  },
+  {
+    "company_name": "Vita Ağız ve Diş Sağlığı Polikliniği",
+    "city": "Bursa",
+    "website": "https://www.vitabursa.com/",
+    "source_url": "https://www.vitabursa.com/tr-TR/iletisim",
+    "contact_channel": "email",
+    "contact_value": "merkez@vitabursa.com",
+    "problem_hypothesis": "A public appointment journey review might identify opportunities; no problem is asserted.",
+    "fit_score": 50
+  }
+]

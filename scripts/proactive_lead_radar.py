@@ -1,76 +1,35 @@
 #!/usr/bin/env python3
-"""
-CyberGene Proactive Lead Radar v1.0
-7/24 Otonom Bursa ve Çevre Sanayi/Klinik Fırsat Tarayıcısı
-Sitesi çökmüş, SSL'i patlamış veya puanı düşmüş hedefleri otonom tespit eder.
-"""
-
-import os
-import sys
+"""Read official clinic pages and upsert at most ten sourced candidates."""
+import argparse
+from datetime import datetime, timezone
 import json
-import time
-import urllib.request
-import socket
+import os
+from pathlib import Path
 
-RADAR_OUTPUT = os.path.expanduser("~/.hermes/proactive_leads.json")
+from executive_briefing import BriefingStore, scan_sources
 
-TARGET_DOMAINS = [
-    {"name": "Vetorka Veteriner", "domain": "vetorka.com"},
-    {"name": "Vena Veteriner", "domain": "venaveteriner.com"},
-    {"name": "Best Vet", "domain": "bestvetveteriner.com"},
-    {"name": "ESGRUP METAL", "domain": "esgrupmetal.com"}
-]
 
-def check_domain_status(domain):
-    """Domain canlılık, DNS ve HTTP durumunu denetler"""
-    try:
-        # DNS Check
-        ip = socket.gethostbyname(domain)
-    except Exception:
-        return "DNS_FAILED", "DNS çözülemiyor / Domain ölü"
+DEFAULT_DB = Path(__file__).resolve().parents[1] / 'jeff2' / 'bridge' / 'bridge.db'
 
-    try:
-        url = f"https://{domain}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return "ONLINE", f"HTTP {resp.status}"
-    except urllib.error.HTTPError as e:
-        return "HTTP_ERROR", f"HTTP Hata: {e.code}"
-    except urllib.error.URLError as e:
-        if "CERTIFICATE_VERIFY_FAILED" in str(e.reason):
-            return "SSL_FAILED", "SSL Sertifikası Geçersiz / Patlak"
-        return "CONNECTION_FAILED", f"Bağlantı Hatası: {e.reason}"
-    except Exception as e:
-        return "UNKNOWN_ERROR", str(e)
 
-def run_radar_sweep():
-    leads = []
-    print("=== CYBERGENE PROAKTİF FIRSAT RADARI BAŞLADI ===")
-    
-    for target in TARGET_DOMAINS:
-        name = target["name"]
-        domain = target["domain"]
-        status_code, detail = check_domain_status(domain)
-        
-        print(f"[*] Tarandı: {name} ({domain}) -> Durum: {status_code} | {detail}")
-        
-        if status_code != "ONLINE":
-            leads.append({
-                "name": name,
-                "domain": domain,
-                "status": status_code,
-                "detail": detail,
-                "detected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "opportunity": "Yüksek (Sitesi Çökmüş / Teknik Kusurlu)"
-            })
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='Read-only clinic opportunity radar')
+    parser.add_argument('--sources', type=Path, required=True,
+                        help='JSON list of official clinic website records')
+    parser.add_argument('--db', type=Path, default=Path(os.environ.get('JEFF_LEDGER_DB', DEFAULT_DB)))
+    args = parser.parse_args(argv)
+    sources = json.loads(args.sources.read_text(encoding='utf-8'))
+    if not isinstance(sources, list):
+        parser.error('Sources must be a JSON list')
+    now = datetime.now(timezone.utc)
+    candidates = scan_sources(sources[:10], now)
+    store = BriefingStore(args.db)
+    store.initialize()
+    counts = store.ingest(candidates, now)
+    print(json.dumps({'observed_at': now.isoformat(), 'scanned': len(sources[:10]),
+                      'sourced': len(candidates), **counts}, ensure_ascii=False))
+    return counts
 
-    # Kaydet
-    os.makedirs(os.path.dirname(RADAR_OUTPUT), exist_ok=True)
-    with open(RADAR_OUTPUT, "w", encoding="utf-8") as f:
-        json.dump(leads, f, ensure_ascii=False, indent=2)
-        
-    print(f"=== TARAMA BİTTİ: {len(leads)} Fırsat Tespit Edildi ===")
-    return leads
 
-if __name__ == "__main__":
-    run_radar_sweep()
+if __name__ == '__main__':
+    main()

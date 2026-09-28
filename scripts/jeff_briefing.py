@@ -102,7 +102,7 @@ def brain_sagligi() -> list:
             results.append(f"{icon} brain.{name}: {status}")
         return results
     except Exception as e:
-        return [f"Brain health: ok"]
+        return ["Brain health: UNKNOWN (data unavailable)"]
 
 
 def monolog_ozeti() -> str:
