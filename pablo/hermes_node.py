@@ -1157,8 +1157,13 @@ def action_youtube_play(params: dict) -> dict:
     }
 
 
-def action_whatsapp_send(params: dict) -> dict:
-    """Native Windows WhatsApp Desktop uygulamasında taslak açar / mesaj iletir."""
+def action_whatsapp_send(params: dict, _deliver: bool = True) -> dict:
+    """Native Windows WhatsApp Desktop uygulamasında taslağı açar ve (_deliver=True ise) Enter ile iletir.
+
+    Onay kapısı (is_approval_required) yeni/soğuk kişiye ilk mesajda bu eylemin
+    TAMAMINI onaya bağlar; iletim adımı da bu fonksiyonun içinde kalmalı ki
+    onaylanan istek ile fiilen gönderilen mesaj aynı, tek atomik adım olsun.
+    """
     text = params.get("text") or params.get("message") or params.get("content") or ""
     phone = params.get("phone") or params.get("to") or ""
 
@@ -1174,13 +1179,30 @@ def action_whatsapp_send(params: dict) -> dict:
     except Exception:
         webbrowser.open(url)
 
-    time.sleep(1.0)
-    action_window_focus({"title_contains": "WhatsApp", "maximize": True})
+    time.sleep(1.5)
+    focus = action_window_focus({"title_contains": "WhatsApp", "maximize": True})
+
+    delivered = False
+    if _deliver and text:
+        if not focus.get("ok"):
+            return {
+                "ok": False,
+                "error": "WhatsApp penceresi odaklanamadi, mesaj GONDERILMEDI (Enter basilmadi).",
+                "result": {"protocol": url, "app": "WhatsApp Native Windows App", "recipient": clean_phone or "default", "delivered": False}
+            }
+        time.sleep(0.8)
+        pyautogui.press("enter")
+        delivered = True
 
     return {
         "ok": True,
-        "result": {"protocol": url, "app": "WhatsApp Native Windows App", "recipient": clean_phone or "default"}
+        "result": {"protocol": url, "app": "WhatsApp Native Windows App", "recipient": clean_phone or "default", "delivered": delivered}
     }
+
+
+def action_whatsapp_draft(params: dict) -> dict:
+    """Taslak açar, DOLDURUR ama GONDERMEZ (Enter'a basmaz)."""
+    return action_whatsapp_send(params, _deliver=False)
 
 
 def action_browser_session(params: dict) -> dict:
@@ -1283,7 +1305,7 @@ ACTIONS = {
     "pilot_status": action_pilot_status,
     "youtube_play": action_youtube_play,
     "whatsapp_send": action_whatsapp_send,
-    "whatsapp_draft": action_whatsapp_send,
+    "whatsapp_draft": action_whatsapp_draft,
 }
 
 
