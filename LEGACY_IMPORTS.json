@@ -1,0 +1,11 @@
+{
+  "description": "Former one-line absolute-path Python stubs; none was runnable as Python source.",
+  "entries": [
+    {"former_path": "scripts/koklesme_motoru.py", "status": "archived", "repo_target": "scripts/_archive/faz-motorlari/koklesme_motoru.py"},
+    {"former_path": "scripts/scripts/ogrenme_dongusu.py", "status": "unavailable", "repo_target": null},
+    {"former_path": "scripts/scripts/ongoru_analizi.py", "status": "unavailable", "repo_target": null},
+    {"former_path": "scripts/scripts/otonom_karar.py", "status": "unavailable", "repo_target": null},
+    {"former_path": "scripts/scripts/proaktif_deger.py", "status": "unavailable", "repo_target": null},
+    {"former_path": "scripts/scripts/sinir_tanima.py", "status": "unavailable", "repo_target": null}
+  ]
+}

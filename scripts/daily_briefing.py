@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """ErgeneAI Günlük Bülten v3 — Türkçe kaynaklar + GitHub analiz + Telegram bildirimi."""
-import json, smtplib, urllib.request, ssl, xml.etree.ElementTree as ET
+import json, smtplib, urllib.request, ssl, xml.etree.ElementTree as ET, os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
-EMAIL = "ergenebilal@gmail.com"
-APP_PW = "quuu xaow rcvg lzsb"
+EMAIL = os.environ.get("BRIEFING_EMAIL")
+APP_PW = os.environ.get("BRIEFING_EMAIL_APP_PASSWORD")
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
-TG_TOKEN = "8018339374:AAEvZ5Smdj7FOV1EW3ciTFrZ0992N495FLM"
-TG_CHAT = "5506784207"
+TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TG_CHAT = os.environ.get("ADMIN_CHAT_ID")
+if not all((EMAIL, APP_PW, TG_TOKEN, TG_CHAT)):
+    raise SystemExit('Briefing mail and Telegram credentials are required')
 
 def fetch_url(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})

@@ -1,5 +1,10 @@
 # reddit_automation.py
+import os
 import praw
+
+_REQUIRED = ('REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET', 'REDDIT_USERNAME', 'REDDIT_PASSWORD')
+if any(not os.environ.get(name) for name in _REQUIRED):
+    raise SystemExit('Reddit credentials are required')
 
 def post_to_reddit(subreddit_name: str, title: str, content: str) -> str:
     """
@@ -11,11 +16,11 @@ def post_to_reddit(subreddit_name: str, title: str, content: str) -> str:
     """
     # Reddit API Kimlik Bilgileri
     reddit = praw.Reddit(
-        client_id="REDDIT_CLIENT_ID_BURAYA",
-        client_secret="REDDIT_CLIENT_SECRET_BURAYA",
+        client_id=os.environ['REDDIT_CLIENT_ID'],
+        client_secret=os.environ['REDDIT_CLIENT_SECRET'],
         user_agent="HermesAutomationBot v1.0 (by u/REDDIT_KULLANICI_ADINIZ)",
-        username="REDDIT_KULLANICI_ADINIZ",
-        password="REDDIT_SIFRENIZ"
+        username=os.environ['REDDIT_USERNAME'],
+        password=os.environ['REDDIT_PASSWORD']
     )
     
     try:

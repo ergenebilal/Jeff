@@ -1,1 +1,0 @@
-/home/hermes/.hermes/skills/hermes-self/ongoru-motoru/scripts/ongoru_analizi.py

@@ -5,6 +5,10 @@
 *.sqlite
 *.sqlite3
 *.log
+*.bak
+*.tmp
+*.swp
+.venv-active/
 __pycache__/
 *.pyc
 node_modules/

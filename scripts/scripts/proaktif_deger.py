@@ -1,1 +1,0 @@
-/home/hermes/.hermes/skills/hermes-self/otonom-karar-motoru/scripts/proaktif_deger.py

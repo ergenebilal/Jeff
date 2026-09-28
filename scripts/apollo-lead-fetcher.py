@@ -6,10 +6,12 @@ Kullanım: python3 apollo-lead-fetcher.py "restaurant" "beauty" "dental"
 import json, sys, os, time
 from urllib.request import Request, urlopen
 
-API_KEY = "Wg8BLfIsMWwaOLI7W9wuvQ"
+API_KEY = os.environ.get("APOLLO_API_KEY")
 BASE = "https://api.apollo.io/api/v1"
 
 def search_organizations(keyword, page=1, per_page=10):
+    if not API_KEY:
+        raise RuntimeError('APOLLO_API_KEY is required')
     url = f"{BASE}/organizations/search"
     data = json.dumps({
         "page": page,

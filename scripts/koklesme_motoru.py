@@ -1,1 +1,0 @@
-/home/hermes/.hermes/scripts/_archive/faz-motorlari/koklesme_motoru.py
