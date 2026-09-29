@@ -64,12 +64,13 @@ class ProbeTests(unittest.TestCase):
 
 
 class RunAndSummaryTests(unittest.TestCase):
-    ENV = {'GOOGLE_API_KEY': KEY, 'OPENROUTER_API_KEY': KEY}
+    ENV = {'GOOGLE_API_KEY': KEY, 'OPENROUTER_API_KEY': KEY, 'OPENCODE_GO_API_KEY': KEY}
 
     def test_missing_key_means_route_not_configured_not_crash(self):
         report = mh.run({}, opener=by_url({'127.0.0.1': ok_opener}))
         detail = {r['route']: r['detail'] for r in report['routes']}
         self.assertEqual(detail['gemini'], 'anahtar tanimli degil')
+        self.assertEqual(detail['opencode-go'], 'anahtar tanimli degil')
         self.assertEqual(detail['openrouter'], 'anahtar tanimli degil')
 
     def test_all_ok_with_spares(self):
@@ -85,10 +86,32 @@ class RunAndSummaryTests(unittest.TestCase):
         self.assertIn('YEDEK YOL YOK', sentence)
 
     def test_main_route_down_means_spare_tire(self):
-        opener = by_url({'127.0.0.1': status_opener(503), 'googleapis': ok_opener, 'openrouter': ok_opener})
+        opener = by_url({'127.0.0.1': status_opener(503), 'opencode.ai': ok_opener, 'googleapis': status_opener(403),
+                         'openrouter': status_opener(402)})
         state, sentence = mh.summarize(mh.run(self.ENV, opener=opener))
         self.assertEqual(state, 'spare_tire')
-        self.assertIn('yedek yolla', sentence)
+        self.assertIn('opencode-go', sentence)
+
+    def test_opencode_route_sends_the_session_header_the_relay_requires(self):
+        seen = {}
+
+        def opener(req, timeout):
+            seen[req.full_url] = {k.lower(): v for k, v in req.header_items()}
+            return ok_opener(req, timeout)
+        mh.run(self.ENV, opener=opener)
+        headers = seen['https://opencode.ai/zen/go/v1/chat/completions']
+        self.assertTrue(headers.get('x-opencode-session'))
+        self.assertNotIn('x-opencode-session', seen['https://openrouter.ai/api/v1/chat/completions'])
+        self.assertEqual(headers['user-agent'], mh.USER_AGENT)
+
+    def test_requests_leave_room_for_thinking_models(self):
+        bodies = []
+
+        def opener(req, timeout):
+            bodies.append(json.loads(req.data))
+            return ok_opener(req, timeout)
+        mh.run(self.ENV, opener=opener)
+        self.assertTrue(all(b['max_tokens'] >= 200 for b in bodies))
 
     def test_everything_down_is_blind(self):
         state, sentence = mh.summarize(mh.run(self.ENV, opener=status_opener(500)))
@@ -110,7 +133,7 @@ class WatchdogAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertTrue(mh.watchdog_probe(self.report_file(d, [good, gem], 1000), now=lambda: 1100)()[0])
             ok, text = mh.watchdog_probe(self.report_file(d, [bad_proxy, gem], 1000), now=lambda: 1100)()
-            self.assertTrue(ok)                      # still thinking, on the spare
+            self.assertFalse(ok)                     # still thinking on the spare, but worth a message
             self.assertIn('yedek yolla', text)
             self.assertFalse(mh.watchdog_probe(self.report_file(d, [bad_proxy, gem_bad], 1000), now=lambda: 1100)()[0])
             ok, text = mh.watchdog_probe(self.report_file(d, [good], 1000), now=lambda: 1000 + 3 * 3600)()

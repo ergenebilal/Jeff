@@ -1,9 +1,10 @@
 """Does Jeff still have a working brain? Tries every model route with a one-word request.
 
-Routes, in the order Jeff prefers them (see ROUTES):
+Routes, in the order Jeff prefers them (see routes()):
   proxy       the Antigravity bridge on this machine (Jeff's main route today)
+  opencode-go the OpenCode Go subscription (Jeff's configured spare tire)
   gemini      Google's official Gemini API, directly
-  openrouter  OpenRouter, the configured fallback
+  openrouter  OpenRouter
 
 Each probe is a real (tiny) completion, because a bridge that answers /v1/models can still have no
 working Google account behind it. API keys come from an env file and are never printed or logged.
@@ -18,6 +19,7 @@ import json
 import os
 import sys
 import time
+import uuid
 import urllib.error
 import urllib.request
 
@@ -27,6 +29,9 @@ except ImportError:  # pragma: no cover
     import system_watchdog as wd
 
 PROMPT = 'Reply with the single word: ok'
+# Thinking models spend tokens on reasoning before the visible answer; 8 tokens would look like an empty reply.
+MAX_TOKENS = 400
+USER_AGENT = 'CyberGene-model-health/1.0'
 
 
 def _post(url, headers, body, timeout, opener):
@@ -47,9 +52,10 @@ def probe(name, url, key, model, timeout=25, opener=urllib.request.urlopen, extr
     """One tiny chat completion. Returns {'route','ok','ms','detail'}; never includes the key."""
     started = time.time()
     headers = {'Authorization': f'Bearer {key}'} if key else {}
+    headers['User-Agent'] = USER_AGENT
     headers.update(extra_headers or {})
     try:
-        status, payload = _post(url, headers, {'model': model, 'max_tokens': 8, 'temperature': 0,
+        status, payload = _post(url, headers, {'model': model, 'max_tokens': MAX_TOKENS, 'temperature': 0,
                                                'messages': [{'role': 'user', 'content': PROMPT}]}, timeout, opener)
         ok, detail = _answered(payload), f'HTTP {status}'
         if not ok:
@@ -66,6 +72,8 @@ def routes(env):
     return [
         ('proxy', 'http://127.0.0.1:8999/v1/chat/completions', env.get('ANTIGRAVITY_API_KEY', ''),
          env.get('MODEL_PROXY', 'gemini-3.8-flash-high')),
+        ('opencode-go', 'https://opencode.ai/zen/go/v1/chat/completions', env.get('OPENCODE_GO_API_KEY', ''),
+         env.get('MODEL_OPENCODE', 'deepseek-v4-flash')),
         ('gemini', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
          env.get('GOOGLE_API_KEY', ''), env.get('MODEL_GEMINI', 'gemini-2.5-flash')),
         ('openrouter', 'https://openrouter.ai/api/v1/chat/completions', env.get('OPENROUTER_API_KEY', ''),
@@ -79,7 +87,8 @@ def run(env, opener=urllib.request.urlopen, now=time.time):
         if name != 'proxy' and not key:
             results.append({'route': name, 'ok': False, 'ms': 0, 'detail': 'anahtar tanimli degil'})
             continue
-        results.append(probe(name, url, key, model, opener=opener))
+        extra = {'x-opencode-session': str(uuid.uuid4())} if name == 'opencode-go' else None   # the relay rejects requests without it
+        results.append(probe(name, url, key, model, opener=opener, extra_headers=extra))
     return {'checked_at': int(now()), 'routes': results}
 
 
@@ -114,7 +123,9 @@ def watchdog_probe(path, max_age_seconds=45 * 60, now=time.time):
         if now() - report.get('checked_at', 0) > max_age_seconds:
             return False, 'model kontrolu eskidi (calismiyor olabilir)'
         state, sentence = summarize(report)
-        return state != 'blind', sentence
+        # Anything but 'main route works' deserves a message: on the spare tire Jeff still answers, but a second
+        # failure would leave him blind, and that is worth knowing before it happens.
+        return state == 'all_ok', sentence
     return probe_fn
 
 

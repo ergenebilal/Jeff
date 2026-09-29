@@ -100,7 +100,16 @@ def telegram_not_fighting(unit='hermes-gateway.service', limit=3, runner=subproc
     return probe
 
 
-def default_checks(backup_dir='/home/hermes/backups'):
+def _model_probe(path):
+    """Reads the report written by model_health.py; imported lazily so the two scripts stay independent."""
+    try:
+        from scripts.model_health import watchdog_probe
+    except ImportError:  # pragma: no cover - running from the scripts folder on the server
+        from model_health import watchdog_probe
+    return watchdog_probe(path)
+
+
+def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes/logs/model_health.json'):
     def unit(u, label, impact, grace=0):
         return Check(f'unit:{u}', label, impact, unit_active(u), grace)
     return [
@@ -121,6 +130,7 @@ def default_checks(backup_dir='/home/hermes/backups'):
         # The PC may be asleep at night; only worth a message if it stays gone.
         Check('http:pablo', "Pablo (Bilal'in bilgisayari)", 'Bilgisayardaki isler (WhatsApp, tarayici) yapilamaz',
               http_reachable('http://100.89.26.86:7788/ping', any_answer), 3600),
+        Check('model', "Jeff'in dusunme yolu", 'Jeff cevap uretemez ya da yedek yolla calisiyor', _model_probe(model_report), 600),
         Check('telegram', 'Telegram baglantisi', 'Jeff iki yerde birden dinliyor olabilir, mesajlar kacabilir',
               telegram_not_fighting(), 0),
         Check('backup', 'Gece yedegi', 'Bir sey bozulursa geri donecek guncel yedek yok',
