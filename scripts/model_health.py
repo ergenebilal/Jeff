@@ -81,6 +81,19 @@ def routes(env):
     ]
 
 
+PROVIDER_TO_ROUTE = {'antigravity': 'proxy', 'opencode-go': 'opencode-go', 'gemini': 'gemini', 'openrouter': 'openrouter'}
+
+
+def main_route_from_config(path):
+    """Which route Jeff prefers, read from his own config (model.provider), so the alerts follow a change of main route."""
+    try:
+        import yaml
+        provider = (yaml.safe_load(open(path, encoding='utf-8')) or {}).get('model', {}).get('provider', '')
+    except Exception:
+        return 'proxy'
+    return PROVIDER_TO_ROUTE.get(str(provider).strip().lower(), 'proxy')
+
+
 def env_conflicts(files, wanted):
     """Names in `wanted` that two env files define with DIFFERENT values. Hermes reads ~/.hermes/.env on top of the
     service's gateway.env (override), so a stale key in one of them silently beats the good key in the other."""
@@ -94,7 +107,7 @@ def env_conflicts(files, wanted):
     return conflicts
 
 
-def run(env, opener=urllib.request.urlopen, now=time.time, conflicts=()):
+def run(env, opener=urllib.request.urlopen, now=time.time, conflicts=(), main='proxy'):
     results = []
     for name, url, key, model in routes(env):
         if name != 'proxy' and not key:
@@ -102,18 +115,19 @@ def run(env, opener=urllib.request.urlopen, now=time.time, conflicts=()):
             continue
         extra = {'x-opencode-session': str(uuid.uuid4())} if name == 'opencode-go' else None   # the relay rejects requests without it
         results.append(probe(name, url, key, model, opener=opener, extra_headers=extra))
-    return {'checked_at': int(now()), 'routes': results, 'env_conflicts': list(conflicts)}
+    return {'checked_at': int(now()), 'routes': results, 'env_conflicts': list(conflicts), 'main': main}
 
 
 def summarize(report):
     """('all_ok' | 'spare_tire' | 'blind', plain-language sentence)"""
     by = {r['route']: r for r in report['routes']}
+    main = report.get('main', 'proxy')
     working = [r['route'] for r in report['routes'] if r['ok']]
     if not working:
         return 'blind', 'Jeff hicbir yoldan dusunemiyor (ana kopru ve yedek yollar cevap vermiyor)'
-    if by.get('proxy', {}).get('ok'):
-        spare = [r for r in working if r != 'proxy']
-        return 'all_ok', 'ana yol calisiyor' + (f', yedek: {", ".join(spare)}' if spare else ', YEDEK YOL YOK')
+    if by.get(main, {}).get('ok'):
+        spare = [r for r in working if r != main]
+        return 'all_ok', f'ana yol ({main}) calisiyor' + (f', yedek: {", ".join(spare)}' if spare else ', YEDEK YOL YOK')
     return 'spare_tire', f'ana yol cevap vermiyor; Jeff yedek yolla ({", ".join(working)}) dusunuyor'
 
 
@@ -149,13 +163,14 @@ def main(argv=None):
     ap.add_argument('--env-file', action='append',
                     help='env file(s); later ones override earlier ones, like Hermes does (default: gateway.env then .env)')
     ap.add_argument('--out', default='/home/hermes/logs/model_health.json')
+    ap.add_argument('--config', default='/home/hermes/.hermes/config.yaml', help="Jeff's config; model.provider decides the main route")
     args = ap.parse_args(argv)
     files = [wd.load_env_file(f) for f in (args.env_file or ['/home/hermes/.hermes/gateway.env', '/home/hermes/.hermes/.env'])]
     env = {}
     for values in files:
         env.update(values)     # later file wins, exactly as Hermes loads .env over the service environment
     wanted = ['ANTIGRAVITY_API_KEY', 'OPENCODE_GO_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY']
-    report = run(env, conflicts=env_conflicts(files, wanted))
+    report = run(env, conflicts=env_conflicts(files, wanted), main=main_route_from_config(args.config))
     write_report(report, args.out)
     state, sentence = summarize(report)
     routes_txt = ', '.join(f"{r['route']}={'ok' if r['ok'] else r['detail']}({r['ms']}ms)" for r in report['routes'])

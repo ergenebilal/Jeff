@@ -155,6 +155,24 @@ class WatchdogAdapterTests(unittest.TestCase):
         self.assertFalse(ok)           # main route fine, but the files disagree: still worth a message
         self.assertIn('FARKLI anahtar', text)
 
+    def test_main_route_follows_jeffs_config_and_alerts_follow_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / 'config.yaml'
+            cfg.write_text('model:' + chr(10) + '  provider: opencode-go' + chr(10))
+            self.assertEqual(mh.main_route_from_config(cfg), 'opencode-go')
+            cfg.write_text('model:' + chr(10) + '  provider: antigravity' + chr(10))
+            self.assertEqual(mh.main_route_from_config(cfg), 'proxy')
+            self.assertEqual(mh.main_route_from_config(Path(d) / 'missing.yaml'), 'proxy')
+        env = {'GOOGLE_API_KEY': KEY, 'OPENROUTER_API_KEY': KEY, 'OPENCODE_GO_API_KEY': KEY}
+        # main = opencode-go: the bridge being down is only a bad SPARE, not an emergency
+        opener = by_url({'127.0.0.1': status_opener(500), 'opencode.ai': ok_opener})
+        state, sentence = mh.summarize(mh.run(env, opener=opener, main='opencode-go'))
+        self.assertEqual(state, 'all_ok')
+        self.assertIn('opencode-go', sentence)
+        # main = proxy, proxy down, opencode-go up -> spare tire, as before
+        state, _ = mh.summarize(mh.run(env, opener=opener, main='proxy'))
+        self.assertEqual(state, 'spare_tire')
+
     def test_later_env_file_wins_like_hermes(self):
         with tempfile.TemporaryDirectory() as d:
             first, second, out = Path(d) / 'a.env', Path(d) / 'b.env', Path(d) / 'o.json'
