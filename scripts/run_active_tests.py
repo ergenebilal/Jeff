@@ -16,6 +16,7 @@ BRIDGE_TESTS = [
     'jeff2.bridge.test_task_http',
     'jeff2.bridge.test_bridge_security',
     'jeff2.bridge.test_coding_bridge',
+    'test_pablo_brain',
 ]
 CONTRACT_TESTS = [
     'jeff2.bridge.contract_tests.test_cybergene_contract',

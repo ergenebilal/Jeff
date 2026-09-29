@@ -2631,7 +2631,7 @@ def run_telegram_worker():
     try:
         from pablo_brain import PabloBrain
         brain = PabloBrain()
-        log("INFO", "Pablo Agentic Brain (Claude-Haiku via Antigravity Proxy) devrede!")
+        log("INFO", "Pablo Agentic Brain (Gemini, dogrudan Google; yedek: eski proxy) devrede!")
     except Exception as b_err:
         brain = None
         log("WARN", f"Pablo Brain yuklenemedi: {b_err}")
