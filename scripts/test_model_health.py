@@ -1,0 +1,137 @@
+import io
+import json
+import tempfile
+import unittest
+import urllib.error
+from pathlib import Path
+
+from scripts import model_health as mh
+
+KEY = 'sk-super-secret-key-1234'
+
+
+class FakeResponse(io.BytesIO):
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def ok_opener(req, timeout):
+    return FakeResponse(json.dumps({'choices': [{'message': {'content': 'ok'}}]}).encode())
+
+
+def status_opener(code):
+    def opener(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, code, 'x', {}, None)
+    return opener
+
+
+def by_url(mapping):
+    def opener(req, timeout):
+        for needle, fn in mapping.items():
+            if needle in req.full_url:
+                return fn(req, timeout)
+        raise OSError('no route')
+    return opener
+
+
+class ProbeTests(unittest.TestCase):
+    def test_success_needs_a_real_answer(self):
+        r = mh.probe('p', 'http://x/v1/chat/completions', KEY, 'm', opener=ok_opener)
+        self.assertTrue(r['ok'])
+
+    def test_empty_answer_is_a_failure_even_with_http_200(self):
+        empty = lambda req, timeout: FakeResponse(json.dumps({'choices': [{'message': {'content': ''}}]}).encode())  # noqa: E731
+        r = mh.probe('p', 'http://x', KEY, 'm', opener=empty)
+        self.assertFalse(r['ok'])
+        self.assertIn('bos cevap', r['detail'])
+
+    def test_http_errors_and_network_errors_are_reported_without_the_key(self):
+        for opener, expect in ((status_opener(401), 'HTTP 401'), (status_opener(429), 'HTTP 429'),
+                               (lambda req, timeout: (_ for _ in ()).throw(OSError('boom')), 'OSError')):
+            r = mh.probe('p', 'http://x', KEY, 'm', opener=opener)
+            self.assertFalse(r['ok'])
+            self.assertEqual(r['detail'], expect)
+            self.assertNotIn(KEY, json.dumps(r))
+
+    def test_garbage_json_is_a_failure(self):
+        junk = lambda req, timeout: FakeResponse(b'not json')  # noqa: E731
+        self.assertFalse(mh.probe('p', 'http://x', KEY, 'm', opener=junk)['ok'])
+
+
+class RunAndSummaryTests(unittest.TestCase):
+    ENV = {'GOOGLE_API_KEY': KEY, 'OPENROUTER_API_KEY': KEY}
+
+    def test_missing_key_means_route_not_configured_not_crash(self):
+        report = mh.run({}, opener=by_url({'127.0.0.1': ok_opener}))
+        detail = {r['route']: r['detail'] for r in report['routes']}
+        self.assertEqual(detail['gemini'], 'anahtar tanimli degil')
+        self.assertEqual(detail['openrouter'], 'anahtar tanimli degil')
+
+    def test_all_ok_with_spares(self):
+        report = mh.run(self.ENV, opener=ok_opener)
+        state, sentence = mh.summarize(report)
+        self.assertEqual(state, 'all_ok')
+        self.assertIn('gemini', sentence)
+
+    def test_main_route_up_but_no_spare_is_called_out(self):
+        report = mh.run({}, opener=by_url({'127.0.0.1': ok_opener}))
+        state, sentence = mh.summarize(report)
+        self.assertEqual(state, 'all_ok')
+        self.assertIn('YEDEK YOL YOK', sentence)
+
+    def test_main_route_down_means_spare_tire(self):
+        opener = by_url({'127.0.0.1': status_opener(503), 'googleapis': ok_opener, 'openrouter': ok_opener})
+        state, sentence = mh.summarize(mh.run(self.ENV, opener=opener))
+        self.assertEqual(state, 'spare_tire')
+        self.assertIn('yedek yolla', sentence)
+
+    def test_everything_down_is_blind(self):
+        state, sentence = mh.summarize(mh.run(self.ENV, opener=status_opener(500)))
+        self.assertEqual(state, 'blind')
+        self.assertIn('hicbir yoldan dusunemiyor', sentence)
+
+
+class WatchdogAdapterTests(unittest.TestCase):
+    def report_file(self, d, routes, checked_at):
+        p = Path(d) / 'model_health.json'
+        p.write_text(json.dumps({'checked_at': checked_at, 'routes': routes}))
+        return p
+
+    def test_ok_spare_tire_blind_stale_and_missing(self):
+        good = {'route': 'proxy', 'ok': True, 'ms': 1, 'detail': ''}
+        bad_proxy = {'route': 'proxy', 'ok': False, 'ms': 1, 'detail': 'HTTP 503'}
+        gem = {'route': 'gemini', 'ok': True, 'ms': 1, 'detail': ''}
+        gem_bad = {'route': 'gemini', 'ok': False, 'ms': 1, 'detail': 'HTTP 401'}
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(mh.watchdog_probe(self.report_file(d, [good, gem], 1000), now=lambda: 1100)()[0])
+            ok, text = mh.watchdog_probe(self.report_file(d, [bad_proxy, gem], 1000), now=lambda: 1100)()
+            self.assertTrue(ok)                      # still thinking, on the spare
+            self.assertIn('yedek yolla', text)
+            self.assertFalse(mh.watchdog_probe(self.report_file(d, [bad_proxy, gem_bad], 1000), now=lambda: 1100)()[0])
+            ok, text = mh.watchdog_probe(self.report_file(d, [good], 1000), now=lambda: 1000 + 3 * 3600)()
+            self.assertFalse(ok)
+            self.assertIn('eskidi', text)
+        self.assertFalse(mh.watchdog_probe('/nonexistent/x.json')()[0])
+
+    def test_main_writes_report_and_never_leaks_keys(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = Path(d) / 'e.env'
+            env.write_text(f'GOOGLE_API_KEY={KEY}\n')
+            out = Path(d) / 'out.json'
+            original = mh.run
+            mh.run = lambda env_map, **kw: original(env_map, opener=status_opener(500))
+            try:
+                code = mh.main(['--env-file', str(env), '--out', str(out)])
+            finally:
+                mh.run = original
+            self.assertEqual(code, 1)
+            self.assertNotIn(KEY, out.read_text())
+
+
+if __name__ == '__main__':
+    unittest.main()
