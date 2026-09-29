@@ -34,64 +34,63 @@ class ClinicLeadHunter:
             "ticket_level": "YÜKSEK (15.000 - 60.000 TL / hasta)",
             "keywords": ["diş kliniği", "dental clinic", "implant", "gülüş tasarımı", "ortodonti"],
             "pain_point": "Akşam ve hafta sonu implant veya estetik gülüş fiyatı soran hastaların geç yanıt sebebiyle başka kliniklere gitmesi.",
-            "value_prop": "7/24 Instagram DM ve WhatsApp'ta hastayı 20 saniyede karşılayan ve hekim takvimine otomatik muayene randevusu yazan AI Asistanı."
+            "value_prop": "Gelen mesajları karşılayan, randevu talebini toparlayıp onayınıza sunan dijital çalışan."
         },
         "medical_aesthetic": {
             "name": "Medikal Estetik & Dermatoloji & Saç Ekim",
             "ticket_level": "ÇOK YÜKSEK (10.000 - 80.000 TL / işlem)",
             "keywords": ["estetik klinik", "dermatoloji", "saç ekimi", "botoks", "medikal estetik"],
             "pain_point": "Instagram reklamlarından gelen yüzlerce 'fiyat nedir' DM'ine personelin yetişememesi ve sıcak hastaların soğuması.",
-            "value_prop": "Instagram DM'den gelen işlem taleplerini anında ön elemeden geçirip fotoğraflı ön bilgi toplayan ve uzman görüşmesi randevusu oluşturan akıllı asistan."
+            "value_prop": "Fiyat ve işlem sorularını karşılayıp ön bilgiyi toplayan, uzman görüşmesi talebini size sunan dijital çalışan."
         },
         "beauty_center": {
             "name": "Lüks Güzellik Merkezleri & Cilt Bakımı",
             "ticket_level": "ORTA-YÜKSEK (4.000 - 25.000 TL / paket)",
             "keywords": ["güzellik merkezi", "lazer epilasyon", "cilt bakımı", "bölgesel incelme"],
             "pain_point": "Hafta sonu yoğunluğunda telefona bakılamaması ve paket satış randevularının sekreteryada aksaması.",
-            "value_prop": "Randevu iptallerini minimize eden, boşalan seanslara otomatik hatırlatma gönderen ve Instagram'dan paket randevusu bağlayan 7/24 dijital sekreter."
+            "value_prop": "Randevu taleplerini toparlayan, hatırlatmaları hazırlayıp onayınıza sunan dijital çalışan."
         }
     }
+
+    SITE = "https://cybergene.co"
+    DEFAULT_QUESTION = "Mesai dışı gelen randevu mesajlarını nasıl karşılarsınız?"
+
+    @staticmethod
+    def showroom_link(display_name: str, question: str = "") -> str:
+        """Personal showroom link. The site itself sanitises `for` (40 chars) and `soru` (300 chars);
+        we apply the same limits here so the link always renders as intended."""
+        name = re.sub(r"[^\w .,'&-]", "", display_name or "", flags=re.UNICODE).strip()[:40]
+        ask = " ".join((question or ClinicLeadHunter.DEFAULT_QUESTION).split())[:300]
+        query = urllib.parse.urlencode({"for": name, "soru": ask}, quote_via=urllib.parse.quote)
+        return f"{ClinicLeadHunter.SITE}/showroom/?{query}"
 
     @staticmethod
     def generate_clinic_pitch(
         company_name: str,
         niche_key: str,
         contact_person: Optional[str] = None,
-        instagram_handle: Optional[str] = None
+        instagram_handle: Optional[str] = None,
+        display_name: Optional[str] = None,
+        question: str = "",
     ) -> Dict[str, str]:
-        """Klinik ve güzellik merkezleri için yüksek dönüşümlü, saygılı ve doğal temas taslağı üretir."""
+        """First-contact draft. It only states what is true: no statistics, no invented past work,
+        no speed promises. It always goes through human approval before anything is sent."""
         niche = ClinicLeadHunter.NICHE_CATEGORIES.get(niche_key, ClinicLeadHunter.NICHE_CATEGORIES["dental"])
-        
-        hitap = f"Merhaba {company_name} Ekibi,"
-        if contact_person:
-            hitap = f"Merhaba {contact_person} Hocam / Ekibi,"
-
-        ig_ref = f"@{instagram_handle}" if instagram_handle else "Instagram profiliniz"
-
-        subject = f"{company_name} için mesai dışı Instagram randevu dönüşüm akışı hk."
-
+        hitap = f"Merhaba {contact_person}," if contact_person else f"Merhaba {company_name} ekibi,"
+        link = ClinicLeadHunter.showroom_link(display_name or company_name, question)
+        subject = f"{company_name} için kısa bir örnek ekran"
         body = (
             f"{hitap}\n\n"
-            f"{ig_ref} üzerinden yürüttüğünüz başarılı çalışmaları ve danışan/hasta paylaşımlarınızı ilgiyle takip ediyoruz.\n\n"
-            f"Klinik ve merkezlerle yaptığımız çalışmalarda gözlemlediğimiz çok kritik bir gerçek var: "
-            f"Özellikle akşam 20:00'den sonra ve hafta sonları Instagram DM ile WhatsApp'tan gelen 'Fiyat nedir?' "
-            f"ve 'Randevu alabilir miyim?' sorularına ilk 1-2 dakika içinde dönülmediğinde, yüksek bütçeli hastaların "
-            f"%60'ından fazlası o an ulaştığı rakip bir kliniğe yöneliyor.\n\n"
-            f"CyberGene olarak geliştirdiğimiz sistem; ekibinizin mesai saatleri dışında ve hafta sonlarında, "
-            f"Instagram DM ve WhatsApp hattınızda hastalarınızı 20 saniyede karşılayıp tedavi sorularını yanıtlıyor "
-            f"ve randevu defterinize doğrudan ön görüşme randevusu kaydediyor.\n\n"
-            f"Herhangi bir satış vaadi olmadan; kliniğinizin kendi Instagram DM'sinde 2 dakikada deneyimleyebileceğiniz "
-            f"canlı bir demo paylaşmamızı ister misiniz?\n\n"
-            f"İyi çalışmalar dileriz,\n"
-            f"Bilal Ergene — CyberGene Kurucusu\n"
-            f"0541 846 95 62 | https://cybergene.com.tr"
+            f"Ben Bilal, CyberGene'den yazıyorum. İşletmelere özel dijital çalışanlar kuruyoruz: "
+            f"gelen mesajları karşılayan, randevu talebini toparlayıp size sunan, işi mesai dışında da hazır tutan "
+            f"yardımcılar. Son karar her zaman sizde kalır.\n\n"
+            f"Sizin gibi bir işletmede nasıl çalışabileceğini gösteren bir örnek ekran hazırladık "
+            f"(temsili bir örnektir, gerçek bir işlem yapmaz):\n{link}\n\n"
+            f"Beğenirseniz, işinizde hangi işlerin devredilebileceğine birlikte bakacağımız ücretsiz bir ön görüşme "
+            f"önerebiliriz. Yanıt vermeniz gerekmiyor; ilginizi çekmezse bu mesajı yok sayabilirsiniz.\n\n"
+            f"İyi çalışmalar,\nBilal Ergene — CyberGene\n{ClinicLeadHunter.SITE}"
         )
-
-        return {
-            "subject": subject,
-            "body": body,
-            "value_prop": niche["value_prop"]
-        }
+        return {"subject": subject, "body": body, "value_prop": niche["value_prop"]}
 
     @staticmethod
     def seed_initial_verified_clinics():
@@ -185,7 +184,7 @@ class ClinicLeadHunter:
                 capacity_notes=c["capacity"],
                 facts_verified=c["facts"],
                 assumptions=c["assumptions"],
-                fact_check_status="VERIFIED"
+                fact_check_status="UNVERIFIED"
             )
 
             # Özel klinik teklifini üret

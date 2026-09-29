@@ -197,6 +197,15 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
             })
             return {"ok": True, "status": "REJECTED"}
 
+        current_idea = MarketingPipeline.get_content_idea(idea_id)
+        if not current_idea or current_idea.get("status") != "PENDING_APPROVAL":
+            send_telegram_raw("sendMessage", {
+                "chat_id": chat_id,
+                "text": f"⚠️ <b>İçerik önerisi #{idea_id} artık onaya açık değil.</b>\nHiçbir şey yapılmadı.",
+                "parse_mode": "HTML"
+            })
+            return {"ok": False, "status": "NOT_PENDING"}
+
         # ig_appr: yalnız durumu ilerlet — hiçbir görsel/DOM/yayın eylemi TETİKLENMEZ.
         MarketingPipeline.update_content_idea_status(
             idea_id, "APPROVED_FOR_ART_DIRECTION", approved_by=f"telegram_{from_user_id}"
@@ -225,6 +234,18 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
         return {"ok": True, "status": "REJECTED"}
 
     if action == "mkt_appr":
+        # 0. Yalnız "onay bekliyor" durumundaki kampanya onaylanabilir. Reddedilmiş, taslak veya
+        #    eski bir karttan gelen basış hiçbir şeyi yeniden onaylı yapamaz.
+        current = MarketingPipeline.get_campaign(campaign_id)
+        if not current or current.get("status") != "PENDING_APPROVAL":
+            state = current.get("status") if current else "bulunamadi"
+            send_telegram_raw("sendMessage", {
+                "chat_id": chat_id,
+                "text": f"⚠️ <b>Kampanya #{campaign_id} artık onaya açık değil</b> (durum: {state}).\nHiçbir şey yapılmadı.",
+                "parse_mode": "HTML"
+            })
+            return {"ok": False, "status": "NOT_PENDING"}
+
         # 1. Onay durumuna geçir
         MarketingPipeline.update_campaign_status(campaign_id, "APPROVED", approved_by=f"telegram_{from_user_id}")
 

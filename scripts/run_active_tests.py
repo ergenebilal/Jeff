@@ -20,6 +20,8 @@ BRIDGE_TESTS = [
     'jeff2.bridge.test_bridge_security',
     'jeff2.bridge.test_coding_bridge',
     'test_pablo_brain',
+    'test_clinic_pitch',
+    'test_marketing_callback_guard',
 ]
 CONTRACT_TESTS = [
     'jeff2.bridge.contract_tests.test_cybergene_contract',
