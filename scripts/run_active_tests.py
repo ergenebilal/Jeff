@@ -18,6 +18,7 @@ BRIDGE_TESTS = [
     'scripts.test_jeff_status',
     'scripts.test_jeff_backup',
     'scripts.test_model_health',
+    'scripts.test_pablo_drift',
     'jeff2.bridge.test_task_contract',
     'jeff2.bridge.test_task_http',
     'jeff2.bridge.test_bridge_security',
