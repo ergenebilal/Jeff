@@ -95,6 +95,11 @@ class ClinicLeadHunter:
     @staticmethod
     def seed_initial_verified_clinics():
         """Bursa Nilüfer / FSM / Osmangazi ve İstanbul'daki lüks klinik ve güzellik merkezlerini boru hattına ekler."""
+        # 29.09.2026 kontrolü: bu örnek kayıtlar doğrulanamadı (iki alan adı hiç yok, biri başka şehirlerde,
+        # biri sitesinde Bursa şubesi göstermiyor). Doğrulanmadan boru hattına konmaz; aday listesi resmî
+        # kaynaklardan (radar) doğrulanarak üretilecek.
+        return []
+
         initial_clinics = [
             {
                 "name": "DentGroup Bursa Nilüfer Diş Kliniği",

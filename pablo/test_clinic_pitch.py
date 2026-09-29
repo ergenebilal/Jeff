@@ -76,6 +76,10 @@ class SeedHonestyTests(unittest.TestCase):
         source = inspect.getsource(H.seed_initial_verified_clinics)
         self.assertNotIn('fact_check_status="VERIFIED"', source)
 
+    def test_unverified_seed_clinics_never_enter_the_pipeline(self):
+        # Two of the four seed domains do not exist and two contact records could not be confirmed.
+        self.assertEqual(H.seed_initial_verified_clinics(), [])
+
 
 if __name__ == '__main__':
     unittest.main()
