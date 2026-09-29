@@ -36,7 +36,10 @@ $sshOptions = @('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20')
 $target = "$User@$Server"
 
 function Invoke-Remote([string]$script) {
-    $out = ($script -replace "`r`n", "`n") | ssh @sshOptions $target 'bash -s'
+    # PowerShell appends CRLF when piping a string; a trailing comment line keeps that CR out of the last real command
+    # (it once turned a marker file name into '.offsite-copy-ok<CR>').
+    $text = ($script -replace "`r`n", "`n") + "`n# end"
+    $out = $text | ssh @sshOptions $target 'bash -s'
     if ($LASTEXITCODE -ne 0) { throw "ssh failed (exit $LASTEXITCODE)" }
     return $out
 }

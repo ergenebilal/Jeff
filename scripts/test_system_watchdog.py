@@ -195,14 +195,14 @@ class IoTests(unittest.TestCase):
             raise OSError('net')
         self.assertFalse(wd.telegram_sender('t', '1', opener=opener)('hi'))
 
-    def test_dry_run_prints_and_saves_state(self):
+    def test_dry_run_prints_but_never_touches_the_state_file(self):
         with tempfile.TemporaryDirectory() as d:
             fake = lambda backup_dir: [check('demo', [(False, 'x')])]  # noqa: E731
+            state = Path(d) / 's.json'
             with mock.patch.object(wd, 'default_checks', fake):
-                code = wd.main(['--state', str(Path(d) / 's.json'), '--dry-run', '--backup-dir', d])
+                code = wd.main(['--state', str(state), '--dry-run', '--backup-dir', d])
             self.assertEqual(code, 0)
-            state = json.loads((Path(d) / 's.json').read_text())
-            self.assertTrue(state['demo']['alerted'])
+            self.assertFalse(state.exists())      # otherwise a rehearsal would mark the problem as announced
 
     def test_missing_credentials_is_an_error(self):
         import os

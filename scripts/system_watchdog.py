@@ -284,7 +284,8 @@ def main(argv=None):
     state = load_state(args.state)
     new_state, events = evaluate(default_checks(args.backup_dir), state, now)
     new_state = apply_events(events, new_state, now, send)
-    save_state(args.state, new_state)
+    if not args.dry_run:   # a rehearsal must never mark problems as announced
+        save_state(args.state, new_state)
     bad = [k for k, v in new_state.items() if not v.get('ok', True)]
     print(f'[watchdog] {len(new_state)} kontrol, sorunlu: {bad or "yok"}, mesaj: {len(events)}')
     return 0
