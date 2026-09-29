@@ -31,10 +31,13 @@ def make_chat_db(path, messages):
 
 
 def make_bridge_db(path, statuses):
+    """statuses: 'waiting_approval' or ('waiting_approval', hours_old)."""
     db = sqlite3.connect(path)
-    db.execute('CREATE TABLE task_records (task_id TEXT, status TEXT)')
-    for i, s in enumerate(statuses):
-        db.execute('INSERT INTO task_records VALUES (?,?)', (f't{i}', s))
+    db.execute('CREATE TABLE task_records (task_id TEXT, status TEXT, updated_at TEXT)')
+    for i, entry in enumerate(statuses):
+        status, hours = entry if isinstance(entry, tuple) else (entry, 1)
+        db.execute('INSERT INTO task_records VALUES (?,?,?)',
+                   (f't{i}', status, (NOW - timedelta(hours=hours)).isoformat()))
     db.commit()
     db.close()
 
@@ -80,8 +83,8 @@ class CollectTests(unittest.TestCase):
     def test_approvals(self):
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / 'b.db'
-            make_bridge_db(db, ['waiting_approval', 'waiting_approval', 'failed', 'verified'])
-            self.assertEqual(mr.collect_approvals(db), {'waiting': 2, 'stuck': 1})
+            make_bridge_db(db, ['waiting_approval', ('waiting_approval', 60), 'failed', 'verified'])
+            self.assertEqual(mr.collect_approvals(db, NOW), {'waiting': 2, 'old': 1, 'stuck': 1})
 
     def test_health_lists_problems_by_plain_label_and_detects_stale_watchdog(self):
         with tempfile.TemporaryDirectory() as d:
@@ -145,6 +148,31 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(sum(p.count('x' * 100) for p in parts), 100)
 
 
+class KindTests(unittest.TestCase):
+    LOCAL = NOW.astimezone(timezone(timedelta(hours=3)))
+
+    def test_titles_and_advice_heading_differ_per_kind(self):
+        empty = {'real': 0, 'warm': 0, 'test': 0, 'warm_items': []}
+        ok = {'total': 14, 'bad': [], 'stale': False, 'age_min': 1}
+        ap = {'waiting': 0, 'old': 0, 'stuck': 0}
+        evening = mr.build_report(empty, ap, ok, 2, self.LOCAL, 'evening')
+        weekly = mr.build_report(empty, ap, ok, 2, self.LOCAL, 'weekly')
+        self.assertIn('gün sonu özeti', evening)
+        self.assertIn('YARIN İÇİN ÖNERİM', evening)
+        self.assertIn('SİTEDE SON 7 GÜN', weekly)
+
+    def test_old_approvals_are_called_out_and_lead_the_advice(self):
+        text = mr.build_report({'real': 0, 'warm': 0, 'test': 0, 'warm_items': []},
+                               {'waiting': 3, 'old': 2, 'stuck': 0},
+                               {'total': 14, 'bad': [], 'stale': False, 'age_min': 1}, 2, self.LOCAL)
+        self.assertIn('2 tanesi 2 günden uzun süredir bekliyor', text)
+        self.assertIn('2 iş 2 günden uzun süredir onayını bekliyor', text)
+
+    def test_evening_window_is_since_local_midnight(self):
+        self.assertEqual(mr.WINDOW_HOURS['evening'](datetime(2026, 9, 30, 19, 5)), 20)
+        self.assertEqual(mr.WINDOW_HOURS['weekly'](datetime(2026, 9, 30, 19, 5)), 168)
+
+
 class DeliveryTests(unittest.TestCase):
     def run_main(self, d, now, extra=(), sent=None):
         chat, bridge = Path(d) / 'c.db', Path(d) / 'b.db'
@@ -191,6 +219,34 @@ class DeliveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, mock.patch.dict('os.environ', {}, clear=True):
             code, _ = self.run_main(d, NOW, ['--send'])
             self.assertEqual(code, 2)
+
+    def test_kinds_are_tracked_separately(self):
+        with tempfile.TemporaryDirectory() as d:
+            args = self.creds(d)
+            evening_now = datetime(2026, 9, 30, 16, 30, tzinfo=timezone.utc)   # 19:30 Istanbul
+            self.run_main(d, NOW, args)
+            code, sender = self.run_main(d, evening_now, args + ['--kind', 'evening', '--at', '19:00'])
+            self.assertEqual(sender.call_count, 1)
+            code, sender = self.run_main(d, evening_now, args + ['--kind', 'evening', '--at', '19:00'])
+            sender.assert_not_called()
+
+    def test_old_state_file_still_blocks_a_second_morning_send(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'sent.json').write_text(json.dumps({'last_sent': '2026-09-30'}))
+            code, sender = self.run_main(d, NOW, self.creds(d))
+            sender.assert_not_called()
+
+    def test_until_and_weekday_guards(self):
+        with tempfile.TemporaryDirectory() as d:
+            args = self.creds(d)
+            late = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)           # 15:00 Istanbul
+            code, sender = self.run_main(d, late, args + ['--until', '11:00'])
+            sender.assert_not_called()
+            # 30 Sep 2026 is a Wednesday (weekday 2)
+            code, sender = self.run_main(d, NOW, args + ['--kind', 'weekly', '--weekday', '6', '--at', '00:00'])
+            sender.assert_not_called()
+            code, sender = self.run_main(d, NOW, args + ['--kind', 'weekly', '--weekday', '2', '--at', '00:00'])
+            self.assertEqual(sender.call_count, 1)
 
     def test_dry_run_never_sends_or_marks_sent(self):
         with tempfile.TemporaryDirectory() as d:

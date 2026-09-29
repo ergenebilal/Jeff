@@ -1,4 +1,4 @@
-"""Jeff's morning report for Bilal: plain Turkish, built only from real data.
+"""Jeff's morning, evening and weekly reports for Bilal: plain Turkish, built only from real data.
 
 Sections: last 24h on the website (real conversations vs tests, warm opportunities), work waiting
 for his approval, system health (from the watchdog), and one suggestion derived from those facts.
@@ -6,7 +6,7 @@ A source that cannot be read is reported as "veri alinamadi"; nothing is guessed
 
     python scripts/morning_report.py --chat-db ... --bridge-db ... --watchdog-state ... [--dry-run|--send]
 
---send needs ALERT_BOT_TOKEN / ALERT_CHAT_ID (env or --env-file), sends at most once per day and
+--kind morning|evening|weekly picks the window and wording. --send needs ALERT_BOT_TOKEN / ALERT_CHAT_ID (env or --env-file), sends at most once per day and
 not before --at (local time in --tz), so cron may call it every few minutes without duplicates.
 """
 import argparse
@@ -70,8 +70,8 @@ def _ro(path):
     return sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=10)
 
 
-def collect_site(chat_db, now):
-    """Last 24h of site chat. None when the database cannot be read."""
+def collect_site(chat_db, now, hours=24):
+    """Site chat in the last `hours`. None when the database cannot be read."""
     try:
         db = _ro(chat_db)
         try:
@@ -81,7 +81,7 @@ def collect_site(chat_db, now):
             db.close()
     except sqlite3.Error:
         return None
-    since = now - timedelta(hours=24)
+    since = now - timedelta(hours=hours)
     sessions = {}
     for sid, text, stamp in rows:
         ts = _parse_ts(stamp)
@@ -105,13 +105,17 @@ def collect_site(chat_db, now):
     return {'real': real, 'warm': warm, 'test': test, 'warm_items': warm_items[:3]}
 
 
-def collect_approvals(bridge_db):
+def collect_approvals(bridge_db, now=None, stale_hours=48):
     try:
         db = _ro(bridge_db)
         try:
-            one = lambda q: db.execute(q).fetchone()[0]  # noqa: E731
+            one = lambda q, *a: db.execute(q, a).fetchone()[0]  # noqa: E731
+            cutoff = ((now or datetime.now(timezone.utc)) - timedelta(hours=stale_hours)).isoformat()
             return {
                 'waiting': one("SELECT COUNT(*) FROM task_records WHERE status='waiting_approval'"),
+                # ISO-8601 UTC strings compare correctly as text
+                'old': one("SELECT COUNT(*) FROM task_records WHERE status='waiting_approval' "
+                           "AND updated_at < ?", cutoff),
                 'stuck': one("SELECT COUNT(*) FROM task_records WHERE status IN ('failed','escalated','reconciling')"),
             }
         finally:
@@ -141,6 +145,8 @@ def collect_backup(backup_dir, now_ts):
 def suggest(site, approvals, health):
     if site and site['warm']:
         return f"{site['warm']} sıcak konuşma var; önce onlara dönüş yapmak en değerli iş görünüyor."
+    if approvals and approvals.get('old'):
+        return f"{approvals['old']} iş 2 günden uzun süredir onayını bekliyor; önce onlara karar vermek iyi olur."
     if approvals and approvals['waiting']:
         return f"Onayını bekleyen {approvals['waiting']} iş var; onları karara bağlamak akışı açar."
     if health and (health['bad'] or health['stale']):
@@ -150,9 +156,18 @@ def suggest(site, approvals, health):
     return 'Acil görünen bir şey yok. Yeni konuşma gelmesi için tanıtım ve içerik tarafına odaklanabilirsin.'
 
 
-def build_report(site, approvals, health, backup_h, local_now):
-    lines = [f"Günaydın Bilal. {local_now.strftime('%d.%m.%Y')} sabah özeti", '']
-    lines.append('SİTEDE SON 24 SAAT')
+KINDS = {
+    'morning': ('Günaydın Bilal. {d} sabah özeti', 'SİTEDE SON 24 SAAT', 'BUGÜN İÇİN ÖNERİM'),
+    'evening': ('İyi akşamlar Bilal. {d} gün sonu özeti', 'SİTEDE BUGÜN', 'YARIN İÇİN ÖNERİM'),
+    'weekly': ('Merhaba Bilal. {d} haftalık özet', 'SİTEDE SON 7 GÜN', 'ÖNÜMÜZDEKİ HAFTA İÇİN ÖNERİM'),
+}
+WINDOW_HOURS = {'morning': lambda ln: 24, 'evening': lambda ln: max(ln.hour + 1, 1), 'weekly': lambda ln: 168}
+
+
+def build_report(site, approvals, health, backup_h, local_now, kind='morning'):
+    title, site_head, advice_head = KINDS[kind]
+    lines = [title.format(d=local_now.strftime('%d.%m.%Y')), '']
+    lines.append(site_head)
     if site is None:
         lines.append(f'- {UNAVAILABLE} (sohbet kaydına ulaşılamadı)')
     else:
@@ -172,6 +187,8 @@ def build_report(site, approvals, health, backup_h, local_now):
     else:
         lines.append(f"- Onay bekleyen iş: {approvals['waiting']}" if approvals['waiting']
                      else '- Onay bekleyen iş yok')
+        if approvals.get('old'):
+            lines.append(f"- Bunlardan {approvals['old']} tanesi 2 günden uzun süredir bekliyor")
         if approvals['stuck']:
             lines.append(f"- Takılan veya başarısız iş: {approvals['stuck']}")
     lines += ['', 'SİSTEM']
@@ -187,7 +204,7 @@ def build_report(site, approvals, health, backup_h, local_now):
             lines.append(f"- Her şey normal ({health['total']}/{health['total']} kontrol sağlam)")
     if backup_h is not None:
         lines.append(f'- Son yedek: {backup_h} saat önce')
-    lines += ['', 'BUGÜN İÇİN ÖNERİM', f'- {suggest(site, approvals, health)}']
+    lines += ['', advice_head, f'- {suggest(site, approvals, health)}']
     return '\n'.join(lines)
 
 
@@ -203,11 +220,25 @@ def split_message(text, limit=4000):
     return parts
 
 
-def already_sent(state_file, day):
+def _load_sent(state_file):
     try:
-        return json.loads(Path(state_file).read_text(encoding='utf-8')).get('last_sent') == day
+        data = json.loads(Path(state_file).read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
-        return False
+        return {}
+
+
+def already_sent(state_file, day, kind='morning'):
+    data = _load_sent(state_file)
+    if data.get(f'last_sent_{kind}') == day:
+        return True
+    return kind == 'morning' and data.get('last_sent') == day   # written by the first version
+
+
+def _mark(state_file, kind, day):
+    data = _load_sent(state_file)
+    data[f'last_sent_{kind}'] = day
+    Path(state_file).write_text(json.dumps(data), encoding='utf-8')
 
 
 def main(argv=None, now=None):
@@ -219,7 +250,10 @@ def main(argv=None, now=None):
     ap.add_argument('--sent-state', default='/home/hermes/logs/morning_report_state.json')
     ap.add_argument('--env-file')
     ap.add_argument('--tz', default='Europe/Istanbul')
+    ap.add_argument('--kind', choices=sorted(KINDS), default='morning')
     ap.add_argument('--at', default='07:00', help='earliest local time to send (HH:MM)')
+    ap.add_argument('--until', help='latest local time to send (HH:MM); later runs stay silent')
+    ap.add_argument('--weekday', type=int, help='send only on this weekday (0=Monday .. 6=Sunday)')
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument('--dry-run', action='store_true')
     mode.add_argument('--send', action='store_true')
@@ -233,14 +267,23 @@ def main(argv=None, now=None):
         if (local_now.hour, local_now.minute) < (hh, mm):
             print(f'[rapor] henuz erken ({local_now:%H:%M} < {args.at})')
             return 0
-        if already_sent(args.sent_state, day):
+        if args.weekday is not None and local_now.weekday() != args.weekday:
+            print('[rapor] bugun bu raporun gunu degil')
+            return 0
+        if args.until:
+            uh, um = map(int, args.until.split(':'))
+            if (local_now.hour, local_now.minute) > (uh, um):
+                print(f'[rapor] zamani gecti ({local_now:%H:%M} > {args.until}), bugun atlandi')
+                return 0
+        if already_sent(args.sent_state, day, args.kind):
             print('[rapor] bugun zaten gonderildi')
             return 0
 
     ts = utc_now.timestamp()
-    report = build_report(collect_site(args.chat_db, utc_now), collect_approvals(args.bridge_db),
+    report = build_report(collect_site(args.chat_db, utc_now, WINDOW_HOURS[args.kind](local_now)),
+                          collect_approvals(args.bridge_db, utc_now),
                           collect_health(args.watchdog_state, ts), collect_backup(args.backup_dir, ts),
-                          local_now)
+                          local_now, args.kind)
     if args.dry_run:
         enc = sys.stdout.encoding or 'utf-8'
         print(report.encode(enc, 'replace').decode(enc, 'replace'))
@@ -256,10 +299,10 @@ def main(argv=None, now=None):
     send = wd.telegram_sender(token, chat)
     parts = split_message(report)
     # Claim the day before sending so a slow/duplicate cron run cannot send twice; roll back on failure.
-    Path(args.sent_state).write_text(json.dumps({'last_sent': day}), encoding='utf-8')
+    _mark(args.sent_state, args.kind, day)
     for part in parts:
         if not send(part):
-            Path(args.sent_state).write_text(json.dumps({'last_sent': None}), encoding='utf-8')
+            _mark(args.sent_state, args.kind, None)
             print('[rapor] gonderilemedi, sonraki calismada tekrar denenecek', file=sys.stderr)
             return 1
     print(f'[rapor] gonderildi ({len(parts)} parca)')

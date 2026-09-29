@@ -14,6 +14,7 @@ BRIDGE_TESTS = [
     'scripts.test_ci_secret_scan',
     'scripts.test_system_watchdog',
     'scripts.test_morning_report',
+    'scripts.test_lead_alert',
     'jeff2.bridge.test_task_contract',
     'jeff2.bridge.test_task_http',
     'jeff2.bridge.test_bridge_security',
