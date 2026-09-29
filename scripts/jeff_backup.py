@@ -12,6 +12,7 @@ Exit code is non-zero (and the archive is discarded) if any required item is mis
 """
 import argparse
 import fnmatch
+import glob
 import os
 import re
 import sqlite3
@@ -148,6 +149,7 @@ def package_inventory(home, runner=subprocess.run):
         'etc/pip-freeze-jeff-site.txt': ['python3.11', '-m', 'pip', 'freeze', '--path', str(h / 'jeff-v0.21.5' / 'site')],
         'etc/pip-freeze-user.txt': ['python3.11', '-m', 'pip', 'freeze', '--user'],
         'etc/node-global.txt': ['npm', 'ls', '-g', '--depth=0'],
+        'etc/crontab-hermes.txt': ['crontab', '-l'],
     }
     out = {}
     for name, cmd in sources.items():
@@ -191,7 +193,7 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
             tar.add(work / 'db', arcname='db')
             for extra in extra_files:
                 if Path(extra).is_file():
-                    tar.add(extra, arcname='etc/' + Path(extra).name)
+                    tar.add(extra, arcname='etc/' + (Path(extra).parent.name + '__' if Path(extra).parent.name.endswith('.d') else '') + Path(extra).name)
             for name, text in package_inventory(home).items():
                 data = text.encode('utf-8')
                 info = tarfile.TarInfo(name)
@@ -282,6 +284,7 @@ def main(argv=None):
         '/etc/systemd/system/cybergene-chat.service', '/etc/systemd/system/jeff-bridge.service',
         '/etc/jeff-bridge.env'])
     args = ap.parse_args(argv)
+    args.extra = list(args.extra) + sorted(glob.glob('/etc/systemd/system/hermes-gateway.service.d/*.conf'))
     if args.verify_latest:
         return verify_latest(args.dest, args.home, log=lambda m: print(f'[backup-drill] {m}', flush=True))
     return run(args.home, args.dest, args.keep, args.extra, log=lambda m: print(f'[backup] {m}', flush=True))

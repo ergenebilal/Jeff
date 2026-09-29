@@ -128,6 +128,22 @@ class BackupTests(unittest.TestCase):
         boom = lambda cmd, **kw: (_ for _ in ()).throw(FileNotFoundError('npm'))  # noqa: E731
         self.assertEqual(jb.package_inventory(self.fx.home, runner=boom), {})
 
+    def test_extra_dropin_files_keep_their_folder_in_the_archive_name(self):
+        dropin = self.fx.home / 'x.service.d' / '10-a.conf'
+        dropin.parent.mkdir()
+        dropin.write_text('[Service]\n')
+        plain = self.fx.home / 'jeff-bridge.env'
+        plain.write_text('K=1\n')
+        code, _ = self.fx.run(extra_files=[dropin, plain])
+        names = self.fx.names()
+        self.assertIn('etc/x.service.d__10-a.conf', names)
+        self.assertIn('etc/jeff-bridge.env', names)
+
+    def test_crontab_is_part_of_the_inventory(self):
+        from types import SimpleNamespace
+        fake = lambda cmd, **kw: SimpleNamespace(stdout='0 3 * * * job\n' if cmd[0] == 'crontab' else '')  # noqa: E731
+        self.assertEqual(jb.package_inventory(self.fx.home, runner=fake)['etc/crontab-hermes.txt'], '0 3 * * * job\n')
+
     def test_retention_keeps_only_the_newest(self):
         base = time.time()
         for i in range(4):
