@@ -69,11 +69,21 @@ def flat_name(path):
     return rel(path).replace('/', '__')
 
 
+def _integrity(path):
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute('PRAGMA integrity_check').fetchone()[0]
+    finally:
+        conn.close()
+
+
 def snapshot_databases(paths, workdir, log):
-    """Consistent copy of each database via SQLite's online backup API, verified with integrity_check."""
+    """Consistent copy of each database via SQLite's online backup API.
+    A copy that cannot be made is an error. A copy that is made but fails integrity_check (for example a
+    damaged search index) is still KEPT, because a slightly damaged backup beats none, and reported as a warning."""
     out = Path(workdir) / 'db'
     out.mkdir(parents=True, exist_ok=True)
-    copied, errors = {}, []
+    copied, errors, warnings = {}, [], []
     for src in paths:
         dst = out / flat_name(src)
         try:
@@ -84,19 +94,19 @@ def snapshot_databases(paths, workdir, log):
             finally:
                 target.close()
                 source.close()
-            check = sqlite3.connect(dst)
-            try:
-                verdict = check.execute('PRAGMA integrity_check').fetchone()[0]
-            finally:
-                check.close()
+            verdict = _integrity(dst)
             if verdict != 'ok':
-                raise sqlite3.DatabaseError(f'integrity_check: {verdict}')
+                warnings.append(f'{src}: integrity_check says "{verdict[:80]}"')
             copied[str(src)] = dst
         except (sqlite3.Error, OSError) as exc:
             errors.append(f'{src}: {type(exc).__name__}')
             dst.unlink(missing_ok=True)
-    log(f'databases: {len(copied)} ok, {len(errors)} failed')
-    return copied, errors
+    log(f'databases: {len(copied)} copied, {len(errors)} failed, {len(warnings)} with integrity warnings')
+    for line in errors:
+        log('FAILED: ' + line)
+    for line in warnings:
+        log('WARNING: ' + line)
+    return copied, errors + warnings
 
 
 def _skipped(name):

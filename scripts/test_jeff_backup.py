@@ -107,6 +107,18 @@ class BackupTests(unittest.TestCase):
         self.assertTrue(self.fx.latest().exists())
         self.assertTrue(any('1 failed' in m for m in logs))
 
+    def test_damaged_index_is_kept_and_reported_not_dropped(self):
+        # The real-world case: the data is fine but an FTS index is malformed. The copy must still be saved.
+        real = jb._integrity
+        jb._integrity = lambda path: 'malformed inverted index for FTS5 table main.x' if 'state' in str(path) else real(path)
+        try:
+            code, logs = self.fx.run()
+        finally:
+            jb._integrity = real
+        self.assertEqual(code, 3)
+        self.assertIn('db/' + jb.flat_name(self.fx.home / '.hermes' / 'state.db'), self.fx.names())
+        self.assertTrue(any(m.startswith('WARNING:') and 'malformed' in m for m in logs))
+
     def test_retention_keeps_only_the_newest(self):
         base = time.time()
         for i in range(4):
