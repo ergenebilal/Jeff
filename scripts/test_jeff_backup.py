@@ -144,6 +144,41 @@ class BackupTests(unittest.TestCase):
         fake = lambda cmd, **kw: SimpleNamespace(stdout='0 3 * * * job\n' if cmd[0] == 'crontab' else '')  # noqa: E731
         self.assertEqual(jb.package_inventory(self.fx.home, runner=fake)['etc/crontab-hermes.txt'], '0 3 * * * job\n')
 
+    def test_manifests_let_restore_put_everything_back(self):
+        etc_file = self.fx.home / 'etc-demo' / 'svc.service'
+        etc_file.parent.mkdir()
+        etc_file.write_text('[Unit]' + chr(10))
+        code, _ = self.fx.run(extra_files=[etc_file])
+        self.assertEqual(code, 0)
+        stage, target = Path(self._d.name) / 'stage', Path(self._d.name) / 'newroot'
+        with tarfile.open(self.fx.latest()) as tar:
+            tar.extractall(stage)
+        logs = []
+        self.assertEqual(jb.restore(stage, target, apply=False, log=logs.append), 0)    # rehearsal writes nothing
+        self.assertFalse(target.exists())
+        self.assertEqual(jb.restore(stage, target, apply=True, log=logs.append), 0)
+        self.assertTrue(any(p.name == 'state.db' for p in target.rglob('state.db')))
+        self.assertTrue(any(p.name == 'svc.service' for p in target.rglob('svc.service')))
+        before = sorted(str(p) for p in target.rglob('*'))
+        self.assertEqual(jb.restore(stage, target, apply=True, log=logs.append), 0)     # second run leaves everything alone
+        self.assertEqual(before, sorted(str(p) for p in target.rglob('*')))
+        self.assertTrue(any('exists, left alone' in m for m in logs))
+
+    def test_restore_refuses_a_folder_that_is_not_an_unpacked_archive(self):
+        self.assertEqual(jb.restore(Path(self._d.name) / 'nothing', Path(self._d.name) / 'r', log=lambda m: None), 1)
+
+    def test_etc_names_keep_their_full_location(self):
+        self.assertEqual(jb.etc_arcname('/etc/systemd/system/hermes-gateway.service.d/10-v0215.conf'),
+                         'etc/systemd__system__hermes-gateway.service.d__10-v0215.conf')
+        self.assertEqual(jb.etc_arcname('/etc/fail2ban/jail.local'), 'etc/fail2ban__jail.local')
+        self.assertEqual(jb.etc_arcname('/etc/jeff-bridge.env'), 'etc/jeff-bridge.env')
+
+    def test_backup_and_restore_ignore_editor_backup_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'a.env').write_text('x')
+            (Path(d) / 'a.env.bak-2026').write_text('x')
+            self.assertEqual([Path(f).name for f in jb.etc_files([str(Path(d) / 'a.env*')])], ['a.env'])
+
     def test_retention_keeps_only_the_newest(self):
         base = time.time()
         for i in range(4):

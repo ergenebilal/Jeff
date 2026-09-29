@@ -13,8 +13,10 @@ Exit code is non-zero (and the archive is discarded) if any required item is mis
 import argparse
 import fnmatch
 import glob
+import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import io
@@ -42,6 +44,32 @@ def trees(home, opt_trees=OPT_TREES):
     h = Path(home)
     return [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
             h / '.alert.env', h / '.config', *opt_trees]
+
+
+ETC_PATTERNS = [
+    '/etc/nginx/sites-available/cybergene.co',
+    '/etc/systemd/system/hermes-*.service', '/etc/systemd/system/hermes-*.service.d/*.conf',
+    '/etc/systemd/system/jeff-*.service', '/etc/systemd/system/alfred-*.service',
+    '/etc/systemd/system/cybergene-*.service', '/etc/systemd/system/mail-webhook.service',
+    '/etc/jeff-*.env', '/etc/supervisor/conf.d/*.conf', '/etc/fail2ban/jail.local',
+    '/etc/ssh/sshd_config.d/*.conf',
+]
+
+
+def etc_files(patterns=ETC_PATTERNS):
+    found = []
+    for pattern in patterns:
+        found += sorted(glob.glob(pattern))
+    return [f for f in found if os.path.isfile(f) and '.bak' not in os.path.basename(f)]
+
+
+def etc_arcname(path):
+    """Files under /etc keep their whole location in the name, so no two can collide and the manifest is mechanical."""
+    posix = rel(path)
+    if posix.startswith('etc/'):
+        return 'etc/' + posix[4:].replace('/', '__')
+    parent = Path(path).parent.name
+    return 'etc/' + (parent + '__' if parent.endswith('.d') else '') + Path(path).name
 
 
 def extra_db_paths(home):
@@ -104,6 +132,7 @@ def snapshot_databases(paths, workdir, log):
         except (sqlite3.Error, OSError) as exc:
             errors.append(f'{src}: {type(exc).__name__}')
             dst.unlink(missing_ok=True)
+    (out / 'MANIFEST.json').write_text(json.dumps({flat_name(src): str(src) for src in copied}, indent=1), encoding='utf-8')
     log(f'databases: {len(copied)} copied, {len(errors)} failed, {len(warnings)} with integrity warnings')
     for line in errors:
         log('FAILED: ' + line)
@@ -191,9 +220,15 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
         copied, errors = snapshot_databases(dbs, work, log)
         with tarfile.open(partial, 'w:gz') as tar:
             tar.add(work / 'db', arcname='db')
+            etc_manifest = {}
             for extra in extra_files:
                 if Path(extra).is_file():
-                    tar.add(extra, arcname='etc/' + (Path(extra).parent.name + '__' if Path(extra).parent.name.endswith('.d') else '') + Path(extra).name)
+                    tar.add(extra, arcname=etc_arcname(extra))
+                    etc_manifest[etc_arcname(extra)[len('etc/'):]] = str(extra)
+            manifest_bytes = json.dumps(etc_manifest, indent=1).encode('utf-8')
+            info = tarfile.TarInfo('etc/MANIFEST.json')
+            info.size, info.mtime, info.mode = len(manifest_bytes), int(now()), 0o600
+            tar.addfile(info, io.BytesIO(manifest_bytes))
             for name, text in package_inventory(home).items():
                 data = text.encode('utf-8')
                 info = tarfile.TarInfo(name)
@@ -239,7 +274,7 @@ def verify_latest(dest, home='/home/hermes', log=print, max_age_hours=30, now=ti
     checked = 0
     import tempfile
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(newest, 'r:gz') as tar:
-        members = [m for m in tar.getmembers() if m.isfile() and m.name.startswith('db/')]
+        members = [m for m in tar.getmembers() if m.isfile() and m.name.startswith('db/') and not m.name.endswith('MANIFEST.json')]
         for member in members:
             tar.extract(member, tmp)
             conn = sqlite3.connect(Path(tmp) / member.name)
@@ -257,6 +292,36 @@ def verify_latest(dest, home='/home/hermes', log=print, max_age_hours=30, now=ti
     for problem in problems:
         log('PROBLEM: ' + problem)
     return 1 if problems else 0
+
+
+def restore(staging, root='/', apply=False, log=print):
+    """Copy every database and /etc file of an UNPACKED archive back to its original location (from the manifests).
+    Never overwrites an existing file; a rehearsal unless apply=True."""
+    staging, root = Path(staging), Path(root)
+    plan = []
+    for area in ('db', 'etc'):
+        manifest = staging / area / 'MANIFEST.json'
+        if not manifest.is_file():
+            log(f'ERROR: {manifest} is missing (was the archive unpacked into {staging}?)')
+            return 1
+        for name, original in json.loads(manifest.read_text(encoding='utf-8')).items():
+            plan.append((staging / area / name, root / rel(original)))   # rel(): never let an absolute/drive path escape the root
+    copied = skipped = 0
+    for source, target in plan:
+        if not source.is_file():
+            log(f'ERROR: {source} listed in the manifest but not unpacked')
+            return 1
+        if target.exists():
+            skipped += 1
+            log(f'exists, left alone: {target}')
+            continue
+        log(('copy ' if apply else 'would copy ') + f'{source.name} -> {target}')
+        if apply:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        copied += 1
+    log(f'{copied} to restore, {skipped} already present' + ('' if apply else ' (rehearsal: nothing written, add --apply)'))
+    return 0
 
 
 def REQUIRED_FOR(home):
@@ -279,12 +344,14 @@ def main(argv=None):
     ap.add_argument('--dest', default='/home/hermes/backups')
     ap.add_argument('--keep', type=int, default=10)
     ap.add_argument('--verify-latest', action='store_true', help='restore drill on the newest archive; changes nothing')
-    ap.add_argument('--extra', action='append', default=[
-        '/etc/nginx/sites-available/cybergene.co', '/etc/systemd/system/hermes-gateway.service',
-        '/etc/systemd/system/cybergene-chat.service', '/etc/systemd/system/jeff-bridge.service',
-        '/etc/jeff-bridge.env'])
+    ap.add_argument('--extra', action='append', default=[])
+    ap.add_argument('--restore', metavar='STAGING_DIR', help='put databases and /etc files from an unpacked archive back where they came from (rehearsal unless --apply)')
+    ap.add_argument('--apply', action='store_true')
+    ap.add_argument('--root', default='/', help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
-    args.extra = list(args.extra) + sorted(glob.glob('/etc/systemd/system/hermes-gateway.service.d/*.conf'))
+    args.extra = list(args.extra) or etc_files()
+    if args.restore:
+        return restore(args.restore, args.root, args.apply, log=lambda m: print(f'[restore] {m}', flush=True))
     if args.verify_latest:
         return verify_latest(args.dest, args.home, log=lambda m: print(f'[backup-drill] {m}', flush=True))
     return run(args.home, args.dest, args.keep, args.extra, log=lambda m: print(f'[backup] {m}', flush=True))
