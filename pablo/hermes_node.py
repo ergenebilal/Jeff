@@ -69,7 +69,7 @@ CONFIG = {
     "auth_token": "",
     "jeff_core_url": "http://100.124.217.48:9119",
     "antigravity_proxy_url": "http://100.124.217.48:8999",
-    "jeff_bridge_api_url": "http://100.124.217.48:7700",
+    "jeff_bridge_api_url": "http://100.80.122.74:7700",
     "allowed_ips": ["127.0.0.1", "::1", "100.124.217.48", "100.89.26.86"],
     "telegram_bot_token": "",
     "telegram_default_chat_id": 5506784207,
@@ -2736,7 +2736,7 @@ def run_tailscale_watchdog():
                 timeout=10,
                 creationflags=CREATE_NO_WINDOW
             )
-            if proc.returncode != 0 or "100.124.217.48" not in proc.stdout:
+            if proc.returncode != 0 or "100.80.122.74" not in proc.stdout:  # Jeff sunucusu (Contabo)
                 log("WARN", "Tailscale Jeff Core bağlantısı kesildi! Otomatik kurtarma deneniyor...")
                 subprocess.run(
                     ["tailscale", "up", "--unattended"],

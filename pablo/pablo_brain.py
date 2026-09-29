@@ -14,12 +14,41 @@ import requests
 from typing import List, Dict, Any, Callable
 
 PROXY_URL = os.environ.get("ANTIGRAVITY_PROXY_URL", "http://100.124.217.48:8999/v1/chat/completions")
-DEFAULT_MODEL = "gemini-3.8-flash-high"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
-ENDPOINTS = [
-    {"url": PROXY_URL, "model": "gemini-3.8-flash-high"},
-    {"url": PROXY_URL, "model": "gemini-3.6-flash-high"},
-]
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
+
+def _gemini_key() -> str:
+    """Google Gemini anahtari: ortam degiskeni ya da C:\\CyberGene\\.env (kodda tutulmaz)."""
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        try:
+            from pathlib import Path
+            import re
+            env = (Path(__file__).resolve().parent.parent / ".env").read_text(encoding="utf-8")
+            m = re.search(r"^GEMINI_API_KEY\s*=\s*(.+)$", env, re.M)
+            key = m.group(1).strip().strip("\"'") if m else ""
+        except Exception:
+            key = ""
+    return key
+
+
+def _build_endpoints() -> list:
+    eps = []
+    key = _gemini_key()
+    if key:
+        # Birincil: dogrudan Google. Hafif modeller hizli (~2 sn) ve arac formatina uyuyor.
+        for model in ("gemini-3.5-flash-lite", "gemini-flash-lite-latest"):
+            eps.append({"url": GEMINI_URL, "model": model,
+                        "headers": {"Authorization": f"Bearer {key}"}})
+    # Yedek: eski sunucudaki aracı servis (eski sunucu kapatilirsa sessizce atlanir).
+    eps.append({"url": PROXY_URL, "model": "gemini-3.8-flash-high"})
+    eps.append({"url": PROXY_URL, "model": "gemini-3.6-flash-high"})
+    return eps
+
+
+ENDPOINTS = _build_endpoints()
 
 SYSTEM_PROMPT = """Sen CyberGene operasyon mimarisinin canlı, yerel Windows operatörü **Pablo**'sun.
 Kullanıcın: Bilal Ergene (Lenovo masaüstü oturumu).
@@ -62,12 +91,13 @@ class PabloBrain:
             try:
                 resp = requests.post(
                     ep["url"],
+                    headers=ep.get("headers"),
                     json={
                         "model": ep["model"],
                         "messages": messages,
                         "temperature": 0.7,
                     },
-                    timeout=15
+                    timeout=20
                 )
                 if resp.status_code == 200:
                     data = resp.json()
