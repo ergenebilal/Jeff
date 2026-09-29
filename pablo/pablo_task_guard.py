@@ -46,6 +46,23 @@ FINANCIAL_KEYWORDS = [
     "odeme", "payment", "purchase", "satinal", "checkout", "transfer_money"
 ]
 
+# Adlandırılmış eylemler (whatsapp_send vb.) onaya bağlansa da, jenerik
+# gui_click/gui_type primitifleri aynı etkiyi (bir pencereye Enter basıp
+# mesaj göndermek) onay kapısını hiç görmeden üretebilir — bkz.
+# knowledge/concepts/approval-gate-composability-gap.md. Bu liste, hangi
+# pencereler odaktayken "gönderim" niyetli jenerik girdinin de onay
+# gerektireceğini tanımlar. Yeni bir gönderim yüzeyi (Instagram DM,
+# Twitter/X compose vb.) Pablo'ya eklendiğinde buraya da eklenmeli.
+SENSITIVE_SEND_WINDOW_PATTERNS = ["whatsapp"]
+
+
+def _foreground_window_title() -> str:
+    try:
+        import win32gui
+        return win32gui.GetWindowText(win32gui.GetForegroundWindow()) or ""
+    except Exception:
+        return ""
+
 
 def is_approval_required(action: str, params: dict) -> tuple:
     """
@@ -75,6 +92,15 @@ def is_approval_required(action: str, params: dict) -> tuple:
     if action in ("whatsapp_send", "whatsapp_draft", "dm_send", "send_message"):
         if bool(params.get("is_new_contact") or params.get("new_recipient")):
             return True, "YENI_KISIYE_MESAJ: Yeni/önceden konuşulmamış kişiye mesaj için Bilal Ergene onayı zorunludur."
+
+    # 2b. Jenerik primitifle onay kapısının dolanılması: hassas bir pencere
+    # (WhatsApp vb.) odaktayken Enter'a basmak, adlandırılmış whatsapp_send
+    # eyleminin ürettiği etkiyle aynıdır ve aynı şekilde onay gerektirir —
+    # eylem adı "gui_type" olsa bile.
+    if action == "gui_type" and (params.get("enter") or str(params.get("text", "")) in ("\n", "\r")):
+        title = _foreground_window_title().lower()
+        if any(p in title for p in SENSITIVE_SEND_WINDOW_PATTERNS):
+            return True, f"HASSAS_PENCEREDE_GONDERIM: '{title}' odaktayken Enter ile gönderim Bilal Ergene onayı gerektirir."
 
     # 3. Yıkıcı dosya / sistem işlemleri
     if action == "shell":
