@@ -53,7 +53,19 @@ FINANCIAL_KEYWORDS = [
 # pencereler odaktayken "gönderim" niyetli jenerik girdinin de onay
 # gerektireceğini tanımlar. Yeni bir gönderim yüzeyi (Instagram DM,
 # Twitter/X compose vb.) Pablo'ya eklendiğinde buraya da eklenmeli.
-SENSITIVE_SEND_WINDOW_PATTERNS = ["whatsapp"]
+SENSITIVE_SEND_WINDOW_PATTERNS = [
+    "whatsapp", "instagram", "gmail", "outlook", "e-posta", "yeni ileti", "compose", "linkedin",
+    "messenger", "facebook", "telegram", "twitter", " / x", "direct",
+]
+# Tıklanan veya seçilen öğenin adında bunlardan biri geçiyorsa, hassas bir pencerede bu bir GÖNDERİM jestidir.
+SEND_GESTURE_WORDS = (
+    "gönder", "gonder", "send", "paylaş", "paylas", "share", "post", "tweet", "yayınla", "yayinla",
+    "publish", "reply", "yanıtla", "yanitla",
+)
+SENSITIVE_SEND_URL_PATTERNS = (
+    "instagram.com", "mail.google.com", "outlook.", "web.whatsapp.com", "x.com", "twitter.com",
+    "linkedin.com", "facebook.com", "messenger.com", "web.telegram.org",
+)
 
 
 def _foreground_window_title() -> str:
@@ -62,6 +74,35 @@ def _foreground_window_title() -> str:
         return win32gui.GetWindowText(win32gui.GetForegroundWindow()) or ""
     except Exception:
         return ""
+
+
+def _is_send_gesture(action: str, params: dict) -> str:
+    """Bir tıklama / tarayıcı eylemi, hassas bir yüzeyde GÖNDERİM etkisi üretiyorsa nedenini döndürür, yoksa ''.
+    Okuma, gezinme, pencere değiştirme ve adsız tıklamalar bu kurala takılmaz (otonom kalır)."""
+    if action not in ("gui_click", "browser_act"):
+        return ""
+    if action == "gui_click":
+        label = str(params.get("control_name") or params.get("name") or "").lower()
+        context = str(params.get("window_title") or params.get("window") or "").lower() or _foreground_window_title().lower()
+        url = ""
+        pressed_enter = False
+    else:
+        act = str(params.get("type") or params.get("action") or "click").lower()
+        if act not in ("click", "press", "submit", "type", "fill"):
+            return ""
+        label = " ".join(str(params.get(k) or "") for k in ("selector", "target", "value", "text")).lower()
+        context = _foreground_window_title().lower()
+        url = str(params.get("url") or "").lower()
+        pressed_enter = act in ("press", "submit") and any(w in label for w in ("enter", "return", "\n"))
+        pressed_enter = pressed_enter or bool(params.get("enter") or params.get("submit"))
+    sensitive = any(p in context for p in SENSITIVE_SEND_WINDOW_PATTERNS) or any(p in url for p in SENSITIVE_SEND_URL_PATTERNS)
+    if not sensitive:
+        return ""
+    if any(w in label for w in SEND_GESTURE_WORDS):
+        return f"GONDERIM_JESTI: hassas yüzeyde ('{context or url}') '{label.strip()[:40]}' Bilal Ergene onayı gerektirir."
+    if pressed_enter:
+        return f"GONDERIM_JESTI: hassas yüzeyde ('{context or url}') Enter ile gönderim Bilal Ergene onayı gerektirir."
+    return ""
 
 
 def is_approval_required(action: str, params: dict) -> tuple:
@@ -101,6 +142,13 @@ def is_approval_required(action: str, params: dict) -> tuple:
         title = _foreground_window_title().lower()
         if any(p in title for p in SENSITIVE_SEND_WINDOW_PATTERNS):
             return True, f"HASSAS_PENCEREDE_GONDERIM: '{title}' odaktayken Enter ile gönderim Bilal Ergene onayı gerektirir."
+
+    # 2c. Aynı dolanma, tıklama ve tarayıcı otomasyonu ile: "Gönder", "Paylaş", "Yayınla" gibi adlı bir düğme ya da
+    # Enter, hassas bir yüzeyde (WhatsApp, Instagram, e-posta, X, LinkedIn...) adlandırılmış gönderim eylemiyle
+    # aynı etkiyi üretir.
+    gesture = _is_send_gesture(action, params)
+    if gesture:
+        return True, gesture
 
     # 3. Yıkıcı dosya / sistem işlemleri
     if action == "shell":

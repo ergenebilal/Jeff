@@ -26,6 +26,7 @@ BRIDGE_TESTS = [
     'test_pablo_brain',
     'test_clinic_pitch',
     'test_marketing_callback_guard',
+    'test_send_surfaces',
 ]
 CONTRACT_TESTS = [
     'jeff2.bridge.contract_tests.test_cybergene_contract',
