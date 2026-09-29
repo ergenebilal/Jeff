@@ -20,5 +20,6 @@ Aktif kod haritası (hangi dosya production, hangisi arşiv): `ACTIVE_CODE.json`
 
 ## Bilinmesi gerekenler
 
-- Pablo'nun canlı kopyası `C:\CyberGene\HermesNode` git deposu değildir; repo ile aralarında hâlâ senkronlanmamış kod (özellikle IntentGuard katmanı) vardır. Pablo'da yapılan her değişiklik repoya da yansıtılmalıdır.
+- Pablo'nun canlı kopyası `C:\CyberGene\HermesNode` git deposu değildir. Buradaki kod (2026-09-29 itibarıyla) repoyla senkrondur; Pablo'da yapılan her değişiklik repoya da yansıtılmalıdır. Bilerek repo dışında bırakılanlar: `config.json` ve `.env` (gizli bilgiler), yedek/çalışma kopyaları (`*.bak*`, `*_workcopy.py`, `patch_*.py`) ve `pablo_human_behavior.py`.
+- `pablo_human_behavior.py` (sosyal platformlarda bot tespitinden kaçınmaya yönelik "insansı davranış" katmanı) herkese açık repoda tutulmaz: platform şartlarına aykırıdır ve hesap kapanma riski taşır. Kod bu modül olmadan da çalışır (içe aktarma isteğe bağlıdır).
 - Bu repo herkese açıktır. Kimlik bilgisi, token ve anahtar hiçbir zaman commit edilmez; ortam dosyaları ve `config.json` repo dışında tutulur.
