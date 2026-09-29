@@ -141,6 +141,20 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(wd.backup_fresh(d, now=lambda: mtime + 3600)()[0])
             self.assertFalse(wd.backup_fresh(d, now=lambda: mtime + 40 * 3600)()[0])
 
+    def test_offsite_marker_freshness(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = Path(d) / '.offsite-copy-ok'
+            self.assertFalse(wd.marker_fresh(marker)()[0])              # never copied
+            marker.write_text('x')
+            mtime = marker.stat().st_mtime
+            self.assertTrue(wd.marker_fresh(marker, now=lambda: mtime + 2 * 86400)()[0])
+            ok, detail = wd.marker_fresh(marker, now=lambda: mtime + 12 * 86400)()
+            self.assertFalse(ok)
+            self.assertIn('12 gun once', detail)
+
+    def test_default_checks_include_the_offsite_copy(self):
+        self.assertIn('offsite', [c.key for c in wd.default_checks()])
+
     def test_disk(self):
         full = lambda p: SimpleNamespace(used=95, total=100)  # noqa: E731
         roomy = lambda p: SimpleNamespace(used=10, total=100)  # noqa: E731

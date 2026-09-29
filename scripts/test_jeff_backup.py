@@ -119,6 +119,15 @@ class BackupTests(unittest.TestCase):
         self.assertIn('db/' + jb.flat_name(self.fx.home / '.hermes' / 'state.db'), self.fx.names())
         self.assertTrue(any(m.startswith('WARNING:') and 'malformed' in m for m in logs))
 
+    def test_package_inventory_is_stored_and_a_missing_tool_is_not_fatal(self):
+        from types import SimpleNamespace
+        fake = lambda cmd, **kw: SimpleNamespace(stdout='mcp==1.29.1\n' if 'freeze' in cmd else '')  # noqa: E731
+        inv = jb.package_inventory(self.fx.home, runner=fake)
+        self.assertIn('mcp==1.29.1', inv['etc/pip-freeze-jeff-site.txt'])
+        self.assertNotIn('etc/node-global.txt', inv)                      # empty output is simply skipped
+        boom = lambda cmd, **kw: (_ for _ in ()).throw(FileNotFoundError('npm'))  # noqa: E731
+        self.assertEqual(jb.package_inventory(self.fx.home, runner=boom), {})
+
     def test_retention_keeps_only_the_newest(self):
         base = time.time()
         for i in range(4):

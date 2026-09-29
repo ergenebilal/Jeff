@@ -16,6 +16,8 @@ import os
 import re
 import sqlite3
 import sys
+import io
+import subprocess
 import tarfile
 import time
 from pathlib import Path
@@ -139,6 +141,27 @@ def add_tree(tar, root, db_sources, log):
     return added
 
 
+def package_inventory(home, runner=subprocess.run):
+    """What is installed where, so a rebuild on a fresh machine does not miss a package (the 'mcp' SDK once did)."""
+    h = Path(home)
+    sources = {
+        'etc/pip-freeze-jeff-site.txt': ['python3.11', '-m', 'pip', 'freeze', '--path', str(h / 'jeff-v0.21.5' / 'site')],
+        'etc/pip-freeze-user.txt': ['python3.11', '-m', 'pip', 'freeze', '--user'],
+        'etc/node-global.txt': ['npm', 'ls', '-g', '--depth=0'],
+    }
+    out = {}
+    for name, cmd in sources.items():
+        try:
+            res = runner(cmd, capture_output=True, text=True, timeout=120,
+                         env={**os.environ, 'PATH': f'{h}/.hermes/node/bin:' + os.environ.get('PATH', '')})
+            text = (res.stdout or '').strip()
+            if text:
+                out[name] = text + '\n'
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return out
+
+
 def verify_archive(archive, required):
     with tarfile.open(archive, 'r:gz') as tar:
         names = set(tar.getnames())
@@ -169,6 +192,12 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
             for extra in extra_files:
                 if Path(extra).is_file():
                     tar.add(extra, arcname='etc/' + Path(extra).name)
+            for name, text in package_inventory(home).items():
+                data = text.encode('utf-8')
+                info = tarfile.TarInfo(name)
+                info.size, info.mtime, info.mode = len(data), int(now()), 0o600
+                tar.addfile(info, io.BytesIO(data))
+                log(f'package inventory: {name} ({len(text.splitlines())} lines)')
             files = sum(add_tree(tar, root, {str(p) for p in dbs}, log) for root in trees(home, opt_trees))
         log(f'files packed: {files}')
         missing = verify_archive(partial, REQUIRED_FOR(home))

@@ -79,6 +79,17 @@ def backup_fresh(directory, max_age_hours=BACKUP_MAX_AGE_HOURS, now=time.time):
     return probe
 
 
+def marker_fresh(path, max_age_days=9, now=time.time):
+    """The PC touches this marker after every verified off-server copy of the backup."""
+    def probe():
+        marker = Path(path)
+        if not marker.exists():
+            return False, 'bilgisayara hic kopya alinmamis'
+        age_days = (now() - marker.stat().st_mtime) / 86400
+        return age_days <= max_age_days, f'son bilgisayar kopyasi {age_days:.0f} gun once'
+    return probe
+
+
 def disk_ok(path='/', max_percent=DISK_MAX_PERCENT, usage=shutil.disk_usage):
     def probe():
         u = usage(path)
@@ -135,6 +146,8 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
               telegram_not_fighting(), 0),
         Check('backup', 'Gece yedegi', 'Bir sey bozulursa geri donecek guncel yedek yok',
               backup_fresh(backup_dir), 0),
+        Check('offsite', 'Yedegin bilgisayara kopyasi', 'Sunucu bozulursa yedekler de onunla birlikte gider',
+              marker_fresh(f'{backup_dir}/.offsite-copy-ok'), 0),
         Check('disk', 'Disk alani', 'Disk dolarsa her sey durur', disk_ok(), 0),
     ]
 
