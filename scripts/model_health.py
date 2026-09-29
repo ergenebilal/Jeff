@@ -81,7 +81,20 @@ def routes(env):
     ]
 
 
-def run(env, opener=urllib.request.urlopen, now=time.time):
+def env_conflicts(files, wanted):
+    """Names in `wanted` that two env files define with DIFFERENT values. Hermes reads ~/.hermes/.env on top of the
+    service's gateway.env (override), so a stale key in one of them silently beats the good key in the other."""
+    seen, conflicts = {}, []
+    for values in files:
+        for name in wanted:
+            if values.get(name):
+                if name in seen and seen[name] != values[name] and name not in conflicts:
+                    conflicts.append(name)
+                seen.setdefault(name, values[name])
+    return conflicts
+
+
+def run(env, opener=urllib.request.urlopen, now=time.time, conflicts=()):
     results = []
     for name, url, key, model in routes(env):
         if name != 'proxy' and not key:
@@ -89,7 +102,7 @@ def run(env, opener=urllib.request.urlopen, now=time.time):
             continue
         extra = {'x-opencode-session': str(uuid.uuid4())} if name == 'opencode-go' else None   # the relay rejects requests without it
         results.append(probe(name, url, key, model, opener=opener, extra_headers=extra))
-    return {'checked_at': int(now()), 'routes': results}
+    return {'checked_at': int(now()), 'routes': results, 'env_conflicts': list(conflicts)}
 
 
 def summarize(report):
@@ -122,6 +135,8 @@ def watchdog_probe(path, max_age_seconds=45 * 60, now=time.time):
             return False, 'model kontrol kaydi okunamadi'
         if now() - report.get('checked_at', 0) > max_age_seconds:
             return False, 'model kontrolu eskidi (calismiyor olabilir)'
+        if report.get('env_conflicts'):
+            return False, 'iki ayar dosyasinda FARKLI anahtar: ' + ', '.join(report['env_conflicts']) + ' (Jeff .env dosyasindakini kullanir)'
         state, sentence = summarize(report)
         # Anything but 'main route works' deserves a message: on the spare tire Jeff still answers, but a second
         # failure would leave him blind, and that is worth knowing before it happens.
@@ -131,15 +146,21 @@ def watchdog_probe(path, max_age_seconds=45 * 60, now=time.time):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--env-file', default='/home/hermes/.hermes/gateway.env')
+    ap.add_argument('--env-file', action='append',
+                    help='env file(s); later ones override earlier ones, like Hermes does (default: gateway.env then .env)')
     ap.add_argument('--out', default='/home/hermes/logs/model_health.json')
     args = ap.parse_args(argv)
-    env = {**wd.load_env_file(args.env_file)}
-    report = run(env)
+    files = [wd.load_env_file(f) for f in (args.env_file or ['/home/hermes/.hermes/gateway.env', '/home/hermes/.hermes/.env'])]
+    env = {}
+    for values in files:
+        env.update(values)     # later file wins, exactly as Hermes loads .env over the service environment
+    wanted = ['ANTIGRAVITY_API_KEY', 'OPENCODE_GO_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY']
+    report = run(env, conflicts=env_conflicts(files, wanted))
     write_report(report, args.out)
     state, sentence = summarize(report)
     routes_txt = ', '.join(f"{r['route']}={'ok' if r['ok'] else r['detail']}({r['ms']}ms)" for r in report['routes'])
-    print(f'[model] {state}: {sentence} | {routes_txt}')
+    extra = f" | UYARI iki dosyada farkli anahtar: {', '.join(report['env_conflicts'])}" if report.get('env_conflicts') else ''
+    print(f'[model] {state}: {sentence} | {routes_txt}{extra}')
     return 0 if state != 'blind' else 1
 
 

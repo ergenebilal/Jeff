@@ -141,6 +141,35 @@ class WatchdogAdapterTests(unittest.TestCase):
             self.assertIn('eskidi', text)
         self.assertFalse(mh.watchdog_probe('/nonexistent/x.json')()[0])
 
+    def test_env_files_that_disagree_are_reported_and_alert(self):
+        good, stale = {'OPENCODE_GO_API_KEY': 'new'}, {'OPENCODE_GO_API_KEY': 'old', 'OTHER': 'x'}
+        self.assertEqual(mh.env_conflicts([good, stale], ['OPENCODE_GO_API_KEY']), ['OPENCODE_GO_API_KEY'])
+        self.assertEqual(mh.env_conflicts([good, {'OPENCODE_GO_API_KEY': 'new'}], ['OPENCODE_GO_API_KEY']), [])
+        self.assertEqual(mh.env_conflicts([good, {}], ['OPENCODE_GO_API_KEY']), [])         # only one file defines it: fine
+        with tempfile.TemporaryDirectory() as d:
+            report = mh.run({}, opener=by_url({'127.0.0.1': ok_opener}), conflicts=['OPENCODE_GO_API_KEY'])
+            report['checked_at'] = 1000
+            path = Path(d) / 'r.json'
+            path.write_text(json.dumps(report))
+            ok, text = mh.watchdog_probe(path, now=lambda: 1100)()
+        self.assertFalse(ok)           # main route fine, but the files disagree: still worth a message
+        self.assertIn('FARKLI anahtar', text)
+
+    def test_later_env_file_wins_like_hermes(self):
+        with tempfile.TemporaryDirectory() as d:
+            first, second, out = Path(d) / 'a.env', Path(d) / 'b.env', Path(d) / 'o.json'
+            first.write_text('OPENCODE_GO_API_KEY=GOOD' + chr(10))
+            second.write_text('OPENCODE_GO_API_KEY=STALE' + chr(10))
+            seen = {}
+            original = mh.run
+            mh.run = lambda env_map, **kw: seen.update(env_map) or original(env_map, opener=status_opener(500), **kw)
+            try:
+                mh.main(['--env-file', str(first), '--env-file', str(second), '--out', str(out)])
+            finally:
+                mh.run = original
+            self.assertEqual(seen['OPENCODE_GO_API_KEY'], 'STALE')
+            self.assertEqual(json.loads(out.read_text())['env_conflicts'], ['OPENCODE_GO_API_KEY'])
+
     def test_main_writes_report_and_never_leaks_keys(self):
         with tempfile.TemporaryDirectory() as d:
             env = Path(d) / 'e.env'
