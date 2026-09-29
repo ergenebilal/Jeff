@@ -193,6 +193,28 @@ def package_inventory(home, runner=subprocess.run):
     return out
 
 
+def add_system_file(tar, path, now, log, runner=subprocess.run):
+    """Add a file from /etc. If this user may not read it, try passwordless sudo; if that fails too, say so and go on:
+    one unreadable file must never cost the whole backup."""
+    name = etc_arcname(path)
+    try:
+        tar.add(path, arcname=name)
+        return True
+    except OSError:   # PermissionError in practice; anything unreadable gets the sudo attempt
+        pass
+    try:
+        res = runner(['sudo', '-n', 'cat', str(path)], capture_output=True, timeout=30)
+        if res.returncode == 0:
+            info = tarfile.TarInfo(name)
+            info.size, info.mtime, info.mode = len(res.stdout), int(now()), 0o600
+            tar.addfile(info, io.BytesIO(res.stdout))
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    log(f'WARNING: could not read {path}')
+    return False
+
+
 def verify_archive(archive, required):
     with tarfile.open(archive, 'r:gz') as tar:
         names = set(tar.getnames())
@@ -222,9 +244,12 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
             tar.add(work / 'db', arcname='db')
             etc_manifest = {}
             for extra in extra_files:
-                if Path(extra).is_file():
-                    tar.add(extra, arcname=etc_arcname(extra))
+                if not Path(extra).is_file():
+                    continue
+                if add_system_file(tar, extra, now, log):
                     etc_manifest[etc_arcname(extra)[len('etc/'):]] = str(extra)
+                else:
+                    errors.append(f'{extra}: unreadable')
             manifest_bytes = json.dumps(etc_manifest, indent=1).encode('utf-8')
             info = tarfile.TarInfo('etc/MANIFEST.json')
             info.size, info.mtime, info.mode = len(manifest_bytes), int(now()), 0o600

@@ -179,6 +179,29 @@ class BackupTests(unittest.TestCase):
             (Path(d) / 'a.env.bak-2026').write_text('x')
             self.assertEqual([Path(f).name for f in jb.etc_files([str(Path(d) / 'a.env*')])], ['a.env'])
 
+    def test_unreadable_system_file_does_not_kill_the_backup(self):
+        import io as _io
+        from types import SimpleNamespace
+        logs = []
+        buf = _io.BytesIO()
+        with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+            # a path that cannot be added and where sudo also fails
+            ok = jb.add_system_file(tar, '/nonexistent/secret.conf', lambda: 0, logs.append,
+                                    runner=lambda *a, **k: SimpleNamespace(returncode=1, stdout=b''))
+        self.assertFalse(ok)
+        self.assertTrue(any('could not read' in m for m in logs))
+
+    def test_sudo_fallback_reads_a_root_only_file(self):
+        import io as _io
+        from types import SimpleNamespace
+        buf = _io.BytesIO()
+        with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+            self.assertTrue(jb.add_system_file(tar, '/nonexistent/root-only.conf', lambda: 5, lambda m: None,
+                                               runner=lambda *a, **k: SimpleNamespace(returncode=0, stdout=b'secret')))
+        buf.seek(0)
+        with tarfile.open(fileobj=buf) as tar:
+            self.assertEqual(tar.extractfile('etc/root-only.conf').read(), b'secret')
+
     def test_retention_keeps_only_the_newest(self):
         base = time.time()
         for i in range(4):
