@@ -75,6 +75,31 @@ class CollectTests(unittest.TestCase):
         self.assertEqual((site['real'], site['warm'], site['test']), (2, 1, 1))
         self.assertEqual(site['warm_items'][0][2], 'Fiyat teklifi istiyorum')
 
+    def test_anonymous_site_counters_are_summed_and_shown(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as d:
+            db = Path(d) / 'chat.db'
+            make_chat_db(db, [('aaaaaaaaaa', 'visitor', wrapped('Merhaba'), 3)])
+            con = sqlite3.connect(db)
+            con.execute("CREATE TABLE events (day TEXT, name TEXT, path TEXT, n INTEGER DEFAULT 0, PRIMARY KEY (day, name, path))")
+            day = NOW.strftime('%Y-%m-%d')
+            con.executemany("INSERT INTO events VALUES (?,?,?,?)", [
+                (day, 'visit', '/', 12), (day, 'visit', '/showroom/', 3), (day, 'showroom_link', '/', 5),
+                (day, 'whatsapp_click', '/', 2), (day, 'pilot_call', '/', 1), (day, 'faq_open', '/', 4),
+                ('2000-01-01', 'visit', '/', 999)])
+            con.commit(); con.close()
+            site = mr.collect_site(db, NOW)
+        self.assertEqual(site['traffic']['visit'], 15)
+        text = mr.build_report(site, None, None, 3, NOW.astimezone())
+        self.assertIn("Siteyi gezen (tarayıcı oturumu): 15, showroom'a geçen: 5", text)
+        self.assertIn("WhatsApp'a basan: 3 (pilot düğmesi: 1)", text)
+
+    def test_missing_counter_table_is_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = Path(d) / 'chat.db'
+            make_chat_db(db, [('aaaaaaaaaa', 'visitor', wrapped('Merhaba'), 3)])
+            self.assertIsNone(mr.collect_site(db, NOW)['traffic'])
+
     def test_unreadable_database_is_none_not_zero(self):
         self.assertIsNone(mr.collect_site('/nonexistent/x.db', NOW))
         self.assertIsNone(mr.collect_approvals('/nonexistent/x.db'))
