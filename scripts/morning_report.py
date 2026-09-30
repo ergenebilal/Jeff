@@ -70,6 +70,20 @@ def _ro(path):
     return sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=10)
 
 
+def _traffic(chat_db, now, hours):
+    """Anonymous website counters (one row per UTC day, event and page). None when the table does not exist yet."""
+    try:
+        db = _ro(chat_db)
+        try:
+            since = (now - timedelta(hours=hours)).strftime('%Y-%m-%d')
+            rows = db.execute("SELECT name, SUM(n) FROM events WHERE day >= ? GROUP BY name", (since,)).fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return None
+    return {name: int(n or 0) for name, n in rows}
+
+
 def collect_site(chat_db, now, hours=24):
     """Site chat in the last `hours`. None when the database cannot be read."""
     try:
@@ -92,7 +106,7 @@ def collect_site(chat_db, now, hours=24):
     warm_items = []
     for sid, msgs in sessions.items():
         kinds = [classify(q) for _, q in msgs]
-        if all(k == 'test' for k in kinds):
+        if str(sid).startswith('test_') or all(k == 'test' for k in kinds):   # our own probes and load tests never count as visitors
             test += 1
             continue
         real += 1
@@ -102,7 +116,7 @@ def collect_site(chat_db, now, hours=24):
                 warm_items.append((ts, sid[-6:], q))
                 break
     warm_items.sort(reverse=True)
-    return {'real': real, 'warm': warm, 'test': test, 'warm_items': warm_items[:3]}
+    return {'real': real, 'warm': warm, 'test': test, 'warm_items': warm_items[:3], 'traffic': _traffic(chat_db, now, hours)}
 
 
 def collect_approvals(bridge_db, now=None, stale_hours=48):
@@ -181,6 +195,18 @@ def build_report(site, approvals, health, backup_h, local_now, kind='morning'):
                 lines.append(f'   • {ts.astimezone(local_now.tzinfo).strftime("%H:%M")} #{sid}: "{short}"')
         elif site['real']:
             lines.append('- Sıcak fırsat işareti yok (fiyat, randevu, iletişim bilgisi gibi)')
+        traffic = site.get('traffic')
+        if traffic is not None:
+            n = traffic.get
+            if traffic:
+                lines.append(f"- Siteyi gezen (tarayıcı oturumu): {n('visit', 0)}, showroom'a geçen: {n('showroom_link', 0)}")
+                calls = n('whatsapp_click', 0) + n('pilot_call', 0)
+                lines.append(f"- WhatsApp'a basan: {calls}" + (f" (pilot düğmesi: {n('pilot_call', 0)})" if n('pilot_call', 0) else ''))
+                if n('faq_open', 0) or n('job_pick', 0):
+                    lines.append(f"- İş örneği seçen: {n('job_pick', 0)}, sık sorulan soru açan: {n('faq_open', 0)}")
+                lines.append('  (sayaçlar gün bazlıdır: dün ve bugün birlikte)')
+            else:
+                lines.append('- Site sayacında kayıt yok (henüz ziyaret gelmemiş ya da sayaç yeni açıldı)')
     lines += ['', 'SENDEN BEKLEYENLER']
     if approvals is None:
         lines.append(f'- {UNAVAILABLE} (görev panosuna ulaşılamadı)')

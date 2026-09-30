@@ -146,6 +146,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Jeff Bridge API", version="1.0.0", lifespan=lifespan)
 
+# ── Isim temizligi (30.09.2026) ────────────────────────────────────────────────
+# Windows ajaninin gercek adi PABLO (kendini oyle tanitiyor). "Alfred" eski
+# dongunun adi; uclar hala /alfred/*. Bu middleware /pablo/* yollarini
+# /alfred/*'a cevirir — boylece iki ad da calisir, hicbir istemci bozulmaz.
+# Uclar kalici olarak /pablo/*'ya tasinana kadar gecis koprusudur.
+@app.middleware('http')
+async def pablo_alias(request: Request, call_next):
+    path = request.scope.get('path', '')
+    if path == '/pablo' or path.startswith('/pablo/'):
+        request.scope['path'] = '/alfred' + path[len('/pablo'):]
+    return await call_next(request)
+
+
 @app.middleware('http')
 async def enforce_ip_allowlist(request: Request, call_next):
     from fastapi.responses import JSONResponse
