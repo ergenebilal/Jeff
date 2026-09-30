@@ -219,8 +219,8 @@ docker_networks:
   - hmpanel_network
 
 host:
-  hostname: 193-164-4-149
-  ip: 193.164.4.149
+  hostname: 13.140.183.88
+  ip: 13.140.183.88
   os: Ubuntu 22.04.5 LTS
   kernel: 5.15.0-181-generic
   uptime_days: 61

@@ -20,7 +20,7 @@ kısmını taşır.
 - Gönderim (t0) / yanıt süresi (yanit_dk) ölçümünden söz edildiğinde.
 
 ## 1. Kimlik ve isim kuralı (tek satırda sabitle)
-- **Sunucu** (Ubuntu, `193.164.4.149` / Tailscale `193-164-4-149`) = **jeff**.
+- **Sunucu** (Ubuntu, `13.140.183.88`) = **jeff**.
 - **Bilal'in yerel Windows makinesi** (Tailscale `lenovo`) = **alfred**.
 - Karar verici = **bilal**; delege koşular = **dewey**.
 - Postane doğrulaması `kim` alanını `toLowerCase().trim()` ile normalize edip izinli listeye bakar:

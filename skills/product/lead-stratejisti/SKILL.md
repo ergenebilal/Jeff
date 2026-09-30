@@ -347,7 +347,7 @@ Detay: `references/campaign-management.md`
 
 `/home/hermes/mail-webhook-server.py` → systemd `mail-webhook.service` → port 8877
 ```bash
-POST http://193.164.4.149:8877/send-mail
+POST http://13.140.183.88:8877/send-mail
 {"toEmail": "...", "subject": "...", "body": "<html>..."}
 ```
 Kampanya motoru arka planda her lead'e sırayla istek atar (2sn aralık).
@@ -850,7 +850,7 @@ Modal CSS: `dm-overlay` (fixed, inset 0, bg rgba(0,0,0,.7)), `dm-modal` (max-wid
 └── ...
 ```
 
-Monitor: `http://193.164.4.149:8081` — `lead-monitor.service` (systemd, restart=always).
+Monitor: `http://13.140.183.88:8081` — `lead-monitor.service` (systemd, restart=always).
 
 Ana dosya: `/opt/hermes/monitor/index.html` — 26+ lead gömülü JSON + SOLUTIONS objesi + INSTAGRAM_MAP. Yeni lead eklenince HTML manuel güncellenir (LEADS[] + SOLUTIONS{} + INSTAGRAM_MAP{} birlikte).
 

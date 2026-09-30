@@ -2,7 +2,7 @@
 
 **Tarih:** 7 Ağustos 2026 (derin temizlik sonrası)
 **Denetleyen:** Hermes (sistem audit'i)
-**Sunucu:** 193.164.4.149 — KEYUBU Internet (İstanbul, TR, AS210538)
+**Sunucu:** 13.140.183.88 — Contabo Cloud VPS
 **Hermes:** v0.20.0 (2026.8.3)
 **RAM:** 31 GB DDR4
 **Disk:** 276 GB SSD (%49 dolu, 135 GB boş) — 07.08 temizlik sonrası
@@ -97,7 +97,7 @@ coolify, coolify-proxy, coolify-db, coolify-redis, coolify-realtime, coolify-sen
 5. **Token muhasebe durdu** — son log 26 Haziran
 6. **IG pipeline pasif** — içerik üretimi durmuş
 **Denetleyen:** Hermes (sistem audit'i)
-**Sunucu:** 193.164.4.149 — KEYUBU Internet (İstanbul, TR, AS210538)
+**Sunucu:** 13.140.183.88 — Contabo Cloud VPS
 **Hermes:** v0.19.0 (2026.7.20)
 **RAM:** 32 GB DDR4
 **Disk:** 280 GB SSD (%54 dolu, 122 GB boş)
@@ -267,7 +267,7 @@ coolify, coolify-proxy, coolify-db, coolify-redis, coolify-realtime, coolify-sen
 | `~/.hermes/profiles/` | 6 profil |
 | `~/.hermes/plugins/` | 5 plugin |
 | `~/.hermes/cron/output/` | Cron log'ları |
-| `/opt/hermes/` | Jeff 2.0, HQ, hf_tools |
+| `/home/hermes/jeff_repo/` | Aktif Jeff deposu |
 | `~/.mem0/` | Mem0 hafıza |
 | `~/.agentmemory/` | AgentMemory |
 | `~/.google-workspace-mcp/` | Google OAuth |

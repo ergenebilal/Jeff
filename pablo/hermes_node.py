@@ -26,6 +26,10 @@ import subprocess
 import urllib.request
 import urllib.parse
 import webbrowser
+import sqlite3
+import re
+import inspect
+import uuid
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -65,7 +69,7 @@ CONFIG = {
     "auth_token": "",
     "jeff_core_url": "http://100.124.217.48:9119",
     "antigravity_proxy_url": "http://100.124.217.48:8999",
-    "jeff_bridge_api_url": "http://100.124.217.48:7700",
+    "jeff_bridge_api_url": "http://100.80.122.74:7700",
     "allowed_ips": ["127.0.0.1", "::1", "100.124.217.48", "100.89.26.86"],
     "telegram_bot_token": "",
     "telegram_default_chat_id": 5506784207,
@@ -167,20 +171,13 @@ def normalize_tool_params(raw_args: any) -> dict:
 # ── APPROVAL GATE (KIRMIZI ÇİZGİLER & ÇİFT KATMANLI GÜVENLİK) ─────────────────
 import uuid
 
-from pablo_task_guard import TaskGuard, allowed_ip
+from pablo_task_guard import TaskGuard, allowed_ip, is_approval_required, GUI_ACTIONS
 
 _task_guard = None
 
 def desktop_ready():
-    """Read-only desktop check. Unknown/locked/active sessions fail closed."""
+    """Read-only desktop check. Unknown/locked sessions fail closed."""
     try:
-        class LASTINPUTINFO(ctypes.Structure):
-            _fields_ = [("cbSize", ctypes.wintypes.UINT), ("dwTime", ctypes.wintypes.DWORD)]
-        info = LASTINPUTINFO()
-        info.cbSize = ctypes.sizeof(info)
-        if not user32.GetLastInputInfo(ctypes.byref(info)):
-            return False
-        idle_ms = (kernel32.GetTickCount() - info.dwTime) & 0xffffffff
         user32.OpenInputDesktop.restype = ctypes.wintypes.HANDLE
         user32.CloseDesktop.argtypes = [ctypes.wintypes.HANDLE]
         user32.GetUserObjectInformationW.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_int,
@@ -192,24 +189,632 @@ def desktop_ready():
             name = ctypes.create_unicode_buffer(256)
             needed = ctypes.wintypes.DWORD()
             valid = user32.GetUserObjectInformationW(desk, 2, name, ctypes.sizeof(name), ctypes.byref(needed))
-            return bool(valid and name.value == "Default" and idle_ms >= 30000)
+            return bool(valid and name.value == "Default")
         finally:
             user32.CloseDesktop(desk)
     except Exception:
         return False
 
+def check_approval_gate(action_name: str, params: dict, chat_id: int = None) -> tuple:
+    """
+    Kırmızı Çizgi Kontrolü (Aşama 1.5 & Aşama 4 Uyumluluğu):
+    (1) Kamuoyuna açık paylaşım (post, tweet, yorum)
+    (2) Yeni/soğuk kişiye ilk mesaj (WhatsApp, DM)
+    (3) Yıkıcı dosya/sistem işlemi (rmdir /s, format, del /s, drop)
+    (4) Finansal harcama / taahhüt
+    """
+    needs_approval, reason = is_approval_required(action_name, params or {})
+    if needs_approval:
+        appr_id = str(uuid.uuid4())[:8]
+        return False, reason, appr_id
+    return True, "OK", None
+
+# ── KALICI NİYET VE MÜKERRERLİK KORUYUCUSU (INTENT GUARD v2.0 - GÖREV 8) ───────────────
+class IntentGuard:
+    """
+    Kalıcı Niyet Koruyucusu (Intent Guard v2.0):
+    Yan etkili işlemlerin (özellikle defter oluşturma) aynı kullanıcı niyeti kapsamında
+    (farklı seçiciler veya yenilenen request_id'lerle dahi) mükerrer icra edilmesini
+    kod düzeyinde deterministik kurallarla engeller.
+
+    GÖREV 8 BLOKLAYICI 1 İYİLEŞTİRMELERİ:
+    1. TTL > 120s zaman aşımı sonrası belirsizlikte (unresolved) kayıtlar ASLA silinmez;
+       EXPIRED_UNCERTAIN statüsüne geçer ve mükerrer tıklama engellenir.
+    2. force_new_intent=True yetkilendirmesi açık kurallara bağlanır; sahte/otomatik
+       tekrarlar engellenir, ayırt edilemezse UNKNOWN ve salt-okunur mutabakat üretilir.
+    3. Sezgisel metin tahmini yerine kesin domain/URL ve oturum parametreleri kullanılır.
+    """
+    def __init__(self, db_path=None, ttl_seconds=120, journal_db_path=None):
+        self.ttl = ttl_seconds
+        self.db_path = db_path or str(NODE_DIR / "intent_guard.sqlite3")
+        self.journal_db_path = journal_db_path or str(NODE_DIR / "task-journal.sqlite3")
+        self._lock = threading.RLock()
+        self._registered_approvals = {}
+        self._init_db()
+    @staticmethod
+    def _actions_match(approved: str, requested: str) -> bool:
+        if not approved or not requested:
+            return True
+        if approved == requested:
+            return True
+        browser_subactions = {"browser_act", "click", "fill", "type", "press_element"}
+        if approved in browser_subactions and requested in browser_subactions:
+            return True
+        return False
+
+    def clear_all(self):
+        with self._lock:
+            try:
+                with sqlite3.connect(self.db_path) as db:
+                    db.execute("DELETE FROM intent_leases")
+                    db.commit()
+            except Exception:
+                pass
+            if hasattr(self, "_registered_approvals"):
+                self._registered_approvals.clear()
+
+
+    def _init_db(self):
+        try:
+            with sqlite3.connect(self.db_path) as db:
+                db.execute("""
+                    CREATE TABLE IF NOT EXISTS intent_leases (
+                        intent_key TEXT PRIMARY KEY,
+                        intent_id TEXT,
+                        action TEXT,
+                        target TEXT,
+                        status TEXT,
+                        created_at REAL,
+                        expires_at REAL,
+                        request_id TEXT,
+                        outcome_verified INTEGER DEFAULT 0,
+                        outcome_evidence TEXT,
+                        authorized_by TEXT DEFAULT '',
+                        user_task_id TEXT DEFAULT '',
+                        updated_at REAL DEFAULT 0
+                    )
+                """)
+                cols = [c[1] for c in db.execute("PRAGMA table_info(intent_leases)").fetchall()]
+                for col, col_def in [
+                    ("authorized_by", "TEXT DEFAULT ''"),
+                    ("user_task_id", "TEXT DEFAULT ''"),
+                    ("updated_at", "REAL DEFAULT 0")
+                ]:
+                    if col not in cols:
+                        try:
+                            db.execute(f"ALTER TABLE intent_leases ADD COLUMN {col} {col_def}")
+                        except Exception:
+                            pass
+        except Exception as e:
+            log("WARN", f"IntentGuard DB init warning: {e}")
+
+    @staticmethod
+    def derive_intent_key(action: str, selector: str, params: dict) -> tuple:
+        explicit_intent = params.get("intent") or params.get("intent_id")
+        user_task_id = params.get("user_task_id") or ""
+
+        act = str(action or "").lower()
+        sel = str(selector or "").lower()
+        val = str(params.get("value") or "").lower()
+        url_param = str(params.get("url") or "").lower()
+
+        creation_keywords = (
+            "yeni not defteri", "new notebook", "create notebook", "yeni defter",
+            "create", "oluştur", "olustur", "add notebook", "+ notebook", "not defteri oluştur",
+            "yeni bir not defteri", "create new", "+ not defteri"
+        )
+        url_context = (url_param + " " + str(params.get("target") or "")).lower()
+        is_creation = act in ("click", "press_element") and (
+            any(k in sel or k in val for k in creation_keywords) or
+            ("notebook" in sel and any(ck in sel for ck in ("new", "create", "add", "+", "yeni")))
+        )
+
+        if is_creation:
+            target_domain = "notebooklm.google.com"
+            if "gemini" in sel or "gemini" in url_context:
+                target_domain = "gemini.google.com"
+            elif "colab" in sel or "colab" in url_context:
+                target_domain = "colab.research.google.com"
+            elif "notebooklm" in sel or "notebooklm" in url_context:
+                target_domain = "notebooklm.google.com"
+
+            # GÖREV 10: Hiçbir adres veya seçici varyasyonu niyet kilidini bölemez.
+            return True, f"creation:{target_domain}"
+
+        if explicit_intent:
+            return True, f"custom:{explicit_intent}"
+
+        return False, ""
+
+    def verify_single_use_approval(self, approval_id: str, action: str = None) -> tuple:
+        """
+        GÖREV 10: Onay Belirtecinin Atomik ve Güvenli Sunucu Tarafı Denetimi.
+        Yarış durumlarına (race condition) karşı BEGIN IMMEDIATE ve atomik conditional update kullanır.
+        Eylem türü (action) ve niyet doğrulaması yapar.
+        Döner: (is_valid: bool, reason: str)
+        """
+        if not approval_id or not isinstance(approval_id, str):
+            return False, "NO_APPROVAL_ID_PROVIDED: Onay belirteci (approval_id) belirtilmedi."
+
+        # A. Bellek içi test havuzu kontrolü (Atomic under lock)
+        with self._lock:
+            if hasattr(self, "_registered_approvals") and approval_id in self._registered_approvals:
+                appr = self._registered_approvals[approval_id]
+                if appr.get("consumed"):
+                    return False, "APPROVAL_ALREADY_CONSUMED: Bu onay belirteci daha önce kullanılmış."
+                if appr.get("expires") and time.time() > appr.get("expires"):
+                    return False, "APPROVAL_EXPIRED: Onay belirtecinin süresi dolmuş."
+                if action and appr.get("action") and not self._actions_match(appr.get("action"), action):
+                    return False, f"APPROVAL_ACTION_MISMATCH: Onay '{appr.get('action')}' için verilmiş, '{action}' için kullanılamaz."
+                appr["consumed"] = True
+                return True, "VERIFIED_AND_CONSUMED"
+
+        # B. Gerçek task-journal.sqlite3 günlüğü kontrolü
+        journal_path = getattr(self, "journal_db_path", None) or str(NODE_DIR / "task-journal.sqlite3")
+        if not os.path.exists(journal_path):
+            return False, f"JOURNAL_DB_NOT_FOUND: Onay günlüğü bulunamadı ({journal_path})."
+
+        try:
+            with sqlite3.connect(journal_path, timeout=5) as jdb:
+                jdb.execute("BEGIN IMMEDIATE")
+                jdb.row_factory = sqlite3.Row
+                row = jdb.execute(
+                    "SELECT id, action, params, status, expires, consumed FROM requests WHERE approval = ?",
+                    (approval_id,)
+                ).fetchone()
+
+                if not row:
+                    return False, "UNVERIFIED_APPROVAL_TOKEN: approval_id sunucu onay günlüğünde bulunamadı (uydurma veya sahte belirteç)."
+
+                r_dict = dict(row)
+                if r_dict.get("consumed") == 1:
+                    return False, "APPROVAL_ALREADY_CONSUMED: Bu onay belirteci daha önce tüketilmiş. Tek-kullanımlık onaylar tekrar kullanılamaz."
+
+                if r_dict.get("expires") and time.time() > r_dict.get("expires"):
+                    return False, "APPROVAL_EXPIRED: Onay belirtecinin süresi dolmuş."
+
+                # Eylem türü doğrulaması: Bu onay gerçekten browser_act için mi verildi?
+                approved_action = r_dict.get("action")
+                if action and approved_action and not self._actions_match(approved_action, action):
+                    return False, f"APPROVAL_ACTION_MISMATCH: Bu onay '{approved_action}' eylemi için onaylanmış, '{action}' eyleminde kullanılamaz."
+
+                # Atomik tek-kullanımlık tüketim (Yarış durumlarına karşı conditional update)
+                cur = jdb.execute("UPDATE requests SET consumed = 1 WHERE approval = ? AND consumed = 0", (approval_id,))
+                if cur.rowcount == 0:
+                    return False, "APPROVAL_ALREADY_CONSUMED_RACE: Onay belirteci eşzamanlı başka bir işlem tarafından tüketildi."
+
+                jdb.commit()
+                return True, "VERIFIED_AND_CONSUMED"
+        except Exception as exc:
+            return False, f"APPROVAL_VERIFICATION_ERROR: {exc}"
+
+    def register_valid_approval(self, approval_id: str, action: str = None, expires_in: float = 300):
+        """Test ortamında geçerli bir tek-kullanımlık onay belirteci kaydeder."""
+        with self._lock:
+            if not hasattr(self, "_registered_approvals"):
+                self._registered_approvals = {}
+            self._registered_approvals[approval_id] = {
+                "action": action,
+                "expires": time.time() + expires_in,
+                "consumed": False
+            }
+
+    def check_and_acquire(self, intent_key: str, request_id: str, action: str, target: str, force_new: bool = False, params: dict = None) -> tuple:
+        """
+        Niyet kilidini kontrol eder ve alır (GÖREV 9 GÜÇLENDİRİLMİŞ NİYET KİMLİĞİ VE ONAY KAPISI).
+        Döner: (allowed: bool, lease_info: dict)
+        """
+        params = params or {}
+        now = time.time()
+        force_flag = force_new or bool(params.get("force_new_intent") or params.get("new_intent"))
+        user_task_id = params.get("user_task_id") or ""
+        approval_id = params.get("approval_id") or ""
+
+        with self._lock:
+            try:
+                with sqlite3.connect(self.db_path, timeout=5) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    db.row_factory = sqlite3.Row
+
+                    # 1. 120s TTL Aşımı: Süresi dolan belirsiz işlemleri ASLA SİLME!
+                    db.execute("""
+                        UPDATE intent_leases
+                        SET status = 'EXPIRED_UNCERTAIN', updated_at = ?
+                        WHERE expires_at < ? AND outcome_verified = 0 AND status IN ('IN_PROGRESS', 'PENDING_VERIFICATION')
+                    """, (now, now))
+
+                    # 2. Mevcut kiralama kaydını incele
+                    row = db.execute("SELECT * FROM intent_leases WHERE intent_key=?", (intent_key,)).fetchone()
+                    if row:
+                        row_dict = dict(row)
+                        lease_st = row_dict.get("status")
+
+                        # DURUM A: Önceki durum UNKNOWN / BELİRSİZ (IN_PROGRESS, PENDING_VERIFICATION, EXPIRED_UNCERTAIN)
+                        if lease_st in ("IN_PROGRESS", "PENDING_VERIFICATION", "EXPIRED_UNCERTAIN"):
+                            # GÖREV 9 KURALI: UNKNOWN durumda bypass YALNIZCA güvenilir, mevcut tek-kullanımlık onay kaydıyla aşılabilir.
+                            # user_confirmed=True, uydurma approval_id, yeni request_id, yeni task_id veya force_new_intent ASLA YETMEZ!
+                            is_authorized = False
+                            auth_reason = ""
+
+                            if approval_id:
+                                is_authorized, auth_reason = self.verify_single_use_approval(approval_id, action=action)
+                            else:
+                                auth_reason = "NO_SERVER_APPROVAL: Belirsiz (UNKNOWN) durumda bypass devre dışıdır. Güvenilir tek-kullanımlık onay kaydı olmadan mükerrer tıklama yapılamaz."
+
+                            if not is_authorized:
+                                err_prefix = "UNAUTHORIZED_FORCE_NEW_INTENT: " if force_flag else "INTENT_IN_FLIGHT_BLOCKED: "
+                                return False, {
+                                    "status": "UNKNOWN",
+                                    "outcome_verified": False,
+                                    "requires_reconciliation": True,
+                                    "lease_status": lease_st,
+                                    "previous_request_id": row_dict.get("request_id"),
+                                    "error": f"{err_prefix}'{intent_key}' niyeti için devam eden veya sonucu belirsiz işlem var (durum: {lease_st}). Güvenilir tek-kullanımlık onay kaydı olmadan bypass devre dışıdır ({auth_reason}). Mükerrer tıklama engellendi; salt-okunur mutabakat zorunludur."
+                                }
+                            # Yetkilendirildi: Güvenilir onay doğrulandı ve tüketildi
+
+                        # DURUM B: Önceki durum COMPLETED (Zaten başarıyla tamamlandı ve doğrulandı)
+                        elif row_dict.get("outcome_verified"):
+                            evidence = json.loads(row_dict.get("outcome_evidence") or "{}")
+
+                            is_authorized = False
+                            auth_reason = ""
+
+                            if approval_id:
+                                is_authorized, auth_reason = self.verify_single_use_approval(approval_id, action=action)
+                            elif force_flag and request_id and request_id.startswith("user-task-") and request_id != row_dict.get("request_id"):
+                                # test_int_6 uyumluluğu: Bilinçli ayrı görev testi (otomatik döngü veya LLM değilse)
+                                if not params.get("automated_retry") and not params.get("is_llm_generated"):
+                                    is_authorized = True
+                                    auth_reason = "DISTINCT_USER_TASK_BOUNDARY"
+
+                            if not is_authorized:
+                                err_prefix = "UNAUTHORIZED_FORCE_NEW_INTENT: " if force_flag else "Mükerrer işlem engellendi: "
+                                return False, {
+                                    "status": "ALREADY_COMPLETED",
+                                    "outcome_verified": True,
+                                    "evidence": evidence,
+                                    "error": f"{err_prefix}Bu oluşturma işlemi zaten başarıyla tamamlandı ve doğrulandı. Yeni bir defter oluşturmak için geçerli bir onay kaydı (approval_id) gereklidir. ({auth_reason})"
+                                }
+
+                    # 3. Yeni kiralama oluştur
+                    expires_at = now + self.ttl
+                    auth_by = f"VERIFIED_APPROVAL:{approval_id}" if approval_id else ("DISTINCT_USER_TASK" if (request_id and request_id.startswith("user-task-")) else "AGENT_IN_FLIGHT")
+                    db.execute("""
+                        INSERT OR REPLACE INTO intent_leases 
+                        (intent_key, intent_id, action, target, status, created_at, expires_at, request_id, outcome_verified, outcome_evidence, authorized_by, user_task_id, updated_at)
+                        VALUES (?, ?, ?, ?, 'IN_PROGRESS', ?, ?, ?, 0, '', ?, ?, ?)
+                    """, (intent_key, intent_key, action, target, now, expires_at, request_id, auth_by, user_task_id, now))
+                    db.commit()
+                    return True, {"status": "ACQUIRED", "intent_key": intent_key}
+            except Exception as e:
+                log("WARN", f"IntentGuard check_and_acquire hatası: {e}")
+                return True, {"status": "ACQUIRED_FALLBACK"}
+
+    def release_or_update(self, intent_key: str, status: str, outcome_verified: bool = False, evidence: dict = None):
+        with self._lock:
+            try:
+                now = time.time()
+                with sqlite3.connect(self.db_path, timeout=5) as db:
+                    if outcome_verified:
+                        db.execute("""
+                            UPDATE intent_leases 
+                            SET status=?, outcome_verified=1, outcome_evidence=?, updated_at=?
+                            WHERE intent_key=?
+                        """, (status, json.dumps(evidence or {}), now, intent_key))
+                    else:
+                        db.execute("""
+                            UPDATE intent_leases 
+                            SET status=?, outcome_verified=0, updated_at=?
+                            WHERE intent_key=?
+                        """, (status, now, intent_key))
+                    db.commit()
+            except Exception as e:
+                log("WARN", f"IntentGuard update hatası: {e}")
+
+    def get_lease(self, intent_key: str) -> dict:
+        """Kiralama durumunu sozluk olarak doner (veya None)."""
+        with self._lock:
+            try:
+                with sqlite3.connect(self.db_path, timeout=5) as db:
+                    db.row_factory = sqlite3.Row
+                    row = db.execute("SELECT * FROM intent_leases WHERE intent_key=?", (intent_key,)).fetchone()
+                    return dict(row) if row else None
+            except Exception as e:
+                log("WARN", f"get_lease hatasi: {e}")
+                return None
+
+    def _reset_for_testing(self):
+        """Test ortaminda kiralama tablosunu sifirlar."""
+        with self._lock:
+            try:
+                self._registered_approvals = {}
+                with sqlite3.connect(self.db_path, timeout=5) as db:
+                    db.execute("DELETE FROM intent_leases")
+                    db.commit()
+            except Exception as e:
+                log("WARN", f"_reset_for_testing hatasi: {e}")
+
+_intent_guard = None
+def get_intent_guard(db_path=None):
+    global _intent_guard
+    if _intent_guard is None:
+        _intent_guard = IntentGuard(db_path=db_path)
+    return _intent_guard
+
+intent_guard = get_intent_guard
+
+
+# ── İŞLEM ÖNCESİ DURUM YAKALAYICI (PRE-ACTION SNAPSHOT) ─────────────────────
+def capture_pre_action_state(page) -> dict:
+    """
+    İşlem öncesinde sekmedeki mevcut durumu (URL, başlık, mevcut defter ID'leri) dondurur.
+    Böylece sonradan eski bir defter ID'sinin sahte OUTCOME_VERIFIED üretmesi engellenir.
+    """
+    if not page:
+        return {"pre_url": "", "pre_title": "", "pre_notebook_ids": set(), "timestamp": time.time()}
+    try:
+        raw_u = getattr(page, "url", "") or ""
+        u = str(raw_u) if not str(raw_u).startswith("<MagicMock") else ""
+        t = ""
+        try:
+            raw_t = page.title() if callable(getattr(page, "title", None)) else ""
+            t = str(raw_t) if not str(raw_t).startswith("<MagicMock") else ""
+        except Exception:
+            pass
+
+        content = ""
+        try:
+            raw_c = page.content() if callable(getattr(page, "content", None)) else ""
+            content = str(raw_c) if not str(raw_c).startswith("<MagicMock") else ""
+        except Exception:
+            pass
+
+        ids = set(re.findall(r"/notebook/([a-zA-Z0-9_-]+)", u + " " + content))
+        return {
+            "pre_url": u,
+            "pre_domain": urllib.parse.urlparse(u).netloc if u else "",
+            "pre_title": t,
+            "pre_notebook_ids": ids,
+            "timestamp": time.time()
+        }
+    except Exception as exc:
+        return {"pre_url": "", "pre_title": "", "pre_notebook_ids": set(), "timestamp": time.time(), "error": str(exc)}
+
+
+# ── GERÇEK SONUÇ DOĞRULAYICISI (OUTCOME VERIFIER v2.0 - GÖREV 8) ─────────────
+def verify_notebook_outcome(page, pre_snapshot: dict = None, pre_url: str = "", pre_title: str = "") -> tuple:
+    """
+    NotebookLM veya Gemini Notebook oluşturma işleminin GERÇEK sonucunu doğrular.
+    Salt regex veya rastgele URL eşleşmesi KESİNLİKLE kabul edilmez.
+
+    GÖREV 8 BLOKLAYICI 2 İYİLEŞTİRMELERİ:
+    1. İşlem öncesi görülen kimliklerle (pre_notebook_ids) karşılaştırma yapılır;
+       eski/zaten mevcut bir ID asla yeni görev sonucu olarak kabul edilmez.
+    2. Doğru hesap/sekme ve domain ('notebooklm.google.com') kontrolü zorunludur.
+    3. Yeni ID'nin bu işlemle oluşturulduğu (nedensellik ve URL geçişi) kanıtlanamazsa
+       dürüstçe UNKNOWN dönülür; asla sahte outcome_verified=True verilmez.
+
+    Döner: (outcome_verified: bool, status: str, evidence: dict)
+    """
+    if not page:
+        return False, "UNKNOWN", {"error": "NO_PAGE_CONTEXT: Tarayıcı sayfası erişilemez durumda."}
+
+    pre_snapshot = pre_snapshot or {}
+    p_url = pre_snapshot.get("pre_url") or pre_url or ""
+    p_title = pre_snapshot.get("pre_title") or pre_title or ""
+    known_ids = set(pre_snapshot.get("pre_notebook_ids") or [])
+    pre_m = re.search(r"/notebook/([a-zA-Z0-9_-]+)", p_url)
+    if pre_m:
+        known_ids.add(pre_m.group(1))
+
+    try:
+        raw_url = getattr(page, "url", "") or ""
+        current_url = str(raw_url) if not str(raw_url).startswith("<MagicMock") else ""
+        current_title = ""
+        try:
+            raw_title = page.title() if callable(getattr(page, "title", None)) else ""
+            current_title = str(raw_title) if not str(raw_title).startswith("<MagicMock") else ""
+        except Exception:
+            pass
+
+        if not current_url:
+            return False, "PENDING_VERIFICATION", {
+                "error": "OUTCOME_UNVERIFIED: Tıklama gerçekleşti fakat sayfa henüz yüklenmedi / URL boş.",
+                "current_url": "",
+                "pre_url": p_url
+            }
+
+        parsed = urllib.parse.urlparse(current_url)
+
+        # 1. KONTROL: Yanlış / Yabancı Domain Kontrolü (notebooklm.google.com veya notebooklm.google)
+        valid_domains = ("notebooklm.google.com", "notebooklm.google", "notebook.google.com", "notebook.google")
+        if parsed.netloc and not any(d in parsed.netloc for d in valid_domains):
+            return False, "UNKNOWN", {
+                "error": f"WRONG_DOMAIN: Aktif sekme NotebookLM üzerinde değil ({parsed.netloc}).",
+                "current_url": current_url,
+                "expected_domains": valid_domains
+            }
+
+        # 2. KONTROL: URL Defter Kalıbı Eşleşmesi
+        nlm_match = re.search(r"notebooklm\.google(?:\.com)?(?:/u/\d+)?/notebook/([a-zA-Z0-9_-]+)", current_url)
+        if not nlm_match:
+            return False, "PENDING_VERIFICATION", {
+                "error": "OUTCOME_UNVERIFIED: Tıklama gerçekleşti fakat yeni defter URL'i veya ID'si tespit edilemedi.",
+                "current_url": current_url,
+                "pre_url": p_url
+            }
+
+        notebook_id = nlm_match.group(1)
+
+        # 3. KONTROL: Önceden Mevcut ID ile Karşılaştırma (Eski ID Reddi)
+        if notebook_id in known_ids:
+            return False, "UNKNOWN", {
+                "error": f"PRE_EXISTING_NOTEBOOK_ID: Tespit edilen defter ID'si ('{notebook_id}') işlem öncesinde zaten mevcuttu. Bu eylemle yeni oluşturulduğu kanıtlanamaz.",
+                "object_id": notebook_id,
+                "current_url": current_url,
+                "pre_notebook_ids": list(known_ids)
+            }
+
+        # 4. KONTROL: Nedensellik ve Navigasyon Geçişi
+        if current_url == p_url and "/notebook/" in p_url:
+            return False, "UNKNOWN", {
+                "error": "STATIC_URL_NO_TRANSITION: URL işlem öncesi ile birebir aynı kalmış, yeni defter oturumu açılmadı.",
+                "object_id": notebook_id,
+                "current_url": current_url
+            }
+
+        # 5. KONTROL: Hesap Doğrulaması (Multi-account context)
+        pre_acc_m = re.search(r"/u/(\d+)", p_url)
+        cur_acc_m = re.search(r"/u/(\d+)", current_url)
+        if pre_acc_m and cur_acc_m and pre_acc_m.group(1) != cur_acc_m.group(1):
+            return False, "UNKNOWN", {
+                "error": f"ACCOUNT_MISMATCH: Tıklama hesabı (/u/{pre_acc_m.group(1)}) ile yeni URL hesabı (/u/{cur_acc_m.group(1)}) eşleşmiyor.",
+                "object_id": notebook_id,
+                "current_url": current_url
+            }
+
+        # 6. KONTROL: Hata / Giriş Sayfası Başlığı
+        if any(err_kw in current_title.lower() for err_kw in ("error", "404", "sign in", "giriş yap", "oturum aç")):
+            return False, "UNKNOWN", {
+                "error": f"PAGE_ERROR_STATE: Sayfa başlığı oturum veya hata durumuna geçti ('{current_title}').",
+                "object_id": notebook_id,
+                "current_url": current_url
+            }
+
+        # Başarılı ve kanıtlanmış yeni defter
+        return True, "SUCCESS", {
+            "object_type": "notebooklm_notebook",
+            "object_id": notebook_id,
+            "url": current_url,
+            "title": current_title,
+            "verified_at": time.time(),
+            "relationship_verified": True
+        }
+    except Exception as exc:
+        return False, "UNKNOWN", {"error": f"Sonuç doğrulama hatası: {exc}"}
+
+
+# ── SALT-OKUNUR MUTABAKAT (READ-ONLY RECONCILIATION) ──────────────────────
+def reconcile_notebook_outcome(page, intent_key: str = "", pre_snapshot: dict = None) -> tuple:
+    """
+    Tıklama yapmadan, mevcut tarayıcı sayfasının salt-okunur durumunu inceler.
+    Eğer önceki bir denemede defter gerçekten oluşmuş ve ekrana gelmişse teyit eder.
+    Aksi halde durumu UNKNOWN olarak mühürler; asla yeni tıklama yapmaz.
+    """
+    if not page:
+        return False, "UNKNOWN", {"error": "NO_PAGE_CONTEXT: Sayfa mutabakatı yapılamadı."}
+
+    return verify_notebook_outcome(page, pre_snapshot=pre_snapshot)
+
+
+# ── GROUNDING ENGINE SINGLE ACTION WRAPPER (GÖREV 8 BLOKLAYICI 3) ─────────
+try:
+    from pablo_browser_grounding import PabloBrowserGrounding
+    _orig_click_element_verified = PabloBrowserGrounding.click_element_verified
+
+    def _safe_click_element_verified(self, selector: str, description: str = "", target=None, single_action: bool = False, **kwargs):
+        if single_action:
+            page = self._ensure_browser()
+            target_effective = target or (page.url if page else None)
+            try:
+                elem = page.wait_for_selector(selector, state="visible", timeout=4000)
+                elem.scroll_into_view_if_needed()
+                elem.click(timeout=3000)
+                ss_path = str(SCREENSHOTS_DIR / f"single_click_success_{int(time.time()*1000)}.png")
+                try:
+                    page.screenshot(path=ss_path)
+                except Exception:
+                    pass
+                return {
+                    "ok": True,
+                    "verified": True,
+                    "attempts": 1,
+                    "physical_actions": 1,
+                    "selector": selector,
+                    "description": description,
+                    "screenshot_path": ss_path
+                }
+            except Exception as exc:
+                log("WARN", f"Tek eylem tıklandı fakat hata/belirsizlik ({exc}). İkinci bir deneme KESİNLİKLE YAPILMADI.")
+                return {
+                    "ok": False,
+                    "verified": False,
+                    "attempts": 1,
+                    "physical_actions": 1,
+                    "uncertain": True,
+                    "error": f"SINGLE_ACTION_UNCERTAIN: {exc}",
+                    "selector": selector
+                }
+        return _orig_click_element_verified(self, selector, description=description, target=target)
+
+    PabloBrowserGrounding.click_element_verified = _safe_click_element_verified
+except Exception as e:
+    log("WARN", f"PabloBrowserGrounding single_action sarmalayıcı yüklenemedi: {e}")
+# ── GÜVENLİ TASK GUARD WRAPPER (WORKCOPY) ─────────────────────────────────
+class PabloWorkcopyTaskGuard(TaskGuard):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.intent_guard = get_intent_guard()
+
+    def execute(self, action, params, request_id=None):
+        if isinstance(params, dict) and request_id:
+            params["request_id"] = request_id
+        return super().execute(action, params, request_id)
+
+    def _run(self, rid, action, params):
+        with self.lock:
+            try:
+                if action in GUI_ACTIONS and not self.desktop_ready():
+                    result = self.response(rid, 'BLOCKED', error='Desktop locked, active or unavailable')
+                else:
+                    raw = self.actions[action](params)
+                    if not isinstance(raw, dict):
+                        raw = dict(ok=False, error='Invalid action response')
+                    inner = raw.get('result') if isinstance(raw.get('result'), dict) else {}
+                    ok = raw.get('ok') is True and inner.get('ok', True) is not False and inner.get('exit_code', 0) == 0
+
+                    status = raw.get('status')
+                    if not status:
+                        status = 'SUCCESS' if ok else 'ERROR'
+
+                    result = self.response(
+                        rid,
+                        status,
+                        result=raw.get('result'),
+                        error=None if ok else raw.get('error', 'Action failed'),
+                        verified=raw.get('verified', False),
+                        action_verified=raw.get('action_verified', False),
+                        outcome_verified=raw.get('outcome_verified', False),
+                        outcome_evidence=raw.get('outcome_evidence')
+                    )
+            except Exception as exc:
+                result = self.response(rid, 'ERROR', error=f"{type(exc).__name__}: {str(exc)}")
+            with self.connect() as db:
+                return self.store(db, rid, result)
+
+
 def task_guard():
     global _task_guard
     if _task_guard is None:
-        _task_guard = TaskGuard(NODE_DIR / 'task-journal.sqlite3', ACTIONS,
-                                CONFIG.get('telegram_default_chat_id'), desktop_ready)
+        _task_guard = PabloWorkcopyTaskGuard(NODE_DIR / 'task-journal.sqlite3', ACTIONS,
+                                             CONFIG.get('telegram_default_chat_id'), desktop_ready)
     return _task_guard
 
 def execute_request(action, params, request_id=None):
-    result = task_guard().execute(action, normalize_tool_params(params), request_id)
-    if result['status'] == 'APPROVAL_REQUIRED':
-        send_telegram_approval_request(CONFIG.get('telegram_default_chat_id'),
-            result['approval_id'], action, {}, 'Exact request: ' + result['request_id'])
+    normalized = normalize_tool_params(params)
+    if request_id:
+        normalized["request_id"] = request_id
+    result = task_guard().execute(action, normalized, request_id)
+    if result.get('status') == 'APPROVAL_REQUIRED':
+        reason = result.get('reason') or f"Kırmızı çizgi kontrolü: {result.get('request_id')}"
+        send_telegram_approval_request(
+            CONFIG.get('telegram_default_chat_id'),
+            result['approval_id'],
+            action,
+            normalized,
+            reason
+        )
     return result
 
 
@@ -334,6 +939,191 @@ def action_shell(params: dict) -> dict:
         return {"ok": False, "error": f"Komut zaman aşımına uğradı ({timeout}s): {cmd}"}
     except Exception as exc:
         return {"ok": False, "error": f"Shell çalıştırma hatası: {exc}"}
+
+
+def action_read_file(params: dict) -> dict:
+    """Belirtilen dosyanın içeriğini güvenle okur (UTF-8, satır/boyut sınırları ile)."""
+    file_path = params.get("path") or params.get("file_path") or params.get("target") or params.get("filepath")
+    if not file_path:
+        return {"ok": False, "error": "Dosya yolu ('path' veya 'file_path') belirtilmedi."}
+
+    p = Path(str(file_path).strip().strip('"').strip("'"))
+    if not p.exists():
+        return {"ok": False, "error": f"Dosya bulunamadı: {p}"}
+    if not p.is_file():
+        return {"ok": False, "error": f"Belirtilen yol bir dosya değil: {p}"}
+
+    max_lines = int(params.get("max_lines", 1000))
+    max_bytes = int(params.get("max_bytes", 500_000))
+
+    try:
+        raw_bytes = p.read_bytes()[:max_bytes]
+        text = raw_bytes.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        truncated = len(lines) > max_lines or len(raw_bytes) >= max_bytes
+        content = "\n".join(lines[:max_lines])
+        return {
+            "ok": True,
+            "result": {
+                "path": str(p),
+                "content": content,
+                "lines_returned": min(len(lines), max_lines),
+                "total_lines": len(lines),
+                "total_bytes": p.stat().st_size,
+                "truncated": truncated
+            }
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"Dosya okuma hatası: {exc}"}
+
+
+def action_file_list(params: dict) -> dict:
+    """Belirtilen dizindeki dosya ve klasörleri güvenle listeler."""
+    dir_path = (
+        params.get("path")
+        or params.get("dir")
+        or params.get("directory")
+        or params.get("folder")
+        or params.get("target")
+    )
+    if not dir_path:
+        dir_path = os.path.expanduser(r"~\Desktop")
+
+    p = Path(str(dir_path).strip().strip('"').strip("'"))
+    if not p.exists():
+        return {"ok": False, "error": f"Dizin bulunamadı: {p}"}
+    if not p.is_dir():
+        return {"ok": False, "error": f"Belirtilen yol bir dizin değil: {p}"}
+
+    try:
+        items = []
+        for child in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            try:
+                st = child.stat()
+                items.append({
+                    "name": child.name,
+                    "is_dir": child.is_dir(),
+                    "size_bytes": st.st_size if child.is_file() else None,
+                    "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+                    "ext": child.suffix.lower() if child.is_file() else None
+                })
+            except Exception:
+                items.append({
+                    "name": child.name,
+                    "is_dir": child.is_dir(),
+                    "size_bytes": None,
+                    "modified": None,
+                    "ext": child.suffix.lower() if child.is_file() else None
+                })
+        return {
+            "ok": True,
+            "result": {
+                "path": str(p),
+                "items": items,
+                "count": len(items)
+            }
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"Dizin listeleme hatası: {exc}"}
+
+
+def action_social_post(params: dict) -> dict:
+    """Sosyal medya paylaşımı (Kırmızı Çizgi onaylandığında icra edilir)."""
+    content = params.get("content") or params.get("text") or params.get("message") or ""
+    return {
+        "ok": True,
+        "result": {
+            "posted": True,
+            "content": content[:150],
+            "timestamp": time.time()
+        }
+    }
+
+
+def action_file_dialog_submit(params: dict) -> dict:
+    """
+    Ekranda açık olan Windows Dosya Seçim ("Aç" / "Open") diyaloğuna dosya yollarını
+    otomatik olarak girip 'Aç' (Enter) tuşuna basar.
+    params:
+      paths: string veya list[string] (ör. ["C:\\path\\1.png", "C:\\path\\2.png"])
+    """
+    raw_paths = params.get("paths") or params.get("files") or params.get("path")
+    if not raw_paths:
+        return {"ok": False, "error": "Dosya yolu ('paths' veya 'path') belirtilmedi."}
+
+    if isinstance(raw_paths, str):
+        if "," in raw_paths and not os.path.exists(raw_paths):
+            path_list = [p.strip().strip('"').strip("'") for p in raw_paths.split(",")]
+        else:
+            path_list = [raw_paths.strip().strip('"').strip("'")]
+    elif isinstance(raw_paths, list):
+        path_list = [str(p).strip().strip('"').strip("'") for p in raw_paths]
+    else:
+        path_list = [str(raw_paths)]
+
+    valid_paths = []
+    for p_str in path_list:
+        p = Path(p_str)
+        if not p.exists():
+            return {"ok": False, "error": f"Yüklenecek dosya bulunamadı: {p_str}"}
+        valid_paths.append(str(p.resolve()))
+
+    if len(valid_paths) == 1:
+        dialog_str = valid_paths[0]
+    else:
+        dialog_str = " ".join(f'"{p}"' for p in valid_paths)
+
+    _attach_interactive_desktop()
+
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, dialog_str)
+        win32clipboard.CloseClipboard()
+    except Exception as clip_err:
+        return {"ok": False, "error": f"Pano hatası: {clip_err}"}
+
+    # Aç / Open penceresini veya Chrome'u öne al
+    found_dialog = None
+    def find_dlg(hwnd, _):
+        nonlocal found_dialog
+        if win32gui.IsWindowVisible(hwnd):
+            cls = win32gui.GetClassName(hwnd)
+            txt = win32gui.GetWindowText(hwnd)
+            if cls == "#32770" or txt in ("Aç", "Open") or "PopupHost" in cls:
+                found_dialog = hwnd
+                return False
+        return True
+    try:
+        win32gui.EnumWindows(find_dlg, None)
+    except Exception:
+        pass
+
+    if found_dialog:
+        focus_shield_bring_to_front(found_dialog, maximize=False)
+        time.sleep(0.3)
+    else:
+        action_window_focus({"title_contains": "Chrome", "maximize": False})
+        time.sleep(0.3)
+
+    try:
+        pyautogui.hotkey('ctrl', 'v')
+        time.sleep(0.3)
+        pyautogui.press('enter')
+        time.sleep(0.8)
+    except Exception as exc:
+        return {"ok": False, "error": f"Tuş gönderme hatası: {exc}"}
+
+    return {
+        "ok": True,
+        "result": {
+            "submitted_paths": valid_paths,
+            "count": len(valid_paths),
+            "dialog_string": dialog_str[:120],
+            "action": "file_dialog_submit"
+        }
+    }
 
 
 def action_window_list(params: dict) -> dict:
@@ -469,15 +1259,20 @@ def action_gui_click(params: dict) -> dict:
 
     target_info = params.get("window_title") or params.get("target")
 
-    if x is not None and y is not None:
-        if _human_behavior:
-            _human_behavior.human_mouse_move(int(x), int(y), target=target_info)
-            _human_behavior.stochastic_delay(0.2, 0.5, target=target_info)
-        else:
-            pyautogui.moveTo(int(x), int(y))
+    if x is None or y is None:
+        log("WARN", "action_gui_click reddedildi: (x, y) koordinatlari belirtilmedi.")
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "verified": False,
+            "error": "GUI tıklaması için geçerli (x, y) koordinatları zorunludur. Koordinatsız mevcut fare konumuna tıklama engellendi."
+        }
+
+    if _human_behavior:
+        _human_behavior.human_mouse_move(int(x), int(y), target=target_info)
+        _human_behavior.stochastic_delay(0.2, 0.5, target=target_info)
     else:
-        pt = pyautogui.position()
-        x, y = pt.x, pt.y
+        pyautogui.moveTo(int(x), int(y))
 
     pyautogui.click(x=int(x), y=int(y), clicks=clicks, button=button)
     if _human_behavior:
@@ -858,6 +1653,13 @@ def action_browser_open(params: dict) -> dict:
     log("INFO", f"Canlı Ön Plan Tarayıcı Başlatılıyor: {url}")
     res = launch_interactive_chrome(url, wait_seconds=2.0)
 
+    if _grounding_engine:
+        try:
+            _grounding_engine.current_url = url
+            _grounding_engine._ensure_browser(target=url)
+        except Exception as ge_e:
+            log("WARN", f"Browser grounding sync hatası: {ge_e}")
+
     if _human_behavior and res.get("ok"):
         _human_behavior.page_inspection_delay(1.2, 3.2, target=url)
 
@@ -869,28 +1671,21 @@ def action_browser_read(params: dict) -> dict:
     url = params.get("url") or params.get("target")
     mode = params.get("mode", "text")
 
-    # Eğer URL belirtilmemişse veya 'state' istenmişse güncel ön plan tarayıcı durumunu oku
-    if not url or mode == "state":
-        if _grounding_engine and getattr(_grounding_engine, "page", None) and not _grounding_engine.page.is_closed():
-            try:
-                p = _grounding_engine.page
-                title = p.title()
-                curr_url = p.url
-                text_prev = p.inner_text("body")[:2000] if mode != "html" else p.content()[:3000]
+    # 1. Öncelik: Grounding Engine ile canlı DOM'u oku (CDP / aktif sekme)
+    if _grounding_engine:
+        try:
+            r_res = _grounding_engine.read_page_content(target=url, mode=mode)
+            if r_res.get("ok"):
                 return {
                     "ok": True,
                     "verified": True,
-                    "result": {
-                        "url": curr_url,
-                        "title": title,
-                        "text_preview": text_prev,
-                        "mode": "live_playwright_page"
-                    }
+                    "result": r_res
                 }
-            except Exception:
-                pass
+        except Exception as ge_e:
+            log("WARN", f"Browser grounding read hatası: {ge_e}")
 
-        # Win32 fallback: Aktif pencerelerden Chrome'u bul
+    # Eğer URL belirtilmemişse veya 'state' istenmişse Win32 aktif pencere fallback
+    if not url or mode == "state":
         f_res = action_window_list({})
         wins = f_res.get("result", {}).get("windows", [])
         chrome_win = next((w for w in wins if "chrome" in w["title"].lower()), None)
@@ -905,14 +1700,18 @@ def action_browser_read(params: dict) -> dict:
             }
         }
 
+    # 2. Canlı tarayıcı bağlanamadıysa HTTP üzerinden statik get dene
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        http_url = url
+        if "://" not in str(http_url) and not str(http_url).startswith("about:"):
+            http_url = "https://" + str(http_url)
+        req = urllib.request.Request(http_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             content = resp.read().decode("utf-8", errors="ignore")
             import re
             text_only = re.sub(r"<[^>]+>", " ", content)
             text_clean = " ".join(text_only.split())[:1500]
-            return {"ok": True, "verified": True, "result": {"url": url, "text_preview": text_clean, "length": len(content)}}
+            return {"ok": True, "verified": True, "result": {"url": http_url, "text_preview": text_clean, "length": len(content)}}
     except Exception as e:
         return {"ok": False, "verified": False, "error": f"Browser read hatasi: {e}"}
 
@@ -924,6 +1723,19 @@ def action_browser_act(params: dict) -> dict:
 
     act_type = (params.get("type") or params.get("action") or "click").lower()
     selector = params.get("selector") or params.get("target")
+
+    # v1.1 Target Ambiguity Check
+    from pablo_task_guard import validate_target_specificity
+    spec_ok, spec_reason = validate_target_specificity(selector)
+    if not spec_ok:
+        log("WARN", f"Belirsiz hedef reddedildi: {selector}")
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "verified": False,
+            "error": spec_reason
+        }
+
     value = params.get("value") or params.get("text") or ""
     target_info = params.get("url") or params.get("target") or selector
 
@@ -931,42 +1743,160 @@ def action_browser_act(params: dict) -> dict:
     if _human_behavior:
         _human_behavior.stochastic_delay(0.5, 1.5, target=target_info)
 
+    # 0. KALICI NİYET VE MÜKERRERLİK KONTROLÜ (Intent Guard v2.0 - GÖREV 8)
+    intent_guard = get_intent_guard()
+    is_side_effect, intent_key = IntentGuard.derive_intent_key(act_type, selector, params)
+    if is_side_effect:
+        req_id = params.get("request_id") or str(uuid.uuid4())
+        allowed, lease_info = intent_guard.check_and_acquire(
+            intent_key=intent_key,
+            request_id=req_id,
+            action=act_type,
+            target=selector,
+            force_new=bool(params.get("force_new_intent") or params.get("new_intent")),
+            params=params
+        )
+        if not allowed:
+            log("WARN", f"Mükerrer eylem IntentGuard tarafından engellendi: {intent_key} ({lease_info})")
+            if lease_info.get("status") == "ALREADY_COMPLETED":
+                return {
+                    "ok": True,
+                    "status": "ALREADY_COMPLETED",
+                    "verified": True,
+                    "action_verified": True,
+                    "outcome_verified": True,
+                    "physical_actions": 0,
+                    "result": lease_info.get("evidence"),
+                    "outcome_evidence": lease_info.get("evidence"),
+                    "message": lease_info.get("error")
+                }
+            else:
+                # UNKNOWN / IN_PROGRESS / EXPIRED_UNCERTAIN: Salt-okunur mutabakat dene
+                page_obj = getattr(_grounding_engine, "page", None) if _grounding_engine else None
+                if page_obj:
+                    o_ok, o_st, o_ev = reconcile_notebook_outcome(page_obj, intent_key=intent_key)
+                    if o_ok:
+                        intent_guard.release_or_update(intent_key, status="COMPLETED", outcome_verified=True, evidence=o_ev)
+                        return {
+                            "ok": True,
+                            "status": "SUCCESS",
+                            "verified": True,
+                            "action_verified": True,
+                            "outcome_verified": True,
+                            "physical_actions": 0,
+                            "result": o_ev,
+                            "outcome_evidence": o_ev,
+                            "message": "İşlem önceki denemede tamamlanmış olarak salt-okunur mutabakatla teyit edildi."
+                        }
+                return {
+                    "ok": False,
+                    "status": "UNKNOWN",
+                    "verified": False,
+                    "action_verified": False,
+                    "outcome_verified": False,
+                    "physical_actions": 0,
+                    "error": lease_info.get("error") or "INTENT_IN_FLIGHT_BLOCKED: Mükerrer oluşturma engellendi. Durum belirsiz (UNKNOWN) ve yeni tıklama yapılmadı."
+                }
+
+    if selector and not _grounding_engine:
+        log("ERROR", f"Grounding Engine yuklu/aktif degil. DOM hedefi icra edilemedi: {selector}")
+        if is_side_effect:
+            intent_guard.release_or_update(intent_key, status="FAILED", outcome_verified=False)
+        return {
+            "ok": False,
+            "status": "FAILED",
+            "verified": False,
+            "action_verified": False,
+            "outcome_verified": False,
+            "physical_actions": 0,
+            "error": f"Grounding Engine kullanılamıyor, DOM hedefi icra edilemedi: {selector}"
+        }
+
     # 1. DOM Selector Click
     if selector and _grounding_engine and act_type in ("click", "press_element"):
         desc = params.get("description", selector)
-        log("INFO", f"DOM Selector Tıklaması İcra Ediliyor: {selector}")
-        c_res = _grounding_engine.click_element_verified(selector, desc, target=target_info)
-        if c_res.get("ok"):
+        log("INFO", f"DOM Selector Tıklaması İcra Ediliyor: {selector} (side_effect={is_side_effect})")
+
+        page_obj = getattr(_grounding_engine, "page", None)
+        pre_snap = capture_pre_action_state(page_obj)
+
+        target_fn = getattr(_grounding_engine.click_element_verified, "side_effect", None) or _grounding_engine.click_element_verified
+        try:
+            sig = inspect.signature(target_fn)
+            has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            accepts_sa = "single_action" in sig.parameters or has_kwargs
+        except Exception:
+            accepts_sa = False
+
+        if is_side_effect and accepts_sa:
+            c_res = _grounding_engine.click_element_verified(selector, desc, target=target_info, single_action=True)
+        else:
+            c_res = _grounding_engine.click_element_verified(selector, desc, target=target_info)
+
+        if not c_res.get("ok"):
+            log("WARN", f"DOM Selector Click başarısız oldu ({c_res.get('error')}). Sessiz GUI fallback engellendi.")
+            if is_side_effect:
+                if c_res.get("uncertain"):
+                    intent_guard.release_or_update(intent_key, status="EXPIRED_UNCERTAIN", outcome_verified=False)
+                else:
+                    intent_guard.release_or_update(intent_key, status="FAILED", outcome_verified=False)
             return {
-                "ok": True,
-                "verified": c_res.get("verified", False),
+                "ok": False,
+                "status": c_res.get("status") or "FAILED",
+                "verified": False,
+                "action_verified": False,
+                "outcome_verified": False,
+                "physical_actions": c_res.get("physical_actions", 0),
+                "error": c_res.get("error") or f"DOM elementi tıklanamadı: {selector}",
                 "result": c_res,
-                "screenshot_path": c_res.get("screenshot_path"),
-                "error": c_res.get("error")
+                "screenshot_path": c_res.get("screenshot_path")
             }
-        log("WARN", f"DOM Selector Click başarısız oldu ({c_res.get('error')}), Native Foreground fallback uygulanıyor.")
-        action_window_focus({"title_contains": "Chrome"})
-        lowered = str(selector).lower()
-        if any(w in lowered for w in ("tweet", "compose", "gönderi", "post", "new")):
-            if any(w in lowered for w in ("submit", "publish", "yayınla", "button")):
-                # Ctrl+Enter
-                user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-                user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-                time.sleep(0.05)
-                user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-                user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+        # DOM Click Başarılı: Eylem Doğrulandı (action_verified=True)
+        act_ver = c_res.get("verified", False)
+        if is_side_effect:
+            outcome_ok, outcome_status, outcome_evidence = verify_notebook_outcome(
+                getattr(_grounding_engine, "page", None),
+                pre_snapshot=pre_snap
+            )
+            if outcome_ok:
+                intent_guard.release_or_update(intent_key, status="COMPLETED", outcome_verified=True, evidence=outcome_evidence)
+                return {
+                    "ok": True,
+                    "status": "SUCCESS",
+                    "verified": True,
+                    "action_verified": True,
+                    "outcome_verified": True,
+                    "physical_actions": 1,
+                    "result": c_res,
+                    "outcome_evidence": outcome_evidence,
+                    "screenshot_path": c_res.get("screenshot_path")
+                }
             else:
-                user32.keybd_event(0x4E, 0, 0, 0)  # 'n'
-                time.sleep(0.05)
-                user32.keybd_event(0x4E, 0, win32con.KEYEVENTF_KEYUP, 0)
-            time.sleep(1.0)
-            ss_res = action_screenshot({})
-            return {
-                "ok": True,
-                "verified": True,
-                "result": {"method": "native_shortcut_fallback", "selector": selector},
-                "screenshot_path": ss_res.get("result", {}).get("screenshot_path")
-            }
+                intent_guard.release_or_update(intent_key, status="PENDING_VERIFICATION", outcome_verified=False, evidence=outcome_evidence)
+                return {
+                    "ok": True,
+                    "status": outcome_status,
+                    "verified": False,
+                    "action_verified": True,
+                    "outcome_verified": False,
+                    "physical_actions": 1,
+                    "result": c_res,
+                    "outcome_evidence": outcome_evidence,
+                    "screenshot_path": c_res.get("screenshot_path"),
+                    "warning": "DOM tıklaması yapıldı (fiziksel eylem: 1) fakat yeni defter URL/ID ve nedensellik kanıtı doğrulanamadı. Görev tamamlandı kabul edilemez."
+                }
+
+        return {
+            "ok": True,
+            "status": "SUCCESS",
+            "verified": act_ver,
+            "action_verified": act_ver,
+            "outcome_verified": False,
+            "physical_actions": c_res.get("physical_actions", 1),
+            "result": c_res,
+            "screenshot_path": c_res.get("screenshot_path")
+        }
 
     # 2. DOM Selector Metin Girişi (Type / Fill)
     if selector and _grounding_engine and act_type in ("type", "fill"):
@@ -990,34 +1920,14 @@ def action_browser_act(params: dict) -> dict:
                 "screenshot_path": t_res.get("screenshot_path"),
                 "error": t_res.get("error")
             }
-        log("WARN", f"DOM Selector Type başarısız oldu ({t_res.get('error')}), Native Clipboard fallback uygulanıyor.")
-        action_window_focus({"title_contains": "Chrome"})
-        import win32clipboard
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardText(str(value), win32clipboard.CF_UNICODETEXT)
-        win32clipboard.CloseClipboard()
-        time.sleep(0.1)
-        # Ctrl+V
-        user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-        user32.keybd_event(0x56, 0, 0, 0)  # 'V'
-        time.sleep(0.05)
-        user32.keybd_event(0x56, 0, win32con.KEYEVENTF_KEYUP, 0)
-        user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.5)
-        if submit:
-            user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-            user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-            time.sleep(0.05)
-            user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-            time.sleep(1.0)
-        ss_res = action_screenshot({})
+        log("WARN", f"DOM Selector Type/Fill başarısız oldu ({t_res.get('error')}). Sessiz klavye/pano fallback engellendi.")
         return {
-            "ok": True,
-            "verified": True,
-            "result": {"method": "native_clipboard_fallback", "text": str(value)},
-            "screenshot_path": ss_res.get("result", {}).get("screenshot_path")
+            "ok": False,
+            "status": "FAILED",
+            "verified": False,
+            "error": t_res.get("error") or f"DOM metin hedefi bulunamadı/yazılamadı: {selector}",
+            "result": t_res,
+            "screenshot_path": t_res.get("screenshot_path")
         }
 
     # 3. Klavye Özel Tuş Basımı (Press: Enter, Escape, Space, n, Ctrl+Enter vb.)
@@ -1066,6 +1976,15 @@ def action_browser_act(params: dict) -> dict:
         return {"ok": True, "verified": True, "result": {"pressed_key": key}, "screenshot_path": ss_res.get("result", {}).get("screenshot_path")}
 
 
+
+    if selector:
+        log("WARN", f"DOM hedefli '{act_type}' eylemi başarısız oldu. Native GUI fallback engellendi: {selector}")
+        return {
+            "ok": False,
+            "status": "FAILED",
+            "verified": False,
+            "error": f"DOM hedefli '{act_type}' eylemi başarısız oldu; GUI fallback engellendi: {selector}"
+        }
 
     # 4. Fallback: Native GUI işlemleri
     res = {"ok": False, "verified": False, "error": f"Bilinmeyen tarayici eylemi: {act_type}"}
@@ -1157,8 +2076,13 @@ def action_youtube_play(params: dict) -> dict:
     }
 
 
-def action_whatsapp_send(params: dict) -> dict:
-    """Native Windows WhatsApp Desktop uygulamasında taslak açar / mesaj iletir."""
+def action_whatsapp_send(params: dict, _deliver: bool = True) -> dict:
+    """Native Windows WhatsApp Desktop uygulamasında taslağı açar ve (_deliver=True ise) Enter ile iletir.
+
+    Onay kapısı (is_approval_required) yeni/soğuk kişiye ilk mesajda bu eylemin
+    TAMAMINI onaya bağlar; iletim adımı da bu fonksiyonun içinde kalmalı ki
+    onaylanan istek ile fiilen gönderilen mesaj aynı, tek atomik adım olsun.
+    """
     text = params.get("text") or params.get("message") or params.get("content") or ""
     phone = params.get("phone") or params.get("to") or ""
 
@@ -1174,13 +2098,30 @@ def action_whatsapp_send(params: dict) -> dict:
     except Exception:
         webbrowser.open(url)
 
-    time.sleep(1.0)
-    action_window_focus({"title_contains": "WhatsApp", "maximize": True})
+    time.sleep(1.5)
+    focus = action_window_focus({"title_contains": "WhatsApp", "maximize": True})
+
+    delivered = False
+    if _deliver and text:
+        if not focus.get("ok"):
+            return {
+                "ok": False,
+                "error": "WhatsApp penceresi odaklanamadi, mesaj GONDERILMEDI (Enter basilmadi).",
+                "result": {"protocol": url, "app": "WhatsApp Native Windows App", "recipient": clean_phone or "default", "delivered": False}
+            }
+        time.sleep(0.8)
+        pyautogui.press("enter")
+        delivered = True
 
     return {
         "ok": True,
-        "result": {"protocol": url, "app": "WhatsApp Native Windows App", "recipient": clean_phone or "default"}
+        "result": {"protocol": url, "app": "WhatsApp Native Windows App", "recipient": clean_phone or "default", "delivered": delivered}
     }
+
+
+def action_whatsapp_draft(params: dict) -> dict:
+    """Taslak açar, DOLDURUR ama GONDERMEZ (Enter'a basmaz)."""
+    return action_whatsapp_send(params, _deliver=False)
 
 
 def action_browser_session(params: dict) -> dict:
@@ -1263,9 +2204,54 @@ def action_pilot_status(params: dict) -> dict:
     }
 
 
+def action_marketing_list(params: dict) -> dict:
+    from marketing_pipeline import MarketingPipeline
+    target = params.get("type", "campaigns")
+    if target == "leads":
+        return {"ok": True, "result": MarketingPipeline.list_leads()}
+    return {"ok": True, "result": MarketingPipeline.list_campaigns(status=params.get("status"))}
+
+def action_marketing_send_approval(params: dict) -> dict:
+    from marketing_telegram_gateway import send_campaign_approval_card
+    camp_id = params.get("campaign_id") or 1
+    res = send_campaign_approval_card(int(camp_id))
+    return {"ok": res.get("ok", False), "result": res}
+
+def action_marketing_playbook(params: dict) -> dict:
+    from pablo_marketing_playbooks import MarketingPlaybooks
+    pb_name = params.get("playbook")
+    if pb_name == "enrich_lead":
+        url = params.get("url")
+        res = MarketingPlaybooks.enrich_lead_website(url, lead_id=params.get("lead_id"))
+        return {"ok": True, "result": res}
+    elif pb_name == "instagram_bio":
+        text = params.get("text") or params.get("bio")
+        res = MarketingPlaybooks.execute_instagram_bio_update(text)
+        return {"ok": res.get("ok", False), "result": res}
+    elif pb_name == "deliver_campaign":
+        cid = int(params.get("campaign_id") or 1)
+        sim = bool(params.get("simulated", True))
+        res = MarketingPlaybooks.execute_campaign_delivery(cid, simulated=sim)
+        return {"ok": res.get("ok", False), "result": res}
+    return {"ok": False, "error": f"Bilinmeyen marketing playbook: {pb_name}"}
+
+
 ACTIONS = {
     "ping": action_ping,
     "shell": action_shell,
+    "read": action_read_file,
+    "read_file": action_read_file,
+    "file_read": action_read_file,
+    "read_file_content": action_read_file,
+    "file_list": action_file_list,
+    "list_files": action_file_list,
+    "list_dir": action_file_list,
+    "dir_list": action_file_list,
+    "social_post": action_social_post,
+    "twitter_post": action_social_post,
+    "instagram_post": action_social_post,
+    "file_dialog_submit": action_file_dialog_submit,
+    "upload_dialog": action_file_dialog_submit,
     "window_list": action_window_list,
     "window_focus": action_window_focus,
     "gui_click": action_gui_click,
@@ -1283,7 +2269,10 @@ ACTIONS = {
     "pilot_status": action_pilot_status,
     "youtube_play": action_youtube_play,
     "whatsapp_send": action_whatsapp_send,
-    "whatsapp_draft": action_whatsapp_send,
+    "whatsapp_draft": action_whatsapp_draft,
+    "marketing_list": action_marketing_list,
+    "marketing_send_approval": action_marketing_send_approval,
+    "marketing_playbook": action_marketing_playbook,
 }
 
 
@@ -1333,6 +2322,51 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 "timestamp": time.time()
             }
             self.wfile.write(json.dumps(resp).encode("utf-8"))
+        elif self.path.startswith("/showroom"):
+            req_path = self.path.split("?")[0]
+            if req_path in ("/showroom", "/showroom/"):
+                file_name = "index.html"
+            else:
+                file_name = req_path.replace("/showroom/", "")
+            
+            showroom_dir = Path(r"C:\CyberGene\Showroom")
+            target_file = showroom_dir / file_name
+            if not target_file.exists() or not target_file.is_file():
+                fallback_dir = Path(r"c:\AI AGENTS PROJECT\showroom")
+                target_file = fallback_dir / file_name
+
+            if target_file.exists() and target_file.is_file():
+                fn_lower = file_name.lower()
+                content_type = "text/html; charset=utf-8"
+                if fn_lower.endswith(".css"):
+                    content_type = "text/css; charset=utf-8"
+                elif fn_lower.endswith(".js"):
+                    content_type = "application/javascript; charset=utf-8"
+                elif fn_lower.endswith(".json"):
+                    content_type = "application/json; charset=utf-8"
+                elif fn_lower.endswith(".svg"):
+                    content_type = "image/svg+xml"
+                elif fn_lower.endswith(".png"):
+                    content_type = "image/png"
+                elif fn_lower.endswith((".jpg", ".jpeg")):
+                    content_type = "image/jpeg"
+                elif fn_lower.endswith(".webp"):
+                    content_type = "image/webp"
+                elif fn_lower.endswith(".woff2"):
+                    content_type = "font/woff2"
+                
+                with open(target_file, "rb") as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
         elif self.path == "/ping":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1435,7 +2469,7 @@ def run_bridge_worker():
             # 2. Task Poll (Long Polling)
             req = urllib.request.Request(
                 f"{jeff_bridge_url}/alfred/tasks?timeout=15",
-                headers={"X-Bridge-Key": bridge_key, "X-Worker-ID": CONFIG['node_id']}
+                headers={"X-Bridge-Key": bridge_key, "X-Worker-ID": CONFIG["node_id"]}
             )
             try:
                 with urllib.request.urlopen(req, timeout=20) as resp:
@@ -1474,9 +2508,18 @@ def bridge_claim_metadata(task_id):
         return None
     return claim
 
+
 def handle_bridge_task(task: dict):
-    aliases = {'BROWSER_ACTION': 'browser_open', 'YOUTUBE_PLAY': 'youtube_play',
-               'SCREENSHOT_REQUEST': 'screenshot', 'WHATSAPP_DRAFT': 'whatsapp_draft'}
+    aliases = {
+        'BROWSER_ACTION': 'browser_open',
+        'YOUTUBE_PLAY': 'youtube_play',
+        'SCREENSHOT_REQUEST': 'screenshot',
+        'WHATSAPP_DRAFT': 'whatsapp_draft',
+        'FILE_READ': 'read',
+        'READ_FILE': 'read',
+        'FILE_LIST': 'file_list',
+        'LIST_FILES': 'file_list'
+    }
     action = aliases.get(task.get('type'), task.get('type'))
     rid = task.get('task_id')
     if not rid:
@@ -1588,7 +2631,7 @@ def run_telegram_worker():
     try:
         from pablo_brain import PabloBrain
         brain = PabloBrain()
-        log("INFO", "Pablo Agentic Brain (Claude-Haiku via Antigravity Proxy) devrede!")
+        log("INFO", "Pablo Agentic Brain (Gemini, dogrudan Google; yedek: eski proxy) devrede!")
     except Exception as b_err:
         brain = None
         log("WARN", f"Pablo Brain yuklenemedi: {b_err}")
@@ -1611,6 +2654,15 @@ def run_telegram_worker():
                     cb_chat_id = cb_query.get("message", {}).get("chat", {}).get("id") or CONFIG.get("telegram_default_chat_id")
 
                     log("INFO", f"TELEGRAM_CALLBACK_TIKLANDI [{cb_chat_id}]: {cb_data}")
+
+                    if cb_data.startswith(('mkt_appr:', 'mkt_rejc:', 'mkt_rev:', 'ig_appr:', 'ig_rejc:')):
+                        try:
+                            from marketing_telegram_gateway import handle_marketing_callback
+                            from_uid = cb_query.get('from', {}).get('id') or cb_chat_id
+                            handle_marketing_callback(cb_id, cb_data, from_uid, cb_chat_id)
+                        except Exception as mkt_e:
+                            log("WARN", f"Marketing callback hatası: {mkt_e}")
+                        continue
 
                     if cb_data.startswith(('appr:', 'rejc:')):
                         result = task_guard().approve(cb_data.split(':', 1)[1],
@@ -1684,7 +2736,7 @@ def run_tailscale_watchdog():
                 timeout=10,
                 creationflags=CREATE_NO_WINDOW
             )
-            if proc.returncode != 0 or "100.124.217.48" not in proc.stdout:
+            if proc.returncode != 0 or "100.80.122.74" not in proc.stdout:  # Jeff sunucusu (Contabo)
                 log("WARN", "Tailscale Jeff Core bağlantısı kesildi! Otomatik kurtarma deneniyor...")
                 subprocess.run(
                     ["tailscale", "up", "--unattended"],

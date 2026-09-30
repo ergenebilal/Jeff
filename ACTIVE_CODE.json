@@ -11,7 +11,8 @@
     "jeff2/bridge/task_contract.py",
     "skills/jcode/scripts/verified_coding.py",
     "pablo/pablo_task_guard.py",
-    "scripts/executive_briefing.py"
+    "scripts/executive_briefing.py",
+    "pablo/pablo_brain.py"
   ],
   "active_tests": [
     "jeff2/bridge/test_bridge_security.py",
@@ -20,7 +21,8 @@
     "jeff2/bridge/test_task_http.py",
     "jeff2/bridge/contract_tests/test_cybergene_contract.py",
     "scripts/test_ci_secret_scan.py",
-    "scripts/test_executive_briefing.py"
+    "scripts/test_executive_briefing.py",
+    "pablo/test_pablo_brain.py"
   ],
   "service_files": [
     "jeff2/bridge/jeff-bridge.service"

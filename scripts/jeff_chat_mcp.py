@@ -75,6 +75,6 @@ if __name__ == "__main__":
     mcp.settings.port = port
     print(f"🤖 Jeff Chat MCP Server (Streamable HTTP) başlıyor...")
     print(f"📡 Port {port}, endpoint: http://0.0.0.0:{port}/")
-    print(f"🔗 Bağlantı: http://193.164.4.149:{port}/")
+    print(f"🔗 Bağlantı: http://13.140.183.88:{port}/")
     
     mcp.run(transport="streamable-http")

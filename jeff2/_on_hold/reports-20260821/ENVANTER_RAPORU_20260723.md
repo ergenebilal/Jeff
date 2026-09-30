@@ -114,7 +114,7 @@
 | Parametre | Değer |
 |-----------|-------|
 | **Sürüm** | v0.12.0+ (Nous Research) |
-| **Host** | Ubuntu 22.04 @ 193.164.4.149 |
+| **Host** | Ubuntu 22.04 @ 13.140.183.88 |
 | **Python** | 3.10.12 (sistem) / 3.11 + 3.12 (gateway'ler) |
 | **Config** | `/home/hermes/.hermes/config.yaml` (16KB, 693 satır) |
 | **Provider** | OpenCode Zen (deepseek-v4-flash) |

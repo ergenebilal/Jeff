@@ -3,7 +3,7 @@
 ## Mimari
 
 ```
-Jeff (Ubuntu 193.164.4.149)          Alfred (Windows 100.89.26.86)
+Jeff (Ubuntu 13.140.183.88)          Alfred (Windows 100.89.26.86)
 ─────────────────────────────        ─────────────────────────────
 alfred_instant_bridge.py             alfred_daemon.py
   dispatch_task_to_alfred()   ──HTTP POST :7788/task──>  HTTP Server
@@ -42,7 +42,7 @@ Hedef: C:\Users\<kullanici>\.hermes\alfred_bridge\ (veya istedigin yer)
 ```cmd
 set TELEGRAM_BOT_TOKEN=<token>
 set TELEGRAM_CHAT_ID=<chat_id>
-set JEFF_HOST=193.164.4.149
+set JEFF_HOST=13.140.183.88
 ```
 
 ### 3. Daemon'u baslatma

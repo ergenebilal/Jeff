@@ -9,12 +9,24 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_TESTS = [
+    'scripts.test_server_ip',
     'scripts.test_executive_briefing',
     'scripts.test_ci_secret_scan',
+    'scripts.test_system_watchdog',
+    'scripts.test_morning_report',
+    'scripts.test_lead_alert',
+    'scripts.test_jeff_status',
+    'scripts.test_jeff_backup',
+    'scripts.test_model_health',
+    'scripts.test_pablo_drift',
     'jeff2.bridge.test_task_contract',
     'jeff2.bridge.test_task_http',
     'jeff2.bridge.test_bridge_security',
     'jeff2.bridge.test_coding_bridge',
+    'test_pablo_brain',
+    'test_clinic_pitch',
+    'test_marketing_callback_guard',
+    'test_send_surfaces',
 ]
 CONTRACT_TESTS = [
     'jeff2.bridge.contract_tests.test_cybergene_contract',

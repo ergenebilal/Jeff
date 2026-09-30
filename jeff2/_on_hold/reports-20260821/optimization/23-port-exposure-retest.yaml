@@ -3,7 +3,7 @@
 
 test_metadata:
   date: 2026-08-17
-  public_ip: 193.164.4.149
+  public_ip: 13.140.183.88
   method: bash /dev/tcp + nc
   ufw_status: active (deny incoming default)
 

@@ -148,9 +148,9 @@ class RealHttpSmokeTests(unittest.TestCase):
                                                headers=headers, timeout=2).json()['status'], 'quarantined')
                 count = []
                 guard = TaskGuard(Path(temp) / 'guard.sqlite3',
-                                  {'browser_open': lambda params: count.append(params) or {'ok': True}},
+                                  {'social_post': lambda params: count.append(params) or {'ok': True}},
                                   owner='42', desktop_ready=lambda: True)
-                pending = guard.execute('browser_open', body['payload'], 'smoke-1')
+                pending = guard.execute('social_post', body['payload'], 'smoke-1')
                 self.assertEqual(pending['status'], 'APPROVAL_REQUIRED')
                 self.assertEqual(len(count), 0)
                 pending_result = {**pending, 'type': 'BROWSER_ACTION', 'digest': task['digest'],
@@ -167,7 +167,7 @@ class RealHttpSmokeTests(unittest.TestCase):
                 self.assertEqual(len(count), 0)
                 approved = guard.approve(pending['approval_id'], '42', '42')
                 self.assertEqual(approved['status'], 'SUCCESS')
-                self.assertEqual(guard.execute('browser_open', body['payload'], 'smoke-1')['status'], 'SUCCESS')
+                self.assertEqual(guard.execute('social_post', body['payload'], 'smoke-1')['status'], 'SUCCESS')
                 self.assertEqual(len(count), 1)
                 result = {**approved, 'type': 'BROWSER_ACTION', 'digest': task['digest'],
                           'worker_id': 'fake-pablo', 'attempt': task['attempt']}
