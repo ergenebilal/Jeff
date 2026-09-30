@@ -106,7 +106,7 @@ def collect_site(chat_db, now, hours=24):
     warm_items = []
     for sid, msgs in sessions.items():
         kinds = [classify(q) for _, q in msgs]
-        if all(k == 'test' for k in kinds):
+        if str(sid).startswith('test_') or all(k == 'test' for k in kinds):   # our own probes and load tests never count as visitors
             test += 1
             continue
         real += 1

@@ -94,6 +94,15 @@ class CollectTests(unittest.TestCase):
         self.assertIn("Siteyi gezen (tarayıcı oturumu): 15, showroom'a geçen: 5", text)
         self.assertIn("WhatsApp'a basan: 3 (pilot düğmesi: 1)", text)
 
+    def test_sessions_named_test_are_never_visitors(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = Path(d) / 'chat.db'
+            make_chat_db(db, [('test_load_1', 'visitor', wrapped('Merhaba nasılsınız'), 1),
+                              ('test_watchdog_9', 'visitor', wrapped('Merhaba'), 1),
+                              ('cg_showroom_real', 'visitor', wrapped('Kliniğim için ne yaparsınız?'), 1)])
+            site = mr.collect_site(db, NOW)
+        self.assertEqual((site['real'], site['test']), (1, 2))
+
     def test_missing_counter_table_is_not_a_crash(self):
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / 'chat.db'
