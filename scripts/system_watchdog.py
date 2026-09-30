@@ -64,6 +64,37 @@ def http_reachable(url, ok_statuses=None, timeout=6, opener=urllib.request.urlop
     return probe
 
 
+def chat_answers(url='http://127.0.0.1:8774/api/chat/message', memo='/home/hermes/logs/chat_probe.json',
+                 every=1800, now=time.time, opener=urllib.request.urlopen):
+    """A real question to the site chat: "the service is up" is not "it answers". Asked at most once per
+    `every` seconds (the answer is remembered in `memo`) so checking never eats the shared model quota."""
+    def probe():
+        try:
+            last = json.loads(Path(memo).read_text(encoding='utf-8'))
+            if now() - last['ts'] < every:
+                return bool(last['ok']), last['detail']
+        except Exception:
+            pass
+        started = now()
+        body = json.dumps({'session_id': f'test_watchdog_{int(started)}', 'message': 'Merhaba', 'visitor_locale': 'tr'}).encode()
+        req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            with opener(req, timeout=40) as resp:
+                data = json.loads(resp.read())
+            ok = data.get('status') == 'ok' and bool((data.get('reply') or '').strip())
+            detail = f'cevap geldi ({now() - started:.0f} sn)' if ok else 'bos cevap'
+        except urllib.error.HTTPError as err:
+            ok, detail = False, f'HTTP {err.code}'
+        except Exception as exc:
+            ok, detail = False, f'yanit yok ({type(exc).__name__})'
+        try:
+            Path(memo).write_text(json.dumps({'ts': started, 'ok': ok, 'detail': detail}), encoding='utf-8')
+        except Exception:
+            pass
+        return ok, detail
+    return probe
+
+
 def any_answer(status):
     return status < 500
 
@@ -134,6 +165,8 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
               http_reachable('https://cybergene.co/'), 120),
         Check('http:chat', 'Sohbet sagligi', 'Sitedeki sohbet cevap vermez',
               http_reachable('http://127.0.0.1:8774/health'), 120),
+        Check('chat:answers', 'Sohbetin gercek cevabi', 'Sitedeki sohbet acik gorunuyor ama cevap uretemiyor (yapay zeka yolu bozuk)',
+              chat_answers(), 1800),
         Check('http:proxy', 'Yapay zeka koprusu', 'Jeff dusunemez, cevap uretemez',
               http_reachable('http://127.0.0.1:8999/v1/models'), 120),
         Check('http:bridge', 'Gorev panosu (ag)', 'Pablo ile baglanti kopar',

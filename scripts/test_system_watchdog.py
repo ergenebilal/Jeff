@@ -155,6 +155,36 @@ class ProbeTests(unittest.TestCase):
     def test_default_checks_include_the_offsite_copy(self):
         self.assertIn('offsite', [c.key for c in wd.default_checks()])
 
+    def test_chat_probe_needs_a_real_answer_and_is_not_asked_too_often(self):
+        with tempfile.TemporaryDirectory() as d:
+            memo = str(Path(d) / 'probe.json')
+            calls = []
+            clock = [1000.0]
+
+            def opener(answer):
+                def call(req, timeout=0):
+                    calls.append(req.full_url)
+                    return mock.MagicMock(__enter__=lambda s: SimpleNamespace(read=lambda: json.dumps(answer).encode()), __exit__=lambda *a: False)
+                return call
+            good = wd.chat_answers(memo=memo, now=lambda: clock[0], opener=opener({'status': 'ok', 'reply': 'Merhaba!'}))
+            self.assertTrue(good()[0]); self.assertEqual(len(calls), 1)
+            clock[0] += 600
+            self.assertTrue(good()[0]); self.assertEqual(len(calls), 1, 'asked again too soon')
+            clock[0] += 1300
+            self.assertTrue(good()[0]); self.assertEqual(len(calls), 2)
+            empty = wd.chat_answers(memo=str(Path(d) / 'other.json'), now=lambda: 5000.0, opener=opener({'status': 'ok', 'reply': '  '}))
+            self.assertFalse(empty()[0])
+
+    def test_chat_probe_reports_a_server_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            def boom(req, timeout=0):
+                raise urllib.error.HTTPError(req.full_url, 503, 'x', {}, None)
+            ok, detail = wd.chat_answers(memo=str(Path(d) / 'p.json'), now=lambda: 1.0, opener=boom)()
+            self.assertFalse(ok); self.assertIn('503', detail)
+
+    def test_default_checks_include_the_real_chat_answer(self):
+        self.assertIn('chat:answers', [c.key for c in wd.default_checks()])
+
     def test_disk(self):
         full = lambda p: SimpleNamespace(used=95, total=100)  # noqa: E731
         roomy = lambda p: SimpleNamespace(used=10, total=100)  # noqa: E731
