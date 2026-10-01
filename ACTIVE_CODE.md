@@ -5,8 +5,13 @@ lint jobs. The active Bridge entrypoint is `jeff2/bridge/jeff_bridge_api.py`;
 `jeff2/bridge/jeff-bridge.service` is its Linux service file. The Pablo entry
 is `pablo/hermes_node.py`, with `pablo/pablo_task_guard.py` as the action
 boundary. Task state and verification live in `jeff2/bridge/task_contract.py`.
-The current briefing and radar entries are `scripts/jeff-morning-brief.py` and
-`scripts/proactive_lead_radar.py`, backed by `scripts/executive_briefing.py`.
+The installed cron entries use `scripts/morning_report.py`, `scripts/lead_alert.py`,
+`scripts/system_watchdog.py`, and `scripts/jeff_backup.py`. Approval totals are
+shared through `scripts/approval_inventory.py` and authenticated Pablo heartbeat
+snapshots. `scripts/model_health.py` is the model diagnostic entrypoint. Older
+briefing/radar implementations remain listed as compatibility modules.
+Marketing modules and all modules run by the active test runner are included in
+the compile/lint manifest, so these checks cover the deployed changes.
 
 `jeff2/_on_hold`, `scripts/_archive`, and `jeff2/self_healing_sandbox` are not
 production import paths. `jeff2/bridge/contract_tests` contains isolated

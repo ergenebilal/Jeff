@@ -10,6 +10,7 @@ Mobil Kokpit ve Hızlı İcra Entegrasyonu:
 """
 
 import json
+from html import escape
 import urllib.request
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -174,7 +175,8 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
     """
     cfg = get_telegram_config()
     authorized_id = cfg.get("telegram_default_chat_id")
-    if authorized_id and str(from_user_id) != str(authorized_id):
+    if (not authorized_id or str(from_user_id) != str(authorized_id)
+            or str(chat_id) != str(authorized_id)):
         return {"ok": False, "status": "UNAUTHORIZED"}
 
     action, ref_id_str = cb_data.split(":", 1)
@@ -252,7 +254,7 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
         # 2. Telegram'a başlatıldı bildirimi
         send_telegram_raw("sendMessage", {
             "chat_id": chat_id,
-            "text": f"⚡ <b>Kampanya #{campaign_id} Onaylandı!</b>\nPablo Playbook ışık hızıyla devreye giriyor...",
+            "text": f"<b>Kampanya #{campaign_id} onaylandı.</b>\nGönderim yapılmadan taslak kontrol ediliyor.",
             "parse_mode": "HTML"
         })
 
@@ -260,18 +262,13 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
         # Not: Bilal dış iletişimin gerçek gönderimini istediğinde simulated=False verilir
         exec_res = MarketingPlaybooks.execute_campaign_delivery(campaign_id, simulated=True)
 
-        # 4. Kanıt ekran görüntüsü ve raporu geri ilet
-        duration = exec_res.get("duration_ms", 0)
-        ss_path = exec_res.get("screenshot_path", "")
-
-        report_text = (
-            f"✅ <b>İCRA BAŞARIYLA TAMAMLANDI</b>\n\n"
-            f"• <b>Kampanya ID:</b> #{campaign_id}\n"
-            f"• <b>Hedef:</b> <code>{exec_res.get('target')}</code>\n"
-            f"• <b>İcra Süresi:</b> {duration} ms\n"
-            f"• <b>Mod:</b> {exec_res.get('mode')}\n"
-            f"• <b>Durum:</b> Tam Doğrulandı (VERIFIED)"
-        )
+        # Simulation, execution and delivery verification are different outcomes.
+        simulated_ok = exec_res.get("ok") is True and exec_res.get("status") == "SIMULATED"
+        report_text = (f"<b>Kampanya #{campaign_id}: deneme kontrolü tamamlandı.</b>\n"
+                       "Mesaj gönderilmedi. Taslak onaylı olarak bekliyor; metni kendiniz gönderebilirsiniz."
+                       if simulated_ok else
+                       f"<b>Kampanya #{campaign_id}: kontrol tamamlanamadı.</b>\n"
+                       + escape(str(exec_res.get("error") or "Gönderim sonucu doğrulanamadı.")))
 
         send_telegram_raw("sendMessage", {
             "chat_id": chat_id,
@@ -279,6 +276,6 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
             "parse_mode": "HTML"
         })
 
-        return {"ok": True, "status": "EXECUTED", "result": exec_res}
+        return {"ok": simulated_ok, "status": "SIMULATED" if simulated_ok else "FAILED", "result": exec_res}
 
     return {"ok": False, "status": "UNKNOWN_ACTION"}

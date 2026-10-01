@@ -252,97 +252,45 @@ class MarketingPlaybooks:
 
     @staticmethod
     def execute_campaign_delivery(campaign_id: int, simulated: bool = False) -> Dict[str, Any]:
-        """
-        Onaylanmış bir pazarlama kampanyasını güvenli biçimde infaz eder.
-        simulated=True ise gerçek dış temas yapılmaz, hazırlık ve doğrulama kanıtı üretilir.
+        """Validate an approved draft without claiming a delivery that did not happen.
+
+        A simulation leaves the campaign approved and does not touch the desktop.
+        No live sender is implemented yet; live requests fail explicitly.
         """
         t0 = time.time()
         campaign = MarketingPipeline.get_campaign(campaign_id)
         if not campaign:
-            return {"ok": False, "error": f"Kampanya bulunamadı: {campaign_id}"}
-
-        engine = PabloBrowserGrounding.get_instance()
-        lead_name = campaign.get("company_name", "Unknown")
+            return {"ok": False, "status": "NOT_FOUND", "verified": False,
+                    "delivered": False, "error": f"Kampanya bulunamadı: {campaign_id}"}
+        if campaign.get("status") != "APPROVED":
+            return {"ok": False, "status": "NOT_APPROVED", "verified": False,
+                    "delivered": False, "error": "Gönderim taslağı onaylı değil."}
         target = campaign.get("recipient_target", "")
         subject = campaign.get("subject", "")
-        body = campaign.get("message_body", "")
-
-        proof_path = str(SCREENSHOTS_DIR / f"delivery_proof_camp_{campaign_id}_{int(time.time())}.png")
-
-        if simulated:
-            # Simüle edilmiş kapalı devre teslimat testi (Safety First)
-            engine._bring_to_foreground()
-            p = getattr(engine, "page", None)
-            if p and not p.is_closed():
-                try:
-                    p.screenshot(path=proof_path)
-                except Exception:
-                    pass
-
-            duration_ms = int((time.time() - t0) * 1000)
-            MarketingPipeline.update_campaign_status(
-                campaign_id=campaign_id,
-                status="SENT",
-                screenshot_proof=proof_path
-            )
-            MarketingPipeline.log_execution(
-                playbook_name="Playbook_Campaign_Delivery_Simulated",
-                action_type="simulated_send",
-                status="SUCCESS",
-                campaign_id=campaign_id,
-                duration_ms=duration_ms,
-                evidence_screenshot=proof_path,
-                details={"target": target, "subject": subject, "mode": "SIMULATED_SAFE"}
-            )
-            return {
-                "ok": True,
-                "verified": True,
-                "mode": "SIMULATED_SAFE",
-                "campaign_id": campaign_id,
-                "target": target,
-                "screenshot_path": proof_path,
-                "duration_ms": duration_ms
-            }
-
-        # Canlı Teslimat: Form veya e-posta taslağı
-        # 1. Eğer web iletişim formu ise sayfayı aç
-        if campaign.get("channel") == "web_form":
-            engine.open_url(target)
-            time.sleep(1.5)
-            # Taslağı doldur
-            # ...
-        
-        # Gerçek teslimat sonrası ekran görüntüsü
+        if not target or not str(campaign.get("message_body") or "").strip():
+            return {"ok": False, "status": "INVALID_DRAFT", "verified": False,
+                    "delivered": False, "error": "Taslak metni veya alıcı eksik."}
         duration_ms = int((time.time() - t0) * 1000)
-        p = getattr(engine, "page", None)
-        if p and not p.is_closed():
-            try:
-                p.screenshot(path=proof_path)
-            except Exception:
-                pass
-
-        MarketingPipeline.update_campaign_status(
-            campaign_id=campaign_id,
-            status="SENT",
-            screenshot_proof=proof_path
-        )
+        status = "SIMULATED" if simulated else "UNSUPPORTED"
         MarketingPipeline.log_execution(
-            playbook_name="Playbook_Campaign_Delivery_Live",
-            action_type="live_send",
-            status="SUCCESS",
+            playbook_name="Playbook_Campaign_Delivery",
+            action_type="simulated_send" if simulated else "delivery_unavailable",
+            status=status,
             campaign_id=campaign_id,
             duration_ms=duration_ms,
-            evidence_screenshot=proof_path,
-            details={"target": target, "subject": subject}
+            details={"target": target, "subject": subject, "delivered": False}
         )
-
         return {
-            "ok": True,
-            "verified": True,
+            "ok": bool(simulated),
+            "status": status,
+            "verified": False,
+            "delivered": False,
+            "mode": "SIMULATED_SAFE" if simulated else "LIVE_UNAVAILABLE",
             "campaign_id": campaign_id,
             "target": target,
-            "screenshot_path": proof_path,
-            "duration_ms": duration_ms
+            "screenshot_path": "",
+            "duration_ms": duration_ms,
+            "error": None if simulated else "Bu kanal için gerçek gönderici henüz kurulu değil. Mesaj gönderilmedi."
         }
 
     @staticmethod

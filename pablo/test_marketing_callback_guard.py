@@ -14,12 +14,12 @@ def call(action, ref, campaign=None, idea=None):
     pipeline.get_campaign.return_value = campaign
     pipeline.get_content_idea.return_value = idea
     playbooks = mock.Mock()
-    playbooks.execute_campaign_delivery.return_value = {"duration_ms": 1, "screenshot_path": ""}
+    playbooks.execute_campaign_delivery.return_value = {"ok": True, "status": "SIMULATED", "verified": False}
     with mock.patch.object(gw, 'MarketingPipeline', pipeline), \
             mock.patch.object(gw, 'MarketingPlaybooks', playbooks), \
             mock.patch.object(gw, 'send_telegram_raw') as tg, \
             mock.patch.object(gw, 'get_telegram_config', return_value={'telegram_default_chat_id': str(USER)}):
-        result = gw.handle_marketing_callback('cb', f'{action}:{ref}', USER, 1)
+        result = gw.handle_marketing_callback('cb', f'{action}:{ref}', USER, USER)
     return result, pipeline, playbooks, tg
 
 
@@ -43,6 +43,34 @@ class CampaignApprovalGuard(unittest.TestCase):
         self.assertEqual(result['status'], 'NOT_PENDING')
         pipeline.update_campaign_status.assert_not_called()
         playbooks.execute_campaign_delivery.assert_not_called()
+
+    def test_simulation_is_reported_as_unsent(self):
+        result, _, _, tg = call('mkt_appr', 6, campaign={'status': 'PENDING_APPROVAL'})
+        self.assertEqual(result['status'], 'SIMULATED')
+        self.assertIn('Mesaj gönderilmedi', tg.call_args.args[1]['text'])
+        self.assertNotIn('VERIFIED', tg.call_args.args[1]['text'])
+
+    def test_failed_delivery_never_reports_success(self):
+        with mock.patch.object(gw, 'MarketingPipeline') as pipeline, \
+                mock.patch.object(gw, 'MarketingPlaybooks') as playbooks, \
+                mock.patch.object(gw, 'send_telegram_raw') as tg, \
+                mock.patch.object(gw, 'get_telegram_config', return_value={'telegram_default_chat_id': USER}):
+            pipeline.get_campaign.return_value = {'status': 'PENDING_APPROVAL'}
+            playbooks.execute_campaign_delivery.return_value = {'ok': False, 'error': '<fixture failure>'}
+            result = gw.handle_marketing_callback('cb', 'mkt_appr:6', USER, USER)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertIn('tamamlanamadı', tg.call_args.args[1]['text'])
+        self.assertIn('&lt;fixture failure&gt;', tg.call_args.args[1]['text'])
+
+    def test_owner_in_wrong_chat_and_missing_owner_are_rejected(self):
+        for config, chat in (({'telegram_default_chat_id': USER}, 1), ({}, USER)):
+            with mock.patch.object(gw, 'get_telegram_config', return_value=config), \
+                    mock.patch.object(gw, 'MarketingPipeline') as pipeline, \
+                    mock.patch.object(gw, 'send_telegram_raw') as tg:
+                self.assertEqual(gw.handle_marketing_callback('cb', 'mkt_appr:6', USER, chat)['status'], 'UNAUTHORIZED')
+                pipeline.get_campaign.assert_not_called()
+                tg.assert_not_called()
 
     def test_reject_still_works_from_any_state(self):
         result, pipeline, _, _ = call('mkt_rejc', 6, campaign={'status': 'PENDING_APPROVAL'})

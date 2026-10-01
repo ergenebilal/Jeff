@@ -34,7 +34,7 @@ REQUIRED = [
 SKIP_DIRS = {'node_modules', '__pycache__', '.git', 'venv', '.venv', '.cache', 'cache', 'logs', 'backups',
              '.playwright-mcp', 'lsp', 'node', 'hermes-agent', 'tests', 'site', 'checkpoints', 'dist-packages'}
 SKIP_FILE_PATTERNS = ['*.pyc', '*.log', '*.db-wal', '*.db-shm', '*.sqlite-wal', '*.sqlite-shm', '*.tmp', '*.sock']
-DB_SUFFIXES = ('.db', '.sqlite')
+DB_SUFFIXES = ('.db', '.sqlite', '.sqlite3')
 
 
 OPT_TREES = (Path('/opt/hermes'),)
@@ -43,6 +43,7 @@ OPT_TREES = (Path('/opt/hermes'),)
 def trees(home, opt_trees=OPT_TREES):
     h = Path(home)
     return [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
+            h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos',
             h / '.alert.env', h / '.config', *opt_trees]
 
 
@@ -50,7 +51,8 @@ ETC_PATTERNS = [
     '/etc/nginx/sites-available/cybergene.co',
     '/etc/systemd/system/hermes-*.service', '/etc/systemd/system/hermes-*.service.d/*.conf',
     '/etc/systemd/system/jeff-*.service', '/etc/systemd/system/alfred-*.service',
-    '/etc/systemd/system/cybergene-*.service', '/etc/systemd/system/mail-webhook.service',
+    '/etc/systemd/system/cybergene-*.service', '/etc/systemd/system/cybergeneos.service',
+    '/etc/systemd/system/cybergeneos.service.d/*.conf', '/etc/systemd/system/mail-webhook.service',
     '/etc/jeff-*.env', '/etc/supervisor/conf.d/*.conf', '/etc/fail2ban/jail.local',
     '/etc/ssh/sshd_config.d/*.conf',
 ]

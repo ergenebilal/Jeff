@@ -7,7 +7,7 @@ from pathlib import Path
 
 from scripts import model_health as mh
 
-KEY = 'sk-super-secret-key-1234'
+KEY = 'fixture-model-key-1234'
 
 
 class FakeResponse(io.BytesIO):

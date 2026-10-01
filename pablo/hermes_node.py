@@ -1028,16 +1028,10 @@ def action_file_list(params: dict) -> dict:
 
 
 def action_social_post(params: dict) -> dict:
-    """Sosyal medya paylaşımı (Kırmızı Çizgi onaylandığında icra edilir)."""
-    content = params.get("content") or params.get("text") or params.get("message") or ""
-    return {
-        "ok": True,
-        "result": {
-            "posted": True,
-            "content": content[:150],
-            "timestamp": time.time()
-        }
-    }
+    """Compatibility response for old callers; no platform publisher exists."""
+    return {"ok": False, "status": "UNSUPPORTED", "verified": False,
+            "error": "Doğrudan sosyal medya yayını desteklenmiyor. Hiçbir paylaşım yapılmadı.",
+            "result": {"posted": False}}
 
 
 def action_file_dialog_submit(params: dict) -> dict:
@@ -2432,6 +2426,31 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
 
 # ── JEFF BRIDGE LONG-POLL & HEARTBEAT ────────────────────────────────────────
 
+def node_approval_snapshot():
+    """Publish read-only totals so reports can see the approvals actually used."""
+    summary = {'journal_waiting': 0, 'journal_expired': 0, 'journal_complete': False,
+               'marketing_waiting': 0, 'marketing_old': 0, 'marketing_complete': False}
+    try:
+        summary.update(task_guard().approval_snapshot())
+    except Exception:
+        pass
+    try:
+        from marketing_pipeline import DB_PATH as marketing_db
+        db = sqlite3.connect(marketing_db.resolve().as_uri() + '?mode=ro', uri=True)
+        try:
+            cutoff = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() - 48 * 3600))
+            for table in ('outreach_campaigns', 'instagram_content_ideas'):
+                summary['marketing_waiting'] += db.execute(f"SELECT count(*) FROM {table} WHERE status='PENDING_APPROVAL'").fetchone()[0]
+                summary['marketing_old'] += db.execute(f"SELECT count(*) FROM {table} WHERE status='PENDING_APPROVAL' AND approval_requested_at<?", (cutoff,)).fetchone()[0]
+        finally:
+            db.close()
+        summary['marketing_complete'] = True
+    except Exception:
+        # A partial query is never presented as a complete inventory.
+        summary['marketing_waiting'] = summary['marketing_old'] = 0
+    return summary
+
+
 def run_bridge_worker():
     """Sunucu Jeff Bridge (:7700) ve Jeff Core (:9119) ile çift yönlü iletişim döngüsü."""
     jeff_bridge_url = CONFIG["jeff_bridge_api_url"]
@@ -2451,7 +2470,8 @@ def run_bridge_worker():
                     "agent": "pablo",
                     "status": "ok",
                     "version": CONFIG["version"],
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "approval_snapshot": node_approval_snapshot()
                 }).encode("utf-8")
 
                 req = urllib.request.Request(
