@@ -2,8 +2,11 @@
   "production_entrypoints": [
     "jeff2/bridge/jeff_bridge_api.py",
     "pablo/hermes_node.py",
-    "scripts/jeff-morning-brief.py",
-    "scripts/proactive_lead_radar.py"
+    "scripts/morning_report.py",
+    "scripts/lead_alert.py",
+    "scripts/system_watchdog.py",
+    "scripts/jeff_backup.py",
+    "scripts/model_health.py"
   ],
   "active_modules": [
     "jeff2/bridge/aider_runner.py",
@@ -12,7 +15,13 @@
     "skills/jcode/scripts/verified_coding.py",
     "pablo/pablo_task_guard.py",
     "scripts/executive_briefing.py",
-    "pablo/pablo_brain.py"
+    "pablo/pablo_brain.py",
+    "scripts/approval_inventory.py",
+    "pablo/marketing_pipeline.py",
+    "pablo/marketing_telegram_gateway.py",
+    "pablo/pablo_marketing_playbooks.py",
+    "scripts/jeff-morning-brief.py",
+    "scripts/proactive_lead_radar.py"
   ],
   "active_tests": [
     "jeff2/bridge/test_bridge_security.py",
@@ -22,7 +31,20 @@
     "jeff2/bridge/contract_tests/test_cybergene_contract.py",
     "scripts/test_ci_secret_scan.py",
     "scripts/test_executive_briefing.py",
-    "pablo/test_pablo_brain.py"
+    "pablo/test_pablo_brain.py",
+    "scripts/test_server_ip.py",
+    "scripts/test_system_watchdog.py",
+    "scripts/test_morning_report.py",
+    "scripts/test_lead_alert.py",
+    "scripts/test_jeff_status.py",
+    "scripts/test_jeff_backup.py",
+    "scripts/test_model_health.py",
+    "scripts/test_pablo_drift.py",
+    "scripts/test_approval_inventory.py",
+    "pablo/test_clinic_pitch.py",
+    "pablo/test_marketing_callback_guard.py",
+    "pablo/test_send_surfaces.py",
+    "pablo/test_delivery_truth.py"
   ],
   "service_files": [
     "jeff2/bridge/jeff-bridge.service"

@@ -2,6 +2,7 @@
 import hashlib
 import ipaddress
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -76,14 +77,56 @@ def _foreground_window_title() -> str:
         return ""
 
 
+def _coordinate_target(params):
+    """Read the actual control under a point; never trust a caller-supplied label."""
+    try:
+        import uiautomation as auto
+        with auto.UIAutomationInitializerInThread():
+            control = auto.ControlFromPoint(int(params['x']), int(params['y']))
+            if control is not None:
+                window = control.GetTopLevelControl()
+                return {'name': control.Name or '', 'window': window.Name if window else ''}
+    except Exception:
+        pass
+    return {'name': '', 'window': ''}
+
+
+def _shell_approval_reason(command):
+    """Recognise destructive operations independent of argument order.
+
+    This is a policy classifier, not a sandbox for arbitrary programs.
+    """
+    cmd = command.strip().lower()
+    for pattern in DESTRUCTIVE_COMMAND_PATTERNS:
+        if pattern in cmd:
+            return f"YIKICI_SISTEM_ISLEMI: '{pattern}' Bilal Ergene onayı gerektirir."
+    if re.search(r'\b(?:remove-item|erase|del|rmdir|rd|rm|unlink|remove-directory)\b', cmd):
+        return "YIKICI_SISTEM_ISLEMI: silme komutu Bilal Ergene onayı gerektirir."
+    if re.search(r'\.(?:unlink|remove|rmtree|rmdir)\s*\(', cmd):
+        return "YIKICI_SISTEM_ISLEMI: program içinden silme Bilal Ergene onayı gerektirir."
+    if re.search(r'\b(?:powershell|pwsh)(?:\.exe)?\b.*\s-(?:enc\w*|e)\b', cmd):
+        return "BELIRSIZ_KOMUT: kodlanmış komut Bilal Ergene onayı gerektirir."
+    if re.search(r'\b(?:exec|eval)\s*\(|\b(?:invoke-expression|iex)\b', cmd):
+        return "BELIRSIZ_KOMUT: dinamik kod çalıştırma Bilal Ergene onayı gerektirir."
+    if re.search(r'\b(?:pyautogui|auto|win32api)\.(?:click|press|hotkey|sendkeys|keybd_event)\s*\(', cmd):
+        return "DOLAYLI_GUI: komut üzerinden tıklama/gönderim Bilal Ergene onayı gerektirir."
+    return ""
+
+
 def _is_send_gesture(action: str, params: dict) -> str:
     """Bir tıklama / tarayıcı eylemi, hassas bir yüzeyde GÖNDERİM etkisi üretiyorsa nedenini döndürür, yoksa ''.
-    Okuma, gezinme, pencere değiştirme ve adsız tıklamalar bu kurala takılmaz (otonom kalır)."""
+    Hassas yüzeyde çözümlenemeyen koordinat tıklaması da onaya gider."""
     if action not in ("gui_click", "browser_act"):
         return ""
     if action == "gui_click":
         label = str(params.get("control_name") or params.get("name") or "").lower()
-        context = str(params.get("window_title") or params.get("window") or "").lower() or _foreground_window_title().lower()
+        context = ' '.join((_foreground_window_title(), str(params.get("window_title") or params.get("window") or ''))).lower()
+        unknown_point = False
+        if params.get('x') is not None and params.get('y') is not None:
+            observed = _coordinate_target(params)
+            label = observed['name'].lower()
+            context += ' ' + observed['window'].lower()
+            unknown_point = not bool(label)
         url = ""
         pressed_enter = False
     else:
@@ -98,6 +141,8 @@ def _is_send_gesture(action: str, params: dict) -> str:
     sensitive = any(p in context for p in SENSITIVE_SEND_WINDOW_PATTERNS) or any(p in url for p in SENSITIVE_SEND_URL_PATTERNS)
     if not sensitive:
         return ""
+    if action == 'gui_click' and unknown_point:
+        return "BELIRSIZ_GONDERIM_HEDEFI: hassas yüzeyde tıklama hedefi okunamadı; Bilal Ergene onayı gerektirir."
     if any(w in label for w in SEND_GESTURE_WORDS):
         return f"GONDERIM_JESTI: hassas yüzeyde ('{context or url}') '{label.strip()[:40]}' Bilal Ergene onayı gerektirir."
     if pressed_enter:
@@ -129,9 +174,20 @@ def is_approval_required(action: str, params: dict) -> tuple:
     if params.get("public_post") or params.get("is_public"):
         return True, "KAMUOYUNA_ACIK_PAYLASIM: Kamuya açık paylaşım için Bilal Ergene onayı zorunludur."
 
+    if action == 'marketing_playbook' and params.get('playbook') == 'instagram_bio':
+        return True, "KAMUOYUNA_ACIK_PAYLASIM: Profil değişikliği Bilal Ergene onayı gerektirir."
+    if (action == 'marketing_playbook' and params.get('playbook') == 'deliver_campaign'
+            and params.get('simulated', True) is not True):
+        return True, "DIS_TEMAS: Gerçek kampanya gönderimi Bilal Ergene onayı gerektirir."
+    if action in ('create_account', 'delete_account', 'close_account', 'open_account'):
+        return True, "HESAP_ISLEMI: Hesap açma/kapatma Bilal Ergene onayı gerektirir."
+
     # 2. Yeni kişiye ilk mesaj (Önceden konuşulmamış / soğuk numara)
-    if action in ("whatsapp_send", "whatsapp_draft", "dm_send", "send_message"):
-        if bool(params.get("is_new_contact") or params.get("new_recipient")):
+    if action in ("whatsapp_send", "dm_send", "send_message"):
+        # Only an explicit boolean false identifies an existing contact.
+        # Missing, string-valued or contradictory flags must not bypass approval.
+        flags = [params[k] for k in ('is_new_contact', 'new_recipient') if k in params]
+        if not flags or any(flag is not False for flag in flags):
             return True, "YENI_KISIYE_MESAJ: Yeni/önceden konuşulmamış kişiye mesaj için Bilal Ergene onayı zorunludur."
 
     # 2b. Jenerik primitifle onay kapısının dolanılması: hassas bir pencere
@@ -153,9 +209,9 @@ def is_approval_required(action: str, params: dict) -> tuple:
     # 3. Yıkıcı dosya / sistem işlemleri
     if action == "shell":
         cmd = str(params.get("command") or params.get("cmd") or "").strip().lower()
-        for dk in DESTRUCTIVE_COMMAND_PATTERNS:
-            if dk in cmd:
-                return True, f"YIKICI_SISTEM_ISLEMI: '{dk}' komutu Bilal Ergene onayı gerektirir."
+        reason = _shell_approval_reason(cmd)
+        if reason:
+            return True, reason
 
     if action in ("file_delete", "delete_file", "dir_remove"):
         return True, f"YIKICI_DOSYA_ISLEMI: Dosya/dizin silme ({action}) Bilal Ergene onayı gerektirir."
@@ -201,6 +257,14 @@ class TaskGuard:
         with self.connect() as db:
             row = db.execute('SELECT response FROM requests WHERE id=?', (rid,)).fetchone()
             return json.loads(row[0]) if row else self.response(rid, 'NOT_FOUND', error='Unknown request')
+
+    def approval_snapshot(self):
+        """No messages or params are exposed; expired approvals need renewal."""
+        with self.connect() as db:
+            waiting, expired = db.execute(
+                "SELECT coalesce(sum(expires>=?),0), coalesce(sum(expires<?),0) FROM requests "
+                "WHERE status='APPROVAL_REQUIRED' AND consumed=0", (self.clock(), self.clock())).fetchone()
+        return {'journal_waiting': waiting, 'journal_expired': expired, 'journal_complete': True}
 
     def queue_result(self, payload):
         with self.connect() as db:

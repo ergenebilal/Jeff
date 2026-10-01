@@ -22,7 +22,7 @@ from urllib.request import urlopen
 
 import aiosqlite
 from fastapi import FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from task_contract import TaskConflict, TaskCreate, TaskLedger, TaskNotFound
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -120,6 +120,7 @@ async def init_db():
         await db.execute('CREATE TABLE IF NOT EXISTS alfred_task_claims (task_id TEXT PRIMARY KEY, digest TEXT NOT NULL)')
         await db.execute('CREATE TABLE IF NOT EXISTS alfred_results (task_id TEXT PRIMARY KEY, digest TEXT NOT NULL, worker_id TEXT NOT NULL, attempt INTEGER NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL)')
         await db.execute('CREATE TABLE IF NOT EXISTS alfred_result_quarantine (id INTEGER PRIMARY KEY, task_id TEXT, reason TEXT, created_at TEXT)')
+        await db.execute('CREATE TABLE IF NOT EXISTS node_approval_snapshots (node_id TEXT PRIMARY KEY, observed_at REAL NOT NULL, payload TEXT NOT NULL)')
         await db.commit()
     await asyncio.to_thread(TaskLedger(DB_PATH).initialize)
     log.info("DB initialised at %s", DB_PATH)
@@ -348,11 +349,21 @@ class AlfredResult(BaseModel):
     attempt: Optional[int] = None
 
 
+class NodeApprovalSnapshot(BaseModel):
+    journal_waiting: int = Field(default=0, ge=0, le=1000000)
+    journal_expired: int = Field(default=0, ge=0, le=1000000)
+    journal_complete: bool = False
+    marketing_waiting: int = Field(default=0, ge=0, le=1000000)
+    marketing_old: int = Field(default=0, ge=0, le=1000000)
+    marketing_complete: bool = False
+
+
 class AlfredHeartbeat(BaseModel):
     agent: str = "alfred"
     status: str = "ok"
     version: str = "unknown"
     timestamp: Optional[str] = None
+    approval_snapshot: Optional[NodeApprovalSnapshot] = None
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -571,9 +582,26 @@ async def alfred_heartbeat(body: AlfredHeartbeat, x_bridge_key: Optional[str] = 
                    version=excluded.version, last_seen=excluded.last_seen""",
             (body.agent, body.status, body.version, now),
         )
+        if body.agent == 'pablo' and body.approval_snapshot is not None:
+            await db.execute('INSERT INTO node_approval_snapshots VALUES(?,?,?) '
+                             'ON CONFLICT(node_id) DO UPDATE SET observed_at=excluded.observed_at,payload=excluded.payload',
+                             ('pablo', now, body.approval_snapshot.model_dump_json()))
         await db.commit()
     log.debug("HEARTBEAT  agent=%s  status=%s", body.agent, body.status)
     return {"status": "ok", "received_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get('/approvals')
+async def approval_inventory(x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    # Imported lazily to keep bridge-only installation/imports compatible.
+    import sys
+    from pathlib import Path
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from scripts.approval_inventory import collect
+    return await asyncio.to_thread(collect, DB_PATH, panel_db=os.environ.get('PANEL_DB_PATH'))
 
 
 @app.get("/alfred_client")

@@ -19,6 +19,7 @@ BRIDGE_TESTS = [
     'scripts.test_jeff_backup',
     'scripts.test_model_health',
     'scripts.test_pablo_drift',
+    'scripts.test_approval_inventory',
     'jeff2.bridge.test_task_contract',
     'jeff2.bridge.test_task_http',
     'jeff2.bridge.test_bridge_security',
@@ -27,6 +28,7 @@ BRIDGE_TESTS = [
     'test_clinic_pitch',
     'test_marketing_callback_guard',
     'test_send_surfaces',
+    'test_delivery_truth',
 ]
 CONTRACT_TESTS = [
     'jeff2.bridge.contract_tests.test_cybergene_contract',

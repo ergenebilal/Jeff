@@ -118,7 +118,8 @@ class CollectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / 'b.db'
             make_bridge_db(db, ['waiting_approval', ('waiting_approval', 60), 'failed', 'verified'])
-            self.assertEqual(mr.collect_approvals(db, NOW), {'waiting': 2, 'old': 1, 'stuck': 1})
+            data = mr.collect_approvals(db, NOW)
+            self.assertEqual({k: data[k] for k in ('waiting', 'old', 'stuck')}, {'waiting': 2, 'old': 1, 'stuck': 1})
 
     def test_health_lists_problems_by_plain_label_and_detects_stale_watchdog(self):
         with tempfile.TemporaryDirectory() as d:

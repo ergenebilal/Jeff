@@ -21,8 +21,10 @@ from pathlib import Path
 
 try:  # imported as a package (tests) or run from the scripts folder (server)
     from scripts import system_watchdog as wd
+    from scripts.approval_inventory import collect as approval_inventory
 except ImportError:  # pragma: no cover
     import system_watchdog as wd
+    from approval_inventory import collect as approval_inventory
 
 QUESTION_MARKER = 'İşletme sahibinin sorusu:'
 TEST_RE = re.compile(r'\b(test\w*|debug|verify|deneme\w*|doğrulama|migration|check)\b', re.I)
@@ -119,23 +121,8 @@ def collect_site(chat_db, now, hours=24):
     return {'real': real, 'warm': warm, 'test': test, 'warm_items': warm_items[:3], 'traffic': _traffic(chat_db, now, hours)}
 
 
-def collect_approvals(bridge_db, now=None, stale_hours=48):
-    try:
-        db = _ro(bridge_db)
-        try:
-            one = lambda q, *a: db.execute(q, a).fetchone()[0]  # noqa: E731
-            cutoff = ((now or datetime.now(timezone.utc)) - timedelta(hours=stale_hours)).isoformat()
-            return {
-                'waiting': one("SELECT COUNT(*) FROM task_records WHERE status='waiting_approval'"),
-                # ISO-8601 UTC strings compare correctly as text
-                'old': one("SELECT COUNT(*) FROM task_records WHERE status='waiting_approval' "
-                           "AND updated_at < ?", cutoff),
-                'stuck': one("SELECT COUNT(*) FROM task_records WHERE status IN ('failed','escalated','reconciling')"),
-            }
-        finally:
-            db.close()
-    except sqlite3.Error:
-        return None
+def collect_approvals(bridge_db, now=None, stale_hours=48, panel_db=None):
+    return approval_inventory(bridge_db, now, stale_hours, panel_db)
 
 
 def collect_health(state_path, now_ts):
@@ -157,6 +144,8 @@ def collect_backup(backup_dir, now_ts):
 
 
 def suggest(site, approvals, health):
+    if approvals and approvals.get('unavailable') and not approvals['waiting']:
+        return 'Bazı onay kaynakları okunamadı; bekleyen iş olmadığını henüz teyit edemiyorum.'
     if site and site['warm']:
         return f"{site['warm']} sıcak konuşma var; önce onlara dönüş yapmak en değerli iş görünüyor."
     if approvals and approvals.get('old'):
@@ -211,8 +200,13 @@ def build_report(site, approvals, health, backup_h, local_now, kind='morning'):
     if approvals is None:
         lines.append(f'- {UNAVAILABLE} (görev panosuna ulaşılamadı)')
     else:
-        lines.append(f"- Onay bekleyen iş: {approvals['waiting']}" if approvals['waiting']
-                     else '- Onay bekleyen iş yok')
+        lines.append(f"- Onay bekleyen iş: {approvals['waiting']}" if approvals['waiting'] else
+                     '- Okunan kaynaklarda onay bekleyen iş yok' if approvals.get('unavailable') else
+                     '- Onay bekleyen iş yok')
+        if approvals.get('unavailable'):
+            lines.append('- Onay verisi alınamadı: ' + ', '.join(approvals['unavailable']))
+        if approvals.get('expired'):
+            lines.append(f"- Süresi dolmuş onay: {approvals['expired']} (yeniden onaya sunulmalı)")
         if approvals.get('old'):
             lines.append(f"- Bunlardan {approvals['old']} tanesi 2 günden uzun süredir bekliyor")
         if approvals['stuck']:
@@ -271,6 +265,7 @@ def main(argv=None, now=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--chat-db', default='/home/hermes/cybergene-chat/data/support_chat.db')
     ap.add_argument('--bridge-db', default='/home/hermes/jeff_repo/jeff2/bridge/bridge.db')
+    ap.add_argument('--panel-db', default='/home/hermes/cybergeneos-data/cgos.db')
     ap.add_argument('--watchdog-state', default='/home/hermes/logs/watchdog_state.json')
     ap.add_argument('--backup-dir', default='/home/hermes/backups')
     ap.add_argument('--sent-state', default='/home/hermes/logs/morning_report_state.json')
@@ -307,7 +302,7 @@ def main(argv=None, now=None):
 
     ts = utc_now.timestamp()
     report = build_report(collect_site(args.chat_db, utc_now, WINDOW_HOURS[args.kind](local_now)),
-                          collect_approvals(args.bridge_db, utc_now),
+                          collect_approvals(args.bridge_db, utc_now, panel_db=args.panel_db),
                           collect_health(args.watchdog_state, ts), collect_backup(args.backup_dir, ts),
                           local_now, args.kind)
     if args.dry_run:
