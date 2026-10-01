@@ -37,10 +37,23 @@ fi
 if ! ss -tln 2>/dev/null | grep -q ":8099 "; then
   cd /opt/hermes/jeff_v2
   # Tam detach: stdin kapat, çıktıyı log dosyasına, setsid ile ayrı oturum
-  setsid nohup python3 api_server.py > /opt/backups/logs/api_server.log 2>&1 < /dev/null &
+  # 01.10.2026: /opt/backups/logs yoktu -> her gun "No such file or directory" gurultusu
+  # basiyordu ve "temizse sessiz kal" sozu tutulmuyordu. Yazilabilir yola alindi.
+  mkdir -p "$HOME/logs"
+  setsid nohup python3 api_server.py > "$HOME/logs/api_server.log" 2>&1 < /dev/null &
   disown || true
   sleep 2
   FIXED=$((FIXED+1))
+fi
+
+# 5. Bitiş kapısı (01.10.2026) — tek otorite. Yeni iş kurmadan buraya bağlandı.
+#    Kapı hata verirse (çıkış 1) çıktısı basılır ve bildirim gider; temizse sessiz kalır.
+#    'if !' kullanılıyor: set -e ile çakışmasın, kapı hatası betiği öldürmesin.
+KAPI_CIKTI=""
+if ! KAPI_CIKTI=$(python3 "$HOME/.hermes/scripts/kendini_dogrula.py" 2>&1); then
+  echo "$KAPI_CIKTI"
+  echo ""
+  echo "BITIS KAPISI HATA VERDI — yukaridaki satirlara bak."
 fi
 
 # Her şey temiz — sessiz kal (empty stdout = no delivery)

@@ -160,7 +160,9 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
         unit('cybergene-chat', 'Site sohbet servisi', 'Sitedeki canli destek cevap vermez'),
         unit('nginx', 'Web sunucusu', 'Site acilmaz'),
         unit('hermes-hq', 'Komuta merkezi', 'Komuta paneli acilmaz', 300),
-        unit('jeff-mobile', 'Mobil baglanti', 'Telefon baglantisi calismaz', 300),
+        # 01.10.2026 KALDIRILDI: jeff-mobile olu servis (fastapi/starlette uyumsuzlugu nedeniyle
+        # surekli cokuyordu, Android uygulamasi gerektiriyordu, kimse baglanmiyordu).
+        # Bilal: "mobilden sadece Telegram kullaniyoruz" -> alarm gereksiz. Servis disable edildi.
         Check('http:site', 'cybergene.co sitesi', 'Musteriler siteyi goremez',
               http_reachable('https://cybergene.co/'), 120),
         Check('http:chat', 'Sohbet sagligi', 'Sitedeki sohbet cevap vermez',
