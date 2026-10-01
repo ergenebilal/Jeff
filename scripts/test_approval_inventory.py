@@ -1,11 +1,17 @@
 import asyncio
 import json
 import sqlite3
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
+
+# Also work when invoked alone, without the active runner's PYTHONPATH.
+ROOT = Path(__file__).resolve().parents[1]
+for directory in (ROOT, ROOT / 'jeff2' / 'bridge', ROOT / 'pablo'):
+    sys.path.insert(0, str(directory))
 
 from scripts import approval_inventory as inventory
 from scripts import morning_report

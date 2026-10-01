@@ -25,6 +25,16 @@ From a clean checkout, run all active tests with one command:
 python scripts/bootstrap_active.py
 ```
 
+For pytest, install `pytest>=8,<10` alongside the Bridge requirements and run
+`pytest` from the repository root. No manual PYTHONPATH is needed. The default
+selection matches the active Bridge/Pablo/operations group; it excludes archived
+and manual live probes. The Linux contract fixtures use names that overlap
+production modules and must run separately with
+`python scripts/run_active_tests.py --group contract`. Run both groups with the
+existing bootstrap or `python scripts/run_active_tests.py --group all`.
+The approval inventory test also runs independently with either pytest or
+`python -m unittest scripts.test_approval_inventory`.
+
 For manual Bridge rollout after review and backup, copy the reviewed Bridge
 files to `/home/hermes/jeff2/bridge`, then run on the Linux host:
 
