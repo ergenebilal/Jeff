@@ -33,7 +33,39 @@ fixture no longer resembles a real API credential.
 - Active compile: 41 Python files; fatal-rule lint passed.
 - Task schema/digest validation and deliberate broken fixture rejection passed.
 - Regressions mock senders and desktop input; no test sends a real message.
-- Linux validation, deployment and backup results are recorded after rollout below.
+- Linux isolated checkout: 228 Bridge tests and 25 contract tests passed, no skips.
+- GitHub checks for implementation commit `393eefb2b` passed (both workflows).
+
+## Rollout evidence
+
+Bridge and the installed report/backup symlinks now use `codex/jeff-reliability`
+at implementation commit `393eefb2b`; GitHub main has not been merged. The
+Bridge service was restarted, health returned ok and authenticated /approvals
+matched the report collector; unauthenticated access returned 401. Panel counts
+are enabled through the 40-approval-inventory systemd drop-in. The first health
+check incorrectly used loopback instead of the service's Tailscale address;
+automatic rollback succeeded, then rollout passed at the configured address.
+Rollback source and database copies are under
+`/home/hermes/rollbacks/jeff-reliability-20261001-retry` (base `45ceff4c`).
+
+Four Pablo runtime files were installed after checking their previous contents
+against the base commit. Original source, journal and marketing database copies
+are in `C:\CyberGene\HermesNode\backups\codex-reliability-20261001` with a hash
+manifest; all installed hashes matched. **Pablo process restart was rejected by
+automatic approval review (blocked by policy), so loaded-code validation and a
+fresh approval heartbeat remain pending.** The live inventory correctly reports
+Pablo/marketing unavailable. Restart using the installed start_hermes_node.bat
+after closing the existing Pablo process/window, then verify health and a fresh
+heartbeat. No delivery or desktop action was used as a rollout probe.
+
+The real expanded backup `jeff-backup-20261001-163338.tar.gz` is 1136 MB, mode
+0600: 46 databases copied with zero errors/warnings; all 46 were restored into
+temporary storage and passed integrity checks. The archive contains 62
+Jeff-Beyin files, the panel SQLite snapshot, 27 panel source/config files and
+the CybergeneOS service file. Existing archives were retained. This rehearsal
+does not establish a full fresh-server restoration.
+
+Review: https://github.com/ergenebilal/Jeff/pull/8 (draft).
 
 ## Limits and next implementation work
 
