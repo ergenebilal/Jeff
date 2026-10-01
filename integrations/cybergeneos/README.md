@@ -1,7 +1,8 @@
 # CybergeneOS context boundary
 
 The panel belongs to the separate cybergene-web checkout. Copy
-`context_boundary.py` into `docs/cybergeneos/server/` and apply `jeff.patch`.
+`context_boundary.py` into `docs/cybergeneos/server/`. From the panel repository
+root, run `git apply --ignore-space-change /path/to/jeff.patch` (supports LF/CRLF).
 The inspected original `server/jeff.py` SHA256 was
 `5152f8e72a972502845952d0db5bdb160eccac2bd37b24a440420d6453e62e92`.
 Check the deployed source before applying; other panel changes may be in flight.
