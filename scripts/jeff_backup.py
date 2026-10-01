@@ -43,7 +43,7 @@ OPT_TREES = (Path('/opt/hermes'),)
 def trees(home, opt_trees=OPT_TREES):
     h = Path(home)
     return [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
-            h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos',
+            h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos', h / 'jeff-artifacts',
             h / '.alert.env', h / '.config', *opt_trees]
 
 

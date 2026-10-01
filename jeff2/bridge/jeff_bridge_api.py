@@ -16,6 +16,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -23,6 +24,7 @@ from urllib.request import urlopen
 import aiosqlite
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
+from fastapi.responses import Response
 from task_contract import TaskConflict, TaskCreate, TaskLedger, TaskNotFound
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -32,6 +34,10 @@ LOG_PATH = os.path.join(os.path.dirname(__file__), "bridge.log")
 ALFRED_TIMEOUT_SEC = 60
 HOST = None
 PORT = int(os.environ.get("BRIDGE_PORT", "7700"))
+LOADED_SOURCE_SHA256 = {
+    name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
+    for name in ('jeff_bridge_api.py', 'task_contract.py', 'task_artifacts.py')
+}
 
 def validate_bridge_key(key):
     if not key or key.strip() != key or key.lower() in {
@@ -136,9 +142,20 @@ async def lifespan(app: FastAPI):
     from aider_runner import start_runner
     runner_task = asyncio.create_task(start_runner())
     app.state.runner_task = runner_task
+    draft_task = None
+    if os.environ.get('TASK_ARTIFACT_ROOT'):
+        from task_artifacts import run_draft_worker
+        draft_task = asyncio.create_task(run_draft_worker(DB_PATH, os.environ['TASK_ARTIFACT_ROOT']))
+    app.state.draft_task = draft_task
     log.info("Aider runner started")
     yield
     runner_task.cancel()
+    if draft_task:
+        draft_task.cancel()
+        try:
+            await draft_task
+        except asyncio.CancelledError:
+            pass
     try:
         await runner_task
     except asyncio.CancelledError:
@@ -230,6 +247,74 @@ class TaskEscalateRequest(BaseModel):
     reason: str
 
 
+class ApprovalDecisionRequest(BaseModel):
+    user_id: str
+    chat_id: str
+    input_digest: str = Field(pattern=r'^[a-f0-9]{64}$')
+    decision: str = Field(pattern=r'^(approve|reject)$')
+
+
+def task_artifact_probe(task):
+    from task_artifacts import ArtifactStore
+    root = os.environ.get('TASK_ARTIFACT_ROOT')
+    return ArtifactStore(root).observe(task) if root else {'status': 'unconfigured'}
+
+
+@app.get('/tasks')
+async def task_list(x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    return await task_call('list_tasks')
+
+
+@app.get('/tasks/{task_id}/steps')
+async def task_steps(task_id: str, x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    return await task_call('checkpoints', task_id)
+
+
+@app.get('/tasks/{task_id}/artifacts/{name}')
+async def task_artifact(task_id: str, name: str, x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    task = await task_call('get', task_id)
+    step = next((step for step in task['steps'] if step['name'] == name), None)
+    root = os.environ.get('TASK_ARTIFACT_ROOT')
+    if not step or not root:
+        raise HTTPException(status_code=404, detail='Artifact unavailable')
+    await task_call('managed_task', task_id)
+    from task_artifacts import ArtifactStore
+    try:
+        data = await asyncio.to_thread(ArtifactStore(root).read, task_id, step)
+    except (OSError, TaskConflict) as exc:
+        raise HTTPException(status_code=404, detail='Artifact unavailable') from exc
+    if hashlib.sha256(data).hexdigest() != hashlib.sha256(step['content'].encode()).hexdigest():
+        raise HTTPException(status_code=409, detail='Artifact no longer matches verified content')
+    return Response(data, media_type='text/plain', headers={'Content-Disposition': f'attachment; filename="{name}.{step["format"]}"',
+                                                          'X-Content-Type-Options': 'nosniff'})
+
+
+@app.post('/tasks/{task_id}/approval')
+async def task_request_approval(task_id: str, x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    return await task_call('request_approval', task_id)
+
+
+@app.get('/approvals/queue')
+async def approval_queue(x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    return await task_call('approvals')
+
+
+@app.post('/approvals/{approval_id}/decision')
+async def approval_decision(approval_id: str, body: ApprovalDecisionRequest,
+                            x_approval_key: Optional[str] = Header(default=None)):
+    configured = os.environ.get('APPROVAL_DECISION_KEY')
+    if (not configured or configured == BRIDGE_KEY or not x_approval_key
+            or not hmac.compare_digest(configured, x_approval_key)):
+        raise HTTPException(status_code=401, detail='Invalid approval gateway key')
+    return await task_call('decide_approval', approval_id, os.environ.get('TASK_APPROVAL_OWNER'),
+                           body.user_id, body.chat_id, body.input_digest, body.decision == 'approve')
+
+
 @app.post('/tasks')
 async def task_create(body: TaskCreate, x_bridge_key: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
@@ -298,7 +383,7 @@ async def task_finish(task_id: str, body: TaskFinishRequest,
 @app.post('/tasks/{task_id}/verify')
 async def task_verify(task_id: str, x_bridge_key: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
-    return await task_call('verify', task_id, task_health_probe)
+    return await task_call('verify', task_id, task_health_probe, task_artifact_probe)
 
 
 @app.post('/tasks/{task_id}/cancel')
@@ -632,6 +717,8 @@ async def health():
         "aider_ready": bool(getattr(app.state, 'runner_task', None) and not app.state.runner_task.done()),
         "alfred_online": alfred_online,
         "queued_tasks": queued,
+        "draft_worker_ready": bool(getattr(app.state, 'draft_task', None) and not app.state.draft_task.done()),
+        "loaded_source_sha256": LOADED_SOURCE_SHA256,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -23,6 +23,21 @@ class TaskNotFound(Exception):
     pass
 
 
+class ArtifactStep(BaseModel):
+    """Internal draft only: callers cannot choose a filesystem path or command."""
+    model_config = {'extra': 'forbid'}
+    name: str = Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')
+    kind: Literal['artifact_write'] = 'artifact_write'
+    content: str = Field(min_length=1, max_length=500_000)
+    format: Literal['txt', 'md', 'json'] = 'md'
+
+    @model_validator(mode='after')
+    def check_format(self):
+        if self.format == 'json':
+            json.loads(self.content)
+        return self
+
+
 class TaskCreate(BaseModel):
     task_id: str | None = Field(default=None, min_length=1, max_length=128)
     source: str = Field(min_length=1)
@@ -36,6 +51,7 @@ class TaskCreate(BaseModel):
     input_digest: str | None = None
     assigned_worker: str | None = None
     max_attempts: int = Field(default=3, ge=1, le=10)
+    steps: list[ArtifactStep] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode='after')
     def check_policy(self):
@@ -43,16 +59,22 @@ class TaskCreate(BaseModel):
             raise ValueError('Success criteria cannot be empty')
         if self.side_effect_class != 'none' and not self.approval_required:
             raise ValueError('Side effects require approval')
+        if self.steps:
+            if len({step.name for step in self.steps}) != len(self.steps):
+                raise ValueError('Step names must be unique')
+            if (self.side_effect_class != 'none' or self.assigned_worker != 'jeff-server'
+                    or self.success_criteria != ['artifact_sha256_matches']):
+                raise ValueError('Internal draft plans require the server worker and artifact verification')
         return self
 
 
 TRANSITIONS = {
     'received': {'planned', 'cancelled'},
     'planned': {'queued', 'cancelled'},
-    'queued': {'claimed', 'cancelled'},
+    'queued': {'claimed', 'waiting_approval', 'cancelled'},
     'claimed': {'running', 'reconciling', 'cancelled'},
     'running': {'waiting_approval', 'verifying', 'reconciling', 'failed'},
-    'waiting_approval': {'running', 'reconciling', 'cancelled', 'failed'},
+    'waiting_approval': {'queued', 'running', 'reconciling', 'cancelled', 'failed'},
     'reconciling': {'claimed', 'verifying', 'escalated', 'cancelled'},
     'verifying': {'verified', 'failed', 'escalated'},
     'verified': set(), 'failed': set(), 'escalated': set(), 'cancelled': set(),
@@ -109,6 +131,16 @@ class TaskLedger:
                     requested_status TEXT, actor TEXT NOT NULL, reason TEXT NOT NULL,
                     timestamp TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS task_step_records (
+                    task_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL,
+                    input_digest TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL,
+                    PRIMARY KEY(task_id,name)
+                );
+                CREATE TABLE IF NOT EXISTS task_approvals (
+                    approval_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, input_digest TEXT NOT NULL,
+                    status TEXT NOT NULL, expires_at REAL NOT NULL, created_at TEXT NOT NULL,
+                    decided_at TEXT, owner_id TEXT
+                );
                 CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events
                     BEGIN SELECT RAISE(ABORT, 'task events are append-only'); END;
                 CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events
@@ -122,6 +154,9 @@ class TaskLedger:
                 CREATE TRIGGER IF NOT EXISTS task_rejections_no_delete BEFORE DELETE ON task_rejections
                     BEGIN SELECT RAISE(ABORT, 'task rejections are append-only'); END;
             ''')
+            columns = {r['name'] for r in db.execute('PRAGMA table_info(task_records)')}
+            if 'plan_json' not in columns:
+                db.execute('ALTER TABLE task_records ADD COLUMN plan_json TEXT')
 
     def _timestamp(self):
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat()
@@ -138,6 +173,7 @@ class TaskLedger:
         for name in ('success_criteria', 'evidence_refs', 'verification_result', 'final_result'):
             if result[name] is not None:
                 result[name] = json.loads(result[name])
+        result['steps'] = json.loads(result.pop('plan_json', None) or '[]')
         if result['lease_expires_at'] is not None:
             result['lease_expires_at'] = datetime.fromtimestamp(result['lease_expires_at'], timezone.utc).isoformat()
         return result
@@ -196,6 +232,8 @@ class TaskLedger:
     def create(self, body: TaskCreate):
         task_id = body.task_id or uuid.uuid4().hex
         immutable = body.model_dump(exclude={'task_id', 'input_digest'})
+        if not immutable['steps']:
+            immutable.pop('steps')  # Preserve the digest of pre-plan clients/records.
         input_digest = digest(immutable)
         if body.input_digest is not None and body.input_digest != input_digest:
             raise TaskConflict('Input digest mismatch')
@@ -217,12 +255,16 @@ class TaskLedger:
                 task_id,created_at,updated_at,source,actor_id,session_id,goal,success_criteria,
                 risk_level,side_effect_class,approval_required,input_digest,assigned_worker,
                 attempt,max_attempts,lease_owner,lease_expires_at,status,approval_id,
-                evidence_refs,verification_result,final_result,failure_reason,rollback_ref
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                evidence_refs,verification_result,final_result,failure_reason,rollback_ref,plan_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (task_id, now, now, body.source, body.actor_id, body.session_id, body.goal,
                  json.dumps(body.success_criteria), body.risk_level, body.side_effect_class,
                  int(body.approval_required), input_digest, body.assigned_worker, 0,
-                 body.max_attempts, None, None, 'received', None, '[]', None, None, None, None))
+                 body.max_attempts, None, None, 'received', None, '[]', None, None, None, None,
+                 json.dumps([step.model_dump() for step in body.steps]) if body.steps else None))
+            for step in body.steps:
+                db.execute('INSERT INTO task_step_records VALUES(?,?,?,?,?,?)',
+                           (task_id, step.name, 'pending', digest(step.model_dump()), None, now))
             self._event(db, task_id, 'received', None, 'received', body.source, 0, immutable)
             return self._public(self._row(db, task_id))
 
@@ -236,12 +278,126 @@ class TaskLedger:
             db.execute('BEGIN IMMEDIATE')
             return self._transition(db, self._row(db, task_id), 'queued', actor)
 
+    def _check_plan(self, db, row):
+        task = self._public(row)
+        if not task['steps']:
+            raise TaskConflict('Task has no managed draft plan')
+        names = ('source', 'actor_id', 'session_id', 'goal', 'success_criteria', 'risk_level',
+                 'side_effect_class', 'approval_required', 'assigned_worker', 'max_attempts', 'steps')
+        try:
+            body = TaskCreate(**{name: task[name] for name in names})
+        except ValueError:
+            self._reject(db, row, 'escalated', 'plan-validator', 'Invalid persisted plan', TaskConflict)
+        if digest(body.model_dump(exclude={'task_id', 'input_digest'})) != row['input_digest']:
+            self._reject(db, row, 'escalated', 'plan-validator', 'Plan digest changed', TaskConflict)
+        return task
+
+    def list_tasks(self, limit=100):
+        with self.connect() as db:
+            return [self._public(row) for row in db.execute(
+                'SELECT * FROM task_records ORDER BY rowid DESC LIMIT ?', (max(1, min(200, limit)),))]
+
+    def managed_task(self, task_id):
+        with self.connect() as db:
+            return self._check_plan(db, self._row(db, task_id))
+
+    def checkpoints(self, task_id):
+        with self.connect() as db:
+            self._row(db, task_id)
+            rows = [dict(row) for row in db.execute(
+                'SELECT * FROM task_step_records WHERE task_id=? ORDER BY rowid', (task_id,))]
+        for row in rows:
+            row['result'] = json.loads(row['result']) if row['result'] else None
+        return rows
+
+    def runnable_drafts(self):
+        with self.connect() as db:
+            return [self._public(row) for row in db.execute(
+                "SELECT * FROM task_records WHERE assigned_worker='jeff-server' AND plan_json IS NOT NULL "
+                "AND status IN ('queued','verifying','reconciling','claimed','running') ORDER BY rowid LIMIT 20")]
+
+    def checkpoint(self, task_id, worker, name, observation):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = self._row(db, task_id)
+            self._require_lease(db, row, worker, 'running')
+            task = self._check_plan(db, row)
+            step = next((step for step in task['steps'] if step['name'] == name), None)
+            if row['status'] != 'running' or not step:
+                raise TaskConflict('Step is not executable')
+            expected = hashlib.sha256(step['content'].encode('utf-8')).hexdigest()
+            if not isinstance(observation, dict) or observation.get('sha256') != expected:
+                raise TaskConflict('Step observation does not match immutable content')
+            db.execute("UPDATE task_step_records SET status='verified',result=?,updated_at=? WHERE task_id=? AND name=?",
+                       (json.dumps(observation), self._timestamp(), task_id, name))
+            self._event(db, task_id, 'step_verified', 'running', 'running', worker,
+                        row['attempt'], {'name': name, 'observation': observation})
+
+    def request_approval(self, task_id, ttl=3600):
+        if ttl < 30 or ttl > 86400:
+            raise TaskConflict('Invalid approval lifetime')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = self._row(db, task_id)
+            self._check_plan(db, row)
+            if not row['approval_required'] or row['status'] not in ('queued', 'waiting_approval'):
+                raise TaskConflict('Task does not need an approval request')
+            old = db.execute('SELECT * FROM task_approvals WHERE approval_id=?', (row['approval_id'],)).fetchone()
+            if old and old['status'] in ('pending', 'approved', 'consumed'):
+                if old['status'] == 'consumed' or old['expires_at'] > self.clock():
+                    return dict(old)
+                db.execute("UPDATE task_approvals SET status='expired' WHERE approval_id=?", (old['approval_id'],))
+            aid = uuid.uuid4().hex
+            db.execute('INSERT INTO task_approvals VALUES(?,?,?,?,?,?,?,?)',
+                       (aid, task_id, row['input_digest'], 'pending', self.clock() + ttl,
+                        self._timestamp(), None, None))
+            if row['status'] == 'queued':
+                self._transition(db, row, 'waiting_approval', 'approval-gate', {'approval_id': aid})
+            else:
+                db.execute('UPDATE task_records SET approval_id=?,updated_at=? WHERE task_id=?',
+                           (aid, self._timestamp(), task_id))
+                self._event(db, task_id, 'approval_renewed', row['status'], row['status'],
+                            'approval-gate', row['attempt'], {'approval_id': aid})
+            return dict(db.execute('SELECT * FROM task_approvals WHERE approval_id=?', (aid,)).fetchone())
+
+    def approvals(self):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                "SELECT a.*,t.goal FROM task_approvals a JOIN task_records t ON t.task_id=a.task_id "
+                "WHERE a.status IN ('pending','approved') AND t.approval_id=a.approval_id "
+                "AND t.status IN ('waiting_approval','queued') ORDER BY a.rowid")]
+
+    def decide_approval(self, approval_id, owner, user_id, chat_id, input_digest, approve):
+        if not owner or str(user_id) != str(owner) or str(chat_id) != str(owner):
+            raise TaskConflict('Wrong approval owner or chat')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            approval = db.execute('SELECT * FROM task_approvals WHERE approval_id=?', (approval_id,)).fetchone()
+            if not approval:
+                raise TaskNotFound(approval_id)
+            row = self._row(db, approval['task_id'])
+            self._check_plan(db, row)
+            if (approval['status'] != 'pending' or row['status'] != 'waiting_approval'
+                    or row['approval_id'] != approval_id
+                    or input_digest != approval['input_digest'] or input_digest != row['input_digest']):
+                raise TaskConflict('Approval is consumed, superseded or changed')
+            if approval['expires_at'] <= self.clock():
+                db.execute("UPDATE task_approvals SET status='expired' WHERE approval_id=?", (approval_id,))
+                db.commit()
+                raise TaskConflict('Approval expired; request renewal')
+            db.execute('UPDATE task_approvals SET status=?,decided_at=?,owner_id=? WHERE approval_id=?',
+                       ('approved' if approve else 'rejected', self._timestamp(), str(owner), approval_id))
+            return self._transition(db, row, 'queued' if approve else 'cancelled', 'owner',
+                                    event_type='approval_granted' if approve else 'approval_rejected')
+
     def claim(self, task_id, worker, lease_seconds=30):
         if not worker or lease_seconds < 1 or lease_seconds > 3600:
             raise TaskConflict('Invalid worker or lease')
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = self._row(db, task_id)
+            if row['plan_json']:
+                self._check_plan(db, row)
             if row['status'] in ('claimed', 'running', 'waiting_approval'):
                 if row['lease_expires_at'] is None or row['lease_expires_at'] > self.clock():
                     self._reject(db, row, 'claimed', worker, 'Active lease exists', TaskConflict)
@@ -257,6 +413,15 @@ class TaskLedger:
                 self._reject(db, row, 'claimed', worker, 'Side effect cannot auto-retry', TaskConflict)
             if row['assigned_worker'] and row['assigned_worker'] != worker:
                 self._reject(db, row, 'claimed', worker, 'Wrong assigned worker', TaskConflict)
+            if row['plan_json'] and row['approval_required']:
+                approval = db.execute('SELECT * FROM task_approvals WHERE approval_id=?',
+                                      (row['approval_id'],)).fetchone()
+                if (not approval or approval['input_digest'] != row['input_digest']
+                        or approval['status'] not in ('approved', 'consumed')
+                        or (approval['status'] == 'approved' and approval['expires_at'] <= self.clock())):
+                    self._reject(db, row, 'claimed', worker, 'Valid owner approval required', TaskConflict)
+                db.execute("UPDATE task_approvals SET status='consumed' WHERE approval_id=?",
+                           (row['approval_id'],))
             if row['attempt'] >= row['max_attempts']:
                 self._reject(db, row, 'claimed', worker, 'Maximum attempts reached', TaskConflict)
             return self._transition(db, row, 'claimed', worker,
@@ -301,7 +466,7 @@ class TaskLedger:
                                      'lease_owner': None, 'lease_expires_at': None},
                                     evidence_ref=evidence_id)
 
-    def verify(self, task_id, health_probe):
+    def verify(self, task_id, health_probe, artifact_probe=None):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = self._row(db, task_id)
@@ -313,14 +478,27 @@ class TaskLedger:
             execution_ok = bool(execution_row and execution_row['attempt'] == row['attempt']
                                 and execution.get('request_id') == task_id
                                 and execution.get('status') == 'SUCCESS')
+            plan = json.loads(row['plan_json'] or '[]')
+            if plan:
+                self._check_plan(db, row)
             try:
-                observation = health_probe()
+                observation = artifact_probe(self._public(row)) if plan and artifact_probe else (
+                    {'status': 'unconfigured'} if plan else health_probe())
             except Exception:
                 observation = {'status_code': 0, 'status': 'unavailable'}
             if not isinstance(observation, dict):
                 observation = {'status_code': 0, 'status': 'invalid'}
-            outcome_ok = observation.get('status_code') == 200 and observation.get('status') == 'ok'
-            criteria = {name: bool(outcome_ok) if name == 'pablo_health_ok' else False
+            if plan:
+                expected = {step['name']: hashlib.sha256(step['content'].encode('utf-8')).hexdigest() for step in plan}
+                observed = observation.get('artifacts', {})
+                outcome_ok = (isinstance(observed, dict) and observation.get('task_id') == task_id
+                              and observation.get('status') == 'ok'
+                              and all(isinstance(observed.get(name), dict)
+                                      and observed[name].get('sha256') == sha for name, sha in expected.items()))
+            else:
+                outcome_ok = observation.get('status_code') == 200 and observation.get('status') == 'ok'
+            criterion_name = 'artifact_sha256_matches' if plan else 'pablo_health_ok'
+            criteria = {name: bool(outcome_ok) if name == criterion_name else False
                         for name in json.loads(row['success_criteria'])}
             outcome_id = uuid.uuid4().hex
             db.execute('INSERT INTO task_evidence VALUES(?,?,?,?,?,?,?,?)',
@@ -334,9 +512,12 @@ class TaskLedger:
                             'outcome_ref': outcome_id}
             changes = {'evidence_refs': json.dumps(refs),
                        'verification_result': json.dumps(verification),
-                       'final_result': json.dumps({'verified': True}) if passed else None,
+                       'final_result': json.dumps({'verified': True, 'scope': 'saved_draft_content', 'delivered': False,
+                                                   'artifacts': observation['artifacts']}) if passed and plan else (
+                           json.dumps({'verified': True}) if passed else None),
                        'failure_reason': None if passed else 'Independent verification failed'}
-            return self._transition(db, row, 'verified' if passed else 'failed',
+            target = 'verified' if passed else ('escalated' if plan and observation.get('status') != 'ok' else 'failed')
+            return self._transition(db, row, target,
                                     'verifier', changes, evidence_ref=outcome_id)
 
     def cancel(self, task_id, actor):
@@ -345,8 +526,10 @@ class TaskLedger:
             row = self._row(db, task_id)
             if row['status'] in ('running', 'waiting_approval', 'reconciling') and row['side_effect_class'] != 'none':
                 self._reject(db, row, 'cancelled', actor, 'Possible side effect requires outcome review')
-            return self._transition(db, row, 'cancelled', actor,
+            result = self._transition(db, row, 'cancelled', actor,
                                     {'lease_owner': None, 'lease_expires_at': None})
+            db.execute("UPDATE task_approvals SET status='revoked' WHERE task_id=? AND status IN ('pending','approved')", (task_id,))
+            return result
 
     def reconcile(self, task_id, actor):
         with self.connect() as db:

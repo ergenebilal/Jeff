@@ -49,6 +49,8 @@ class TaskHttpSmoke(unittest.TestCase):
                        TASK_WORKER_HEALTH_URL=f'http://127.0.0.1:{health.server_port}/health',
                        BRIDGE_DB_PATH=str(Path(temporary) / 'bridge.db'),
                        BRIDGE_HOST='127.0.0.1', BRIDGE_PORT=str(port))
+            env.update(TASK_ARTIFACT_ROOT=str(Path(temporary) / 'artifacts'),
+                       APPROVAL_DECISION_KEY='fixture-owner-key-long-enough', TASK_APPROVAL_OWNER='42')
             process = subprocess.Popen(
                 [sys.executable, '-m', 'uvicorn', 'jeff_bridge_api:app',
                  '--host', '127.0.0.1', '--port', str(port), '--log-level', 'error'],
@@ -56,10 +58,12 @@ class TaskHttpSmoke(unittest.TestCase):
                 stderr=subprocess.DEVNULL)
             base = f'http://127.0.0.1:{port}'
 
-            def call(method, path, data=None, worker=False):
+            def call(method, path, data=None, worker=False, decision=False):
                 headers = {'Content-Type': 'application/json',
                            ('X-Task-Worker-Key' if worker else 'X-Bridge-Key'):
                            env['TASK_WORKER_KEY' if worker else 'BRIDGE_KEY']}
+                if decision:
+                    headers = {'Content-Type': 'application/json', 'X-Approval-Key': env['APPROVAL_DECISION_KEY']}
                 req = Request(base + path,
                               data=json.dumps(data).encode() if data is not None else None,
                               headers=headers, method=method)
@@ -77,6 +81,11 @@ class TaskHttpSmoke(unittest.TestCase):
                         time.sleep(.05)
                 else:
                     self.fail('Bridge did not become ready')
+                health_data = call('GET', '/health')
+                self.assertTrue(health_data['draft_worker_ready'])
+                import hashlib
+                self.assertEqual(health_data['loaded_source_sha256']['task_artifacts.py'],
+                                 hashlib.sha256((bridge_dir / 'task_artifacts.py').read_bytes()).hexdigest())
 
                 task_id = 'http-ping-001'
                 body = {'task_id': task_id, 'source': 'smoke', 'goal': 'Check Pablo health',
@@ -132,6 +141,43 @@ class TaskHttpSmoke(unittest.TestCase):
                     call('POST', '/alfred/task',
                          {'task_id': task_id, 'type': 'PING', 'payload': {}})
                 self.assertEqual(legacy_against_new.exception.code, 409)
+
+                draft = dict(body, task_id='http-draft', source='panel', assigned_worker='jeff-server',
+                             goal='Save researched draft', approval_required=True,
+                             success_criteria=['artifact_sha256_matches'],
+                             steps=[{'name': 'message', 'content': 'Personal draft — never sent', 'format': 'md'}])
+                call('POST', '/tasks', draft)
+                call('POST', '/tasks/http-draft/plan', {'actor': 'panel'})
+                call('POST', '/tasks/http-draft/queue', {'actor': 'panel'})
+                approval = call('POST', '/tasks/http-draft/approval')
+                self.assertEqual(call('GET', '/approvals/queue')[0]['approval_id'], approval['approval_id'])
+                decision_body = {'user_id': '42', 'chat_id': '42', 'input_digest': approval['input_digest'], 'decision': 'approve'}
+                path = '/approvals/' + approval['approval_id'] + '/decision'
+                with self.assertRaises(HTTPError) as agent_decision:
+                    call('POST', path, decision_body)
+                self.assertEqual(agent_decision.exception.code, 401)
+                with self.assertRaises(HTTPError) as wrong_owner:
+                    call('POST', path, dict(decision_body, user_id='7'), decision=True)
+                self.assertEqual(wrong_owner.exception.code, 409)
+                call('POST', path, decision_body, decision=True)
+                for _ in range(100):
+                    saved = call('GET', '/tasks/http-draft')
+                    if saved['status'] == 'verified': break
+                    time.sleep(.05)
+                self.assertEqual(saved['status'], 'verified')
+                self.assertFalse(saved['final_result']['delivered'])
+                self.assertEqual(call('GET', '/tasks/http-draft/steps')[0]['status'], 'verified')
+                artifact_url = base + '/tasks/http-draft/artifacts/message'
+                with urlopen(Request(artifact_url, headers={'X-Bridge-Key': env['BRIDGE_KEY']}), timeout=5) as response:
+                    self.assertEqual(response.read().decode(), draft['steps'][0]['content'])
+                    self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
+                with self.assertRaises(HTTPError) as unauthenticated:
+                    urlopen(artifact_url, timeout=5)
+                self.assertEqual(unauthenticated.exception.code, 401)
+                next(Path(env['TASK_ARTIFACT_ROOT']).rglob('message.md')).write_text('altered')
+                with self.assertRaises(HTTPError) as changed:
+                    urlopen(Request(artifact_url, headers={'X-Bridge-Key': env['BRIDGE_KEY']}), timeout=5)
+                self.assertEqual(changed.exception.code, 409)
             finally:
                 process.terminate()
                 try:
