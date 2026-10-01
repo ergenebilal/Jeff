@@ -30,6 +30,11 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
             totals['waiting'] += waiting
             totals['old'] += old
             totals['sources']['tasks'] = waiting
+            if 'task_approvals' in tables:
+                totals['expired'] += db.execute(
+                    "SELECT count(*) FROM task_approvals a JOIN task_records t ON t.task_id=a.task_id "
+                    "WHERE t.approval_id=a.approval_id AND t.status='waiting_approval' "
+                    "AND a.expires_at<=? AND a.status IN ('pending','expired')", (now.timestamp(),)).fetchone()[0]
         else:
             totals['unavailable'].append('Görev defteri')
         # Only production bridge databases have a node heartbeat table. Unit

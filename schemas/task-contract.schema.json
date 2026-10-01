@@ -28,6 +28,19 @@
     "assigned_worker": {"type": ["string", "null"]},
     "attempt": {"type": "integer", "minimum": 0},
     "max_attempts": {"type": "integer", "minimum": 1, "maximum": 10},
+    "steps": {
+      "type": "array", "maxItems": 20,
+      "items": {
+        "type": "object", "required": ["name", "kind", "content", "format"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+          "kind": {"const": "artifact_write"},
+          "content": {"type": "string", "minLength": 1, "maxLength": 500000},
+          "format": {"enum": ["txt", "md", "json"]}
+        },
+        "additionalProperties": false
+      }
+    },
     "lease_owner": {"type": ["string", "null"]},
     "lease_expires_at": {"type": ["string", "null"], "format": "date-time"},
     "status": {
