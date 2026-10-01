@@ -1,0 +1,32 @@
+--- a/docs/cybergeneos/server/jeff.py
++++ b/docs/cybergeneos/server/jeff.py
+@@ -6,6 +6,7 @@
+ import urllib.request
+ 
+ from . import llm
++from .context_boundary import DATA_RULES, pack_request
+ 
+ VOICE_RULES = (
+     "Bu mesaj Bilal'in CybergeneOS panelindeki sesli konuşmadan geliyor ve cevabın sesli okunacak. Her zamanki Jeff'sin, aynı dil ve aynı kurallarla. "
+@@ -66,8 +67,8 @@
+ 
+ def stream_hermes(text, context):
+     body = {"model": "jeff", "stream": True, "model_options": {"reasoning_effort": "low"},
+-            "messages": [{"role": "system", "content": VOICE_RULES + "\n\nPanel verisi (gerçek, şu an):\n" + context},
+-                         {"role": "user", "content": text}]}
++            "messages": [{"role": "system", "content": VOICE_RULES + DATA_RULES},
++                         {"role": "user", "content": pack_request(text, context)}]}
+     req = urllib.request.Request(hermes_url() + "/v1/chat/completions", data=json.dumps(body).encode(),
+                                  headers={"Authorization": "Bearer " + os.environ["HERMES_API_KEY"], "Content-Type": "application/json",
+                                           "X-Hermes-Session-Id": session_id()})
+@@ -76,8 +77,8 @@
+ 
+ 
+ def stream_fallback(text, context):
+-    _fallback_history.append({"role": "user", "text": text})
+-    answer = llm.generate(None, system=FALLBACK_SYSTEM + "\n\nPanel verisi:\n" + context, history=_fallback_history[-8:], temperature=0.5, max_tokens=220, timeout=20)
++    _fallback_history.append({"role": "user", "text": pack_request(text, context)})
++    answer = llm.generate(None, system=FALLBACK_SYSTEM + DATA_RULES, history=_fallback_history[-8:], temperature=0.5, max_tokens=220, timeout=20)
+     _fallback_history.append({"role": "model", "text": answer})
+     yield answer
+ 
