@@ -34,7 +34,7 @@ fixture no longer resembles a real API credential.
 - Task schema/digest validation and deliberate broken fixture rejection passed.
 - Regressions mock senders and desktop input; no test sends a real message.
 - Linux isolated checkout: 228 Bridge tests and 25 contract tests passed, no skips.
-- GitHub checks for implementation commit `393eefb2b` passed (both workflows).
+- GitHub checks for implementation commit `393eefb2b` passed (both workflow runs).
 
 ## Rollout evidence
 
