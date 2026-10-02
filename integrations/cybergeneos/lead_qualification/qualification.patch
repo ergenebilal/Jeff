@@ -1,0 +1,286 @@
+--- a/docs/cybergeneos/server/jobs.py
++++ b/docs/cybergeneos/server/jobs.py
+@@ -5,11 +5,11 @@
+ import queue
+ import threading
+ 
+-from . import analysis, gate, geo, marketing, places
++from . import analysis, gate, geo, marketing, places, qualification
+ from .sources import RateLimited
+ from .store import now
+ 
+-KINDS = ("radar", "lead_scan", "gate", "analysis", "marketing")
++KINDS = ("radar", "lead_scan", "gate", "analysis", "marketing", "qualification")
+ WHO = {"bilal": "Siz", "jeff": "Jeff", "zamanlayici": "Zamanlayıcı"}
+ STARTED = {"bilal": "Siz başlattınız", "jeff": "Jeff başlattı", "zamanlayici": "Zamanlayıcı başlattı"}
+ 
+@@ -46,9 +46,13 @@
+         self.cancels = {}
+         self.start_lock = threading.RLock()
+         marketing.init(store)
++        qualification.init(store)
+         for jid in marketing.recover(store):
+             self.cancels[jid] = threading.Event()
+             self.queues['marketing'].put(jid)
++        for jid in qualification.recover(store):
++            self.cancels[jid] = threading.Event()
++            self.queues['qualification'].put(jid)
+         for k in KINDS:
+             threading.Thread(target=self._worker, args=(k,), daemon=True).start()
+ 
+@@ -63,6 +67,15 @@
+         """Returns (job id, None) or (None, error code). Refuses a second radar scan while one is waiting or running."""
+         if kind not in KINDS:
+             return None, "tur"
++        if kind == 'qualification':
++            try:
++                jid, created = qualification.start(self.store, params.get('ids') or [], params.get('request_key'), by if by in WHO else 'bilal')
++                if created:
++                    self.cancels[jid] = threading.Event()
++                    self.queues[kind].put(jid)
++                return jid, None
++            except marketing.Conflict as e:
++                return None, str(e)
+         if kind == 'marketing':
+             try:
+                 ids = params.get('ids') or []
+@@ -146,7 +159,8 @@
+                 import json
+                 params = json.loads(row['params'])
+                 summary = (self.radar.run(h) if kind == "radar" else gate.run(self.store, h, params) if kind == "gate"
+-                           else analysis.run(self.store, h, params) if kind == "analysis" else marketing.run(self.store, h, params) if kind == 'marketing' else lead_scan(self.store, h, params))
++                           else analysis.run(self.store, h, params) if kind == "analysis" else marketing.run(self.store, h, params) if kind == 'marketing'
++                           else qualification.run(self.store, h, params) if kind == 'qualification' else lead_scan(self.store, h, params))
+                 self.store.update_job(jid, status="done", progress=100, note=summary, finished_at=now(), log_line="Bitti: " + summary)
+                 if kind == "lead_scan" and self.auto_gate:  # what a scan finds goes straight through the gate
+                     found = (next((j for j in self.store.jobs(50) if j["id"] == jid), {}).get("result") or {}).get("ids") or []
+--- a/docs/cybergeneos/server/store.py
++++ b/docs/cybergeneos/server/store.py
+@@ -88,7 +88,7 @@
+                 self.db.executescript("DELETE FROM opps; DELETE FROM news; DELETE FROM seen; DELETE FROM meta WHERE k IN ('config','digest','last_run','last_summary');")
+                 self.db.execute("INSERT INTO meta(k,v) VALUES('schema',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (json.dumps(SCHEMA_VERSION),))
+             # a job cannot survive a restart; mark the ones that were running so the radar does not show them as stuck
+-            self.db.execute("UPDATE jobs SET status='failed', note='Sunucu yeniden başladı, görev yarıda kaldı', finished_at=? WHERE kind!='marketing' AND status IN ('queued','running')", (now(),))
++            self.db.execute("UPDATE jobs SET status='failed', note='Sunucu yeniden başladı, görev yarıda kaldı', finished_at=? WHERE kind NOT IN ('marketing','qualification') AND status IN ('queued','running')", (now(),))
+             self.db.commit()
+ 
+     def q(self, sql, args=()):
+--- a/docs/cybergeneos/server/app.py
++++ b/docs/cybergeneos/server/app.py
+@@ -16,7 +16,7 @@
+ from pathlib import Path
+ from urllib.parse import parse_qs, urlparse
+ 
+-from . import analysis, briefing, contact, geo, intent, jeff, llm, marketing, metrics, outreach, places, reach, sources
++from . import analysis, briefing, contact, geo, intent, jeff, llm, marketing, metrics, outreach, places, qualification, reach, sources
+ from .jobs import Jobs
+ from .radar import Radar
+ from .store import CLOSED, STAGES, Store, now
+@@ -110,6 +110,7 @@
+     all_leads = store.leads()
+     st = briefing.steps(store, all_leads)
+     marketing_views = marketing.views(store)
++    qualification_views = qualification.views(store)
+     for l in all_leads:
+         you = briefing.you_text(l, l["id"] in ok)
+         leads.append({**{k: l[k] for k in ("id", "name", "city", "district", "sector", "category", "src", "stage", "need", "fit", "channel", "size",
+@@ -117,6 +118,7 @@
+                                             "gate", "gate_at", "gate_override")},
+                       "gate_reasons": json.loads(l["gate_reasons"] or "[]"), "gate_info": json.loads(l["gate_info"] or "{}"),
+                       "analysis": json.loads(l["analysis"] or "null"), "analysis_at": l["analysis_at"], "marketing": marketing_views.get(l['id']),
++                      "qualification": qualification_views.get(l['id']),
+                       "drafts": json.loads(l["drafts"] or "null"), "contacts": json.loads(l["contacts"] or "[]"),
+                       "optout": l["id"] in optouts, "wa": reach.whatsapp_number(l["phone"]),
+                       "instagram": reach.instagram_of(l), "form": reach.has_form(l),
+@@ -132,6 +134,7 @@
+             "briefing": briefing.briefing(store), "radar": radar.status(), "voice": llm.ready(), "voices": sorted(llm.VOICES), "jeff": jeff.mode(),
+             "arguments": [{k: a[k] for k in ("id", "title", "pain", "soru", "honest_limit")} for a in outreach.arguments().get("arguments", [])],
+             "metrics": metrics.report(store.leads(), places.usage(), places.details_usage()),
++            "meeting_candidates": qualification.board(store, qualification_views),
+             "stages": STAGES, "sections": briefing.SECTIONS, "cities": {n: list(c) for n, c in geo.PROVINCES.items()},
+             "districts": geo.DISTRICTS}
+ 
+@@ -165,6 +168,7 @@
+     for s in st.values():
+         counts[s["list"]] += 1
+     return {"jobs": [{k: j[k] for k in ("id", "title", "status", "progress", "note")} for j in store.jobs(8)],
++            "meeting_candidates": qualification.board(store),
+             "leads": {label: counts[k] for k, label in briefing.LISTS},
+             "sizden_bekleyen": [{"isletme": outreach.short_name(l["name"]), "adim": st[l["id"]]["text"]}
+                                 for l in sorted(leads, key=lambda l: st[l["id"]].get("rank", 9)) if st[l["id"]]["list"] == "sira"][:10],
+@@ -261,6 +265,9 @@
+     l = store.lead(lid)
+     if not l:
+         return err(404, "yok")
++    if action == 'qualify':
++        jid, e = jobs.start('qualification', {'ids': [lid], 'request_key': body.get('request_key')}, 'bilal')
++        return (200, {'ok': True, 'job': jid}) if jid else (409, {'error': 'secim_baslamadi', 'detail': e})
+     if action == 'prepare':
+         jid, e = jobs.start('marketing', {'ids': [lid], 'request_key': body.get('request_key')}, 'bilal')
+         return (200, {'ok': True, 'job': jid}) if jid else (409, {'error': 'inceleme_baslamadi', 'detail': e})
+--- a/docs/cybergeneos/server/briefing.py
++++ b/docs/cybergeneos/server/briefing.py
+@@ -189,6 +189,7 @@
+ 
+ 
+ def jeff_context(store):
++    from . import qualification
+     opps = sorted([o for o in store.opps() if o["status"] != "Geçildi"], key=lambda o: -(o.get("stars") or 0))[:10]
+     leads = store.leads()
+     ok = approved_leads(store)
+@@ -211,6 +212,9 @@
+     sec = ", ".join(f"{label}: {counts[k]}" for k, label in LISTS)
+     from .metrics import funnel
+     sec += "\nHuni: " + " → ".join(f"{x['step']} {x['n']}" for x in funnel(leads))
++    shortlist = qualification.board(store)
++    sec += f"\nGörüşme adayı hedefi: {len(shortlist['ids'])}/10. İhtiyaç ve satın alma niyeti görüşmede doğrulanmalı."
++    sec += "\nAday firma kimlikleri: " + ", ".join(shortlist['ids'])
+     d = store.get_meta("digest") or {}
+     return (f"Radar son çalışma: {store.get_meta('last_summary', 'henüz çalışmadı')}\n\nSon görevler (Radar ekranında görünür):\n{j_txt}\n\n"
+             f"Fırsatlar (yıldız = önem):\n{o_txt}\n\nLead listeleri: {sec}\nÜzerinde çalışılan leadler:\n{l_txt}\n\n"
+--- a/docs/cybergeneos/app.js
++++ b/docs/cybergeneos/app.js
+@@ -884,7 +884,7 @@
+     const ended = [...before].filter(id => !nowActive.has(id)).map(id => D.jobs.find(j => j.id === id)).filter(Boolean);
+     if (ended.length) {
+       await refresh();
+-      if (sheetKind === 'lead' && openLeadId && ended.some(j => j.kind === 'marketing' && (j.params?.ids || []).includes(openLeadId))) openLead(openLeadId);
++      if (sheetKind === 'lead' && openLeadId && ended.some(j => ['marketing', 'qualification'].includes(j.kind) && (j.params?.ids || []).includes(openLeadId))) openLead(openLeadId);
+       const j = ended[0];
+       if (j.by !== 'zamanlayici' || j.kind !== 'radar') toast(`${j.title}: ${j.status === 'done' ? jobLine(j) : j.note}`);
+     } else renderJobs();
+@@ -1089,7 +1089,9 @@
+ const leadKind = l => l.category || l.sector || '';
+ const passed = l => l.gate === 'geçti' || !!l.gate_override;
+ const analysing = l => (D.jobs || []).some(j => ['analysis', 'marketing'].includes(j.kind) && (j.status === 'running' || j.status === 'queued') && (j.params?.ids || []).includes(l.id));
+-const LISTS = [['sira', 'Sırada', 'Sizin bir adım atmanızı bekleyenler.'],
++const qualifying = l => (D.jobs || []).some(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status) && (j.params?.ids || []).includes(l.id) && !(l.qualification?.current && l.qualification.job_id === j.id));
++const LISTS = [['gorusme', 'Görüşme adayları', 'Hedef: hizmetimize ihtiyaç duyabilecek, gerekçesi kaynaklarla desteklenen en fazla 10 firma.'],
++  ['sira', 'Sırada', 'Sizin bir adım atmanızı bekleyenler.'],
+   ['havuz', 'Havuz', 'Kapıdan ve analizden geçmeyi bekleyenler. Bu işleri Jeff yapar, siz yalnızca başlatırsınız.'],
+   ['bekle', 'Yanıt bekleniyor', 'Mesaj gitti. Takip günü gelince Sırada listesine döner.'],
+   ['arsiv', 'Arşiv', 'Kapananlar, kapıda elenenler ve keskin bulgu çıkmadığı için yazılmayanlar.']];
+@@ -1097,6 +1099,7 @@
+ /* The single next step for a lead: the server works it out (briefing.next_step, the same one Jeff and the morning
+    message use); the screen only adds what changes between refreshes: a running analysis and the follow-up date. */
+ function nextStep(l){
++  if (qualifying(l)) return {list: 'havuz', rank: 0, text: 'Jeff görüşme gerekçesini sınayıp karşı kanıt arıyor', busy: true};
+   if (analysing(l) && !['Gönderildi', 'Yanıt geldi', 'Görüşme', 'Kazanıldı', 'Kapandı'].includes(l.stage) && !l.optout) return {list: 'havuz', rank: 0, text: 'Jeff araştırıyor ve taslak hazırlıyor', busy: true};
+   const s = l.step;
+   if (s) {
+@@ -1132,7 +1135,7 @@
+   return {list: 'havuz', rank: 3, text: 'Kapı bekliyor', act: ['gate-rerun', 'Kapıdan geçir']};
+ }
+ const plainReason = t => (t || '').replace('Sitemizdeki bir argümana denk gelen görünür bir dert bulunamadı', 'Bizim çözdüğümüz türden görünür bir dert bulunamadı');
+-const whyLine = l => (l.marketing?.current && l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : l.analysis?.bulgular?.[0]?.baslik) || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
++const whyLine = l => (l.qualification?.current && l.qualification.hypothesis ? 'İhtiyaç hipotezi: ' + l.qualification.hypothesis : '') || (l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : '') || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
+ function renderLeadFilters(){ fillCities(); }  // city and last-scan filters are drawn as removable chips in renderLeads
+ function leadPool(){
+   const q = state.q.toLocaleLowerCase('tr');
+@@ -1164,16 +1167,17 @@
+       <table class="ltable" style="margin-top:10px">${head.replace('<th></th>', '<th>Kanal</th>')}<tbody>${sc.channels.map(row).join('')}</tbody></table></div>
+       <p class="help">Bir işletmenin sonucu, ona yapılan ilk mesajın argümanına ve kanalına yazılır. "Açtı" ve "Denedi" kişisel bağlantıdan gelir, çerez kullanılmaz.</p>`
+       : '<p class="help">Henüz mesaj gitmedi. İlk mesajlar gittikçe hangi argümanın tıklama, deneme ve yanıt getirdiği burada görünür.</p>'}
+-    <p class="help">Bu ay Google: ${m.usage?.google_search ?? 0} arama, ${m.usage?.google_details ?? 0} işletme ayrıntısı. İkisi de ücretsiz sınırın altında tutulur.</p></div></details>`;
++    <p class="help">Bu ay Google: ${m.usage?.google_search ?? 0} arama, ${m.usage?.google_details ?? 0} işletme ayrıntısı. İstek sınırları uygulanır; gerçek ücret sağlayıcı hesabından kontrol edilir.</p></div></details>`;
+   box.querySelector('details').addEventListener('toggle', e => { state.metricsOpen = e.target.open; });
+ }
+ function renderLeads(){
+   renderMetrics();
+   const all = D.leads.map(l => [l, nextStep(l)]);
+   const pool = leadPool().map(l => [l, nextStep(l)]);
+-  const of = (rows, k) => rows.filter(([, s]) => s.list === k);
++  const board = D.meeting_candidates || {ids: [], target: 10, reviewed: 0};
++  const of = (rows, k) => k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id)).map(([l]) => [l, {list: 'sira', rank: 0, text: 'Görüşme gerekçesini değerlendirin', act: ['open', 'Gerekçeyi incele']}]) : rows.filter(([, s]) => s.list === k);
+   const mine = of(all, 'sira').length;
+-  if (!state.leadSecSet) state.leadSec = mine ? 'sira' : 'havuz';  // until Bilal picks a list himself
++  if (!state.leadSecSet) state.leadSec = 'gorusme';
+   if (!LISTS.some(([k]) => k === state.leadSec)) state.leadSec = 'sira';
+   $('#lead-sub').textContent = !D.leads.length ? 'Henüz işletme yok.' : mine ? `${mine} işletme sizden bir adım bekliyor.` : 'Şu an sizden bekleyen bir adım yok.';
+   $('#lead-sections').innerHTML = LISTS.map(([k, label]) => `<button type="button" role="tab" data-sec="${k}" aria-selected="${state.leadSec === k}">${label}<span class="n">${of(pool, k).length}</span></button>`).join('');
+@@ -1181,8 +1185,12 @@
+     + (state.leadJob ? '<button class="chip" type="button" data-clear="job">Son tarama <i class="ph ph-x" aria-label="Kaldır"></i></button>' : '');
+   if (!state.loaded) { $('#lead-view').innerHTML = '<div class="lempty">Yükleniyor</div>'; return; }
+   if (!D.leads.length) { $('#lead-view').innerHTML = '<div class="lempty"><h3>Henüz işletme yok</h3>"Yeni tarama" ile bir şehirde bir sektörü taratın ya da bildiğiniz bir işletmeyi elle ekleyin.</div>'; return; }
+-  const rows = of(pool, state.leadSec).sort(([a, s], [b, t]) => ((s.rank ?? 9) - (t.rank ?? 9)) || ((b.updated_at || b.created_at) - (a.updated_at || a.created_at)));
++  const rows = of(pool, state.leadSec).sort(([a, s], [b, t]) => (state.leadSec === 'gorusme' ? (b.qualification?.score || 0) - (a.qualification?.score || 0) : ((s.rank ?? 9) - (t.rank ?? 9))) || ((b.updated_at || b.created_at) - (a.updated_at || a.created_at)));
+   let top = `<p class="lnote">${LISTS.find(([k]) => k === state.leadSec)[2]}</p>`;
++  if (state.leadSec === 'gorusme') {
++    const active = (D.jobs || []).find(j => j.kind === 'qualification' && ['queued', 'running'].includes(j.status));
++    top += `<div class="lbanner"><p><b>${board.ids.length}/10 görüşme adayı</b> · ${board.reviewed} firma güncel ölçütlerle değerlendirildi. ${active ? esc(active.note || 'Jeff seçimi sürdürüyor.') : 'Eksik yerler zayıf adaylarla doldurulmaz.'}</p><button class="btn btn-primary btn-sm" type="button" data-batch="qualification" ${active ? 'disabled' : ''}>${active ? 'Jeff adayları seçiyor' : 'Jeff görüşme adaylarını seçsin'}</button></div><p class="help">Öneriler ihtiyaç hipotezidir. Puan, görüşme veya satın alma olasılığı değildir. Kimseye mesaj gönderilmez.</p>`;
++  }
+   if (state.leadSec === 'havuz') {
+     const toAnalyze = all.filter(([, s]) => s.act?.[0] === 'analyze').map(([l]) => l.id);
+     const toGate = all.filter(([, s]) => s.act?.[0] === 'gate-rerun').length;
+@@ -1194,7 +1202,7 @@
+     top += parts.join('');
+   }
+   if (!rows.length) {
+-    const EMPTY = {sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
++    const EMPTY = {gorusme: ['Henüz güçlü görüşme adayı yok', 'Jeff güncel resmî kaynakları inceler, hizmet uyumunu ve somut iş yükünü sınar. Yetersiz kanıtlı firmalar bu listeye girmez.'], sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
+       havuz: ['Havuz boş', 'Yeni işletme bulmak için bir tarama başlatın.'], bekle: ['Yanıt bekleyen mesaj yok', 'Gönderdiğiniz mesajlar burada takip edilir.'],
+       arsiv: ['Arşiv boş', 'Kapanan ve elenen işletmeler burada durur.']}[state.leadSec];
+     $('#lead-view').innerHTML = top + `<div class="lempty"><h3>${EMPTY[0]}</h3>${state.q || state.city !== 'all' || state.leadJob ? 'Arama ya da süzgeç yüzünden boş olabilir.' : EMPTY[1]}</div>`;
+@@ -1214,6 +1222,14 @@
+   const bt = e.target.closest('[data-batch]');
+   if (bt) {
+     bt.disabled = true;
++    if (bt.dataset.batch === 'qualification') {
++      const keyName = 'cgos-qualification-batch';
++      let key = sessionStorage.getItem(keyName);
++      if (!key) { key = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); sessionStorage.setItem(keyName, key); }
++      try { const r = await api('jobs', {kind: 'qualification', request_key: key}); sessionStorage.removeItem(keyName); state.radarJob = r.job; toast('Jeff görüşme gerekçelerini araştırıyor. Mesaj gönderilmeyecek.'); pollJobs(); await refresh(); }
++      catch (err) { bt.disabled = false; toast('Seçim başlatılamadı: ' + err.message); }
++      return;
++    }
+     if (bt.dataset.batch === 'analysis') {
+       const ids = (bt.dataset.ids || '').split(',').filter(Boolean);
+       try { const r = await api('jobs', {kind: 'analysis', ids}); state.radarJob = r.job; toast(`Jeff ${ids.length} işletmeyi sırayla analiz edecek. İlerleme Radar ekranında.`); pollJobs(); }
+@@ -1294,11 +1310,11 @@
+     const sel = useSel[l.id] || l.drafts?.use || f.slice(0, 2).map((_, i) => i);
+     body = f.length ? `<ol class="finds2">${f.map((x, i) => `<li>
+         <label class="use"><input type="checkbox" data-use="${i}" ${sel.includes(i) ? 'checked' : ''}> Mesajda kullan</label>
+-        <h4>${l.marketing?.current ? 'İş hipotezi: ' : ''}${esc(x.baslik)}</h4>
++        <h4>İş hipotezi: ${esc(x.baslik)}</h4>
+         <blockquote>"${esc(x.alinti)}"</blockquote>
+         <p class="src">${esc(x.kaynak?.label || 'Kaynak')}${safeUrl(x.kaynak?.url) ? ` · <a href="${esc(x.kaynak.url)}" ${ext}>Kaynakta gör</a>` : ''}${x.kaynak?.observed_at ? ` · ${fmtDate(x.kaynak.observed_at)}` : ''}</p>
+         ${(x.notlar || []).map(n => `<p class="warn"><i class="ph ph-warning" aria-hidden="true"></i>${esc(n)}</p>`).join('')}
+-        ${x.gordugumuz || x.olasi_maliyet ? `<details><summary>Ayrıntı</summary>${x.gordugumuz ? `<p>${l.marketing?.current ? 'Jeff’in yorumu: ' : ''}${esc(x.gordugumuz)}</p>` : ''}${x.olasi_maliyet ? `<p>İş varsayımı: ${esc(x.olasi_maliyet)}</p>` : ''}</details>` : ''}
++        ${x.gordugumuz || x.olasi_maliyet ? `<details><summary>Ayrıntı</summary>${x.gordugumuz ? `<p>Jeff’in yorumu: ${esc(x.gordugumuz)}</p>` : ''}${x.olasi_maliyet ? `<p>İş varsayımı: ${esc(x.olasi_maliyet)}</p>` : ''}</details>` : ''}
+       </li>`).join('')}</ol>
+       <p class="help">Göndermeden önce bulguya bir kez kendiniz bakın: kliniğe yanlış bir şey söylemek ilk izlenimi bozar.</p>`
+       : `<p class="empty-note">${esc(a.gerekce || (a.karar === 'gerek_yok' ? 'Jeff nokta atışı bir bulgu görmedi. Kural gereği bu işletmeye yazılmaz.' : 'Rapor tamamlanamadı.'))}</p>`;
+@@ -1309,7 +1325,19 @@
+     const seconds = Object.values(m.steps || {}).reduce((sum, x) => sum + (x.elapsed_seconds || 0), 0);
+     body += `<p class="help" aria-live="polite">${esc(m.note || 'İnceleme ve taslak görevi')}${seconds ? ` · ${Math.round(seconds)} saniye` : ''}. Kaynakta bulunan alıntı denetlenir; firmanın ihtiyacı varsayımdır.</p>`;
+   }
+-  return `<section class="wcol report" aria-label="Jeff'in raporu"><h3 class="wh">Jeff'in raporu ${a ? `<span class="tag ${VERDICT[a.karar][1]}">${VERDICT[a.karar][0]}</span>` : ''}</h3>${body}</section>`;
++  return `<section class="wcol report" aria-label="Jeff'in raporu"><h3 class="wh">Jeff'in raporu ${a ? `<span class="tag ${VERDICT[a.karar][1]}">${VERDICT[a.karar][0]}</span>` : ''}</h3>${qualificationCol(l)}${body}</section>`;
++}
++function qualificationCol(l){
++  const q = l.qualification;
++  const action = qualifying(l) ? '<p class="help">Jeff görüşme gerekçesini inceliyor.</p>' : LP('qualify', 'Görüşme gerekçesini Jeff araştırsın');
++  if (!q) return `<div class="reviewbox"><h4>Görüşmeye değer mi?</h4><p class="help">Somut iş yükü, hizmet uyumu ve güncel işletme kanalı birlikte değerlendirilir.</p>${action}</div>`;
++  const labels = {service_fit: 'Hizmet uyumu', need_signal: 'İhtiyaç işareti', timing: 'Zamanlama', reachability: 'Ulaşılabilirlik'};
++  return `<div class="reviewbox"><h4>${q.current ? q.decision === 'gorusme_adayi' ? 'Görüşme adayı' : 'Güçlü aday için kanıt yetersiz' : 'Değerlendirme güncelliğini kaybetti'}</h4>
++    <p class="help">Öncelik puanı ${q.score}/90 · ${Object.entries(q.dimensions || {}).map(([k, v]) => esc(labels[k] || k) + ': ' + v).join(' · ')}. Bu bir başarı olasılığı değildir.</p>
++    <p><b>İhtiyaç hipotezi:</b> ${esc(q.hypothesis || 'Yeterli gerekçe yok.')}</p><p>${esc(q.reason)}</p>
++    <p><b>Neden şimdi?</b> ${esc(q.why_now)}</p><p><b>Görüşmede sor:</b> ${esc(q.discovery_question)}</p>
++    ${q.contact ? `<p><b>İşletmenin yayımladığı kanal:</b> ${esc(q.contact.value)}. Karar vericiye ulaşım ve kanalın çalışması teyit edilmedi.</p>` : '<p class="help">Güncel resmî işletme kanalı doğrulanamadı.</p>'}
++    <details class="mini"><summary>Kaynaklar, karşı kanıt ve bilinmeyenler</summary><ol class="evidence">${(q.facts || []).map(f => `<li><p>${esc(f.quote)}</p>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Resmî kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · ${q.supported_ids?.includes(f.id) ? 'Jeff ayrı okumada dayanak olarak değerlendirdi' : 'Öncelik kararına dayanak yapılmadı'}</p></li>`).join('')}</ol><ul>${(q.unknowns || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>${action}</div>`;
+ }
+ function messageCol(l){
+   const a = l.analysis, d = l.drafts, sent = l.contacts || [];
+@@ -1396,6 +1424,12 @@
+     if (a === 'edit') return editLead(D.leads.find(x => x.id === id));
+     if (a === 'evidence') return showEvidence(id);
+     const txt = () => ($('#c-text')?.value || '').trim();
++    if (a === 'qualify') {
++      const keyName = `cgos-qualify-${id}`;
++      let key = sessionStorage.getItem(keyName);
++      if (!key) { key = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); sessionStorage.setItem(keyName, key); }
++      const r = await api(`lead/${id}/qualify`, {request_key: key}); sessionStorage.removeItem(keyName); state.radarJob = r.job; pollJobs(); await done(); return;
++    }
+     if (a === 'prepare') {
+       const keyName = `cgos-prepare-${id}`;
+       let requestKey = sessionStorage.getItem(keyName);
