@@ -75,6 +75,8 @@ karşıladığı idari geri dönüş değildir. Bunları distinct_operations'a a
 saatleriyle başka bir destek kanalının 7/24 vaadi kendiliğinden çelişki oluşturmaz.
 Bir saat içinde cevap vaadi backlog değildir. Bir koordinatörün adı veya tekil
 rolü tüm işi tek başına yaptığı anlamına gelmez; personel sayısı ve kapasite bilinmiyor.
+Görüşme sorusu gecikme, tek personel veya müşteri kaybı varmış gibi başlamasın;
+bu bilinmeyenleri varsaymadan işleyişi ve varsa biriken işleri sorsun.
 Telefon/randevu düğmesi, hizmet listesi, eksik sohbet, çalışma saati veya fiyat yokluğu ihtiyaç sayılmaz.
 operations olguları en az İKİ FARKLI somut koordinasyon/manuel iş akışı ise güçlü hipotez olabilir.
 Aynı akışın tekrarı, yabancı dil sayfası tek başına veya 'çok hizmetimiz var' yeterli değildir.
@@ -466,9 +468,11 @@ def views(store):
                 labels = ', '.join(OPERATION_LABELS[s] for s in sorted({f['signal'] for f in operations})) or 'yeterli somut idari akış bulunamadı'
                 report['prior_model_reason'] = report.get('reason')
                 report['prior_model_hypothesis'] = report.get('hypothesis')
+                report['prior_model_question'] = report.get('discovery_question')
                 report['scope_excluded_operation_ids'] = excluded
                 report['hypothesis'] = f"{outreach.short_name((lead or {}).get('name', 'Firma'))} için kaynakta kalan idari akışlar: {labels}. İlk başvuruların karşılanmasında otomasyon yararlı olabilir; iş yükü, mevcut çözüm ve ihtiyaç görüşmede doğrulanmalı."
                 report['reason'] = 'Güncel hizmet kapsamı kontrolü tıbbi değerlendirmeyi, genel takip başlığını ve yalnız cevap süresi vaatlerini ihtiyaç kanıtı saymadı. '+('İki farklı uygun akış görüşme hipotezini destekliyor; problem ve personel kapasitesi doğrulanmadı.' if strong else 'Yeterli farklı idari akış kalmadı.')
+                report['discovery_question'] = 'Bu başvuruları hangi ekip ve araçlarla karşılıyorsunuz; yoğun veya mesai dışı saatlerde elle takip edilip biriken işler oluyor mu?'
             if not strong:
                 report['stored_decision'], report['stored_score'] = report['decision'], report['score']
                 report.setdefault('prior_model_reason', report.get('reason'))

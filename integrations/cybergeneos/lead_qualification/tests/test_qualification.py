@@ -128,10 +128,13 @@ class QualificationTests(unittest.TestCase):
         old['facts'][1].update(signal='manual_callback', quote='Röntgeninizi yükleyin; hekim görüşü 24 saatte hazırlanır.')
         old['facts'].append({'id': 2, 'kind': 'operations', 'signal': 'treatment_followup', 'quote': 'Tedavi Sonrası 7/24 Dijital Takip'})
         old['supported_ids'].append(2)
+        old['discovery_question'] = 'Tek koordinatörünüz bütün taleplere kaç saat gecikmeli dönüyor?'
         self.s.x('UPDATE qualification_reports SET report=?', (json.dumps(old),))
         before = self.s.one('SELECT report FROM qualification_reports')['report']
         view = q.views(self.s)[self.lid]
         self.assertEqual((view['decision'], view['stored_score'], view['score']), ('arastirma_gerekli', 75, 55))
+        self.assertEqual(view['prior_model_question'], old['discovery_question'])
+        self.assertNotIn('Tek koordinatörünüz', view['discovery_question'])
         self.assertEqual(q.board(self.s)['ids'], [])
         self.assertEqual(self.s.one('SELECT report FROM qualification_reports')['report'], before)
 
