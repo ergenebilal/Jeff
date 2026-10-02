@@ -236,7 +236,15 @@
      if (bt.dataset.batch === 'analysis') {
        const ids = (bt.dataset.ids || '').split(',').filter(Boolean);
        try { const r = await api('jobs', {kind: 'analysis', ids}); state.radarJob = r.job; toast(`Jeff ${ids.length} işletmeyi sırayla analiz edecek. İlerleme Radar ekranında.`); pollJobs(); }
-@@ -1294,11 +1310,11 @@
+@@ -1287,18 +1303,18 @@
+   else if (!a) {
+     if (l.gate === 'elendi' && !l.gate_override) body = `<p class="empty-note">Kapıda elendi: ${esc(reasons)}</p>${LP('gate-override', 'Yine de araştırılsın')}`;
+     else if (l.gate === 'şüpheli' && !l.gate_override) body = `<p class="empty-note">Kapı emin olamadı: ${esc(reasons)}</p>${LP('gate-override', 'Yine de araştırılsın')}`;
+-    else if (!l.gate) body = `<p class="empty-note">Bu işletmeye henüz bakılmadı.</p>${LP('gate-rerun', 'Ön kontrolden geçir')}`;
++    else if (!l.gate) body = `<p class="empty-note">İlk temas taslağı için ön kontrol bekleniyor.</p>${LP('gate-rerun', 'Ön kontrolden geçir')}`;
+     else body = `<p class="empty-note">Jeff firmanın resmî kaynaklarını inceler. Kaynağı denetlenmiş bulgulardan kişiye özel ilk mesaj taslakları hazırlar; yeterli bulgu yoksa mesaj yazmaz.</p>${LP('prepare', 'Jeff incelesin ve taslak hazırlasın')}${LB('analyze', 'Yalnız araştır')}`;
+   } else {
+     const f = a.bulgular || [];
      const sel = useSel[l.id] || l.drafts?.use || f.slice(0, 2).map((_, i) => i);
      body = f.length ? `<ol class="finds2">${f.map((x, i) => `<li>
          <label class="use"><input type="checkbox" data-use="${i}" ${sel.includes(i) ? 'checked' : ''}> Mesajda kullan</label>
