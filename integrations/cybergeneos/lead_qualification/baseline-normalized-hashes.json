@@ -1,0 +1,7 @@
+{
+  "server/jobs.py": "7faf2fb323a381c31c73b467e809e132eecbb1aac8c3feaf6d087ec5ea924467",
+  "server/store.py": "249d7125a23cf8bac9afc97dc704429ff730e37c0dcbe26c45e286ac2d44967f",
+  "server/app.py": "9074c0e0bab4a33f47d3f34ab5e41bd73b9b8848b3489c4ae857e43cfe822e98",
+  "server/briefing.py": "30794c015080930003488ca104e3efce3fb55d7f38e3c69a696eff230f392847",
+  "app.js": "1f2e8232c4a6bfcb0b47f07b75d4765443f655da94fdcf3b36571fc1b503ada3"
+}

@@ -1,0 +1,8 @@
+{
+  "server/jobs.py": "c97eedc36189f7499f66c5de9b333c7a068213c40cc00134d0b65a1cb909a8c3",
+  "server/store.py": "cee04dfde82c26b082c6ebae266ea7235ff9475cbce64e09802994f398ab641b",
+  "server/app.py": "644479288343e2de65aef5f2e22de10b74c18770be15f3a93344bc39c144fef6",
+  "server/briefing.py": "6e1d346f886f22be7c56876c885e0cfc83cf016ff6220585f8913881253dadb1",
+  "app.js": "a1556107284ac63b6818ecf6c0be11b3efa5442c40d4bd30eb1301ee1b13e90d",
+  "server/qualification.py": "21d82428db8bb9efd33a04c9c21f779e670dba710543d8df4100a19741471646"
+}
