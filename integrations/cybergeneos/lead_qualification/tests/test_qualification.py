@@ -111,6 +111,30 @@ class QualificationTests(unittest.TestCase):
         pages[0]['links'] = [('https://other.com/2241234567', 'Ara')]
         self.assertIsNone(self.assess(pages=pages)['contact'])
 
+    def test_clinical_plan_is_not_an_administrative_callback(self):
+        facts = q.verified_facts(self.lead, self.research, self.pages)[0]
+        facts[1].update(signal='manual_callback', quote='Röntgeninizi yükleyin; uzman hekimimiz tedavi planınızı 24 saatte hazırlasın.')
+        report = self.assess(facts=facts)
+        self.assertEqual(report['decision'], 'arastirma_gerekli')
+        self.assertEqual(report['dimensions']['need_signal'], 10)
+        self.assertFalse(q.administrative_operation({'signal': 'treatment_followup', 'quote': 'Tedavi Sonrası 7/24 Dijital Takip'}))
+        self.assertTrue(q.administrative_operation({'signal': 'treatment_followup', 'quote': 'Kontrol randevularınız için hatırlatma mesajı gönderiyoruz.'}))
+
+    def test_current_view_rejects_old_clinical_candidate_without_overwriting_record(self):
+        jid, _ = q.start(self.s, [self.lid], 'scope-test-request')
+        self.run_one(jid, [self.research, self.audit])
+        row = self.s.one('SELECT report FROM qualification_reports')
+        old = json.loads(row['report'])
+        old['facts'][1].update(signal='manual_callback', quote='Röntgeninizi yükleyin; hekim görüşü 24 saatte hazırlanır.')
+        old['facts'].append({'id': 2, 'kind': 'operations', 'signal': 'treatment_followup', 'quote': 'Tedavi Sonrası 7/24 Dijital Takip'})
+        old['supported_ids'].append(2)
+        self.s.x('UPDATE qualification_reports SET report=?', (json.dumps(old),))
+        before = self.s.one('SELECT report FROM qualification_reports')['report']
+        view = q.views(self.s)[self.lid]
+        self.assertEqual((view['decision'], view['stored_score'], view['score']), ('arastirma_gerekli', 75, 55))
+        self.assertEqual(q.board(self.s)['ids'], [])
+        self.assertEqual(self.s.one('SELECT report FROM qualification_reports')['report'], before)
+
     def test_request_identity_and_duplicate_domains(self):
         other = self.s.create_lead({'name': 'Örnek Şube', 'city': 'Bursa'})
         self.s.update_lead(other, {'website': self.lead['website'], 'category': 'Diş kliniği'})

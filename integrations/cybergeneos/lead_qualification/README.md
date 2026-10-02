@@ -29,6 +29,14 @@ WhatsApp link or form alone does not prove an existing automation solution.
    conversation. A public phone number does not verify WhatsApp availability;
    publishing an email does not verify deliverability or reach a decision-maker.
 
+Clinical image interpretation, diagnosis and medical treatment-plan preparation
+cannot count as an administrative callback. A generic digital-follow-up heading
+does not prove appointment reminders or another administrative follow-up workflow.
+The critical reading also distinguishes clinic opening hours from separate support
+channel availability. Current views apply this service boundary to older candidates;
+when one loses its basis, the original model record/score remains stored and its
+current view explains the withdrawal without another paid model call.
+
 Priority points: service fit 25, need signals 0/10/30, current official email 20 or
 phone 15, dated recent event 15. Admission requires at least 70/90 plus all hard
 conditions. These are policy points, never calibrated probabilities. Timing points
@@ -71,14 +79,15 @@ the fingerprinted 2 October panel baseline; add `--apply` to install source only
 It accepts LF/CRLF, refuses concurrent source changes, backs up replaced files and
 does not touch databases, services, secrets or model configuration.
 
-Run `tests/test_qualification.py` in the separate panel checkout: eighteen tests
+Run `tests/test_qualification.py` in the separate panel checkout: twenty tests
 exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
 passed updated qualification tests and the five root adapter tests.
-The final staged Linux panel passed 116 tests after catalogue, counter-evidence and
-new-company published-phone refinements. The eighteen qualification tests also passed on Windows. Root Jeff
+The final staged Linux panel passed 118 tests after catalogue, counter-evidence,
+published-phone and clinical-service-boundary refinements. Twenty qualification
+tests passed on Windows. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
 
