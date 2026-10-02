@@ -99,6 +99,18 @@ class QualificationTests(unittest.TestCase):
         pages[0]['text'] += ' +90 (224) 123 45 67'
         self.assertEqual(self.assess(pages=pages)['contact']['channel'], 'phone')
 
+    def test_new_firm_without_stored_phone_uses_official_tel_link_only(self):
+        self.lead['phone'] = None
+        pages = [{**self.pages[0], 'text': 'Yayımlanmış iletişim bilgileri',
+                  'links': [('tel:%2B90-224-123-45-67', 'Ara')]}]
+        report = self.assess(pages=pages)
+        self.assertEqual(report['decision'], 'gorusme_adayi')
+        self.assertEqual(report['contact']['value'], '+902241234567')
+        self.assertEqual(report['contact']['url'], 'https://ornek.com')
+        self.assertIsNone(self.lead['phone'])
+        pages[0]['links'] = [('https://other.com/2241234567', 'Ara')]
+        self.assertIsNone(self.assess(pages=pages)['contact'])
+
     def test_request_identity_and_duplicate_domains(self):
         other = self.s.create_lead({'name': 'Örnek Şube', 'city': 'Bursa'})
         self.s.update_lead(other, {'website': self.lead['website'], 'category': 'Diş kliniği'})

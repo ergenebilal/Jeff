@@ -59,7 +59,7 @@ domains and branch-level attribution still need review. No old lead/draft/contac
 data is overwritten. Skipped unreadable firms appear in job checkpoints rather
 than fabricated reports.
 
-The panel adds **GÃƒÂ¶rÃƒÂ¼Ã…Å¸me adaylarÃ„Â±**, the selection action and an evidence dossier:
+The panel adds **Görüşme adayları**, the selection action and an evidence dossier:
 conditional need, service match, current contact, timing, counter-evidence,
 unknowns and a discovery question. Jeff's state/summary includes the shortlist.
 Existing draft and delivery controls remain separate owner actions.
@@ -71,13 +71,14 @@ the fingerprinted 2 October panel baseline; add `--apply` to install source only
 It accepts LF/CRLF, refuses concurrent source changes, backs up replaced files and
 does not touch databases, services, secrets or model configuration.
 
-Run `tests/test_qualification.py` in the separate panel checkout: seventeen tests
+Run `tests/test_qualification.py` in the separate panel checkout: eighteen tests
 exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
-passed the updated seventeen qualification tests and the five root adapter tests.
-The final staged Linux panel passed 115 tests after catalogue and counter-evidence refinement. Root Jeff
+passed updated qualification tests and the five root adapter tests.
+The final staged Linux panel passed 116 tests after catalogue, counter-evidence and
+new-company published-phone refinements. The eighteen qualification tests also passed on Windows. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
 

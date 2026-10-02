@@ -301,9 +301,27 @@ def assess(lead, research, facts, audit, pages, timestamp=None):
     numbers = [re.sub(r'\D', '', x).removeprefix('90').lstrip('0') for x in
                re.findall(r'(?<!\d)(?:\+?90[\s().-]*)?0?[2-5]\d{2}[\s().-]*\d{3}[\s().-]*\d{2}[\s().-]*\d{2}(?!\d)', text)]
     public_phone = bool(len(phone) == 10 and phone in numbers)
+    # Newly discovered firms may have no stored phone. Accept an explicit official
+    # tel link, never infer a number from arbitrary digits or mutate the lead.
+    published = None
+    for page in pages:
+        for href, _ in page.get('links', []):
+            if not href.lower().startswith('tel:'):
+                continue
+            value = urllib.parse.unquote(href[4:].split('?')[0])
+            digits = re.sub(r'\D', '', value).removeprefix('90').lstrip('0')
+            if re.fullmatch(r'[2-5]\d{9}', digits):
+                published = {'channel': 'phone', 'value': '+90'+digits,
+                             'scope': 'official_published_number', 'url': page['url'],
+                             'observed_at': page.get('observed_at')}
+                break
+        if published:
+            break
     contact_score = 20 if owned else 15 if public_phone else 0
+    if published and not owned:
+        contact_score = 15
     route = {'channel': 'email', 'value': owned[0], 'scope': 'official_published_address'} if owned else (
-        {'channel': 'phone', 'value': lead['phone'], 'scope': 'official_published_number'} if public_phone else None)
+        published or ({'channel': 'phone', 'value': lead['phone'], 'scope': 'official_published_number'} if public_phone else None))
     question = str(audit.get('discovery_question') or '')[:500]
     hypothesis = str(audit.get('hypothesis') or '')[:700]
     score = fit + need + contact_score + (15 if triggers else 0)
