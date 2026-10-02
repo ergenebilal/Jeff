@@ -20,7 +20,9 @@ approve drafts, or claim a meeting probability or purchase intent.
 4. A separate Jeff call critiques entailment, distinct workflows, capability fit
    and contradictory existing solutions. This is another reading by the same
    model, not an independent ground-truth observer. Invalid evidence references
-   fail closed. Source content remains untrusted data in both calls.
+   fail closed. Source content remains untrusted data in both calls. The model receives only
+product capabilities, without the old gate's keyword/absence heuristics. A
+WhatsApp link or form alone does not prove an existing automation solution.
 5. Code requires service fit, an explicit stated problem OR two different concrete
    workflows, a currently published business contact, a discovery question and
    no supported blocking counter-evidence. Need remains a hypothesis until a human
@@ -43,7 +45,9 @@ Same request identities reuse the original job and reject changed lists.
 Each completed company report publishes with its checkpoint in one transaction.
 Restart keeps completed reports. An in-flight model response without a saved
 result is marked uncertain and is never automatically charged again. Other never-started
-companies can continue; malformed received responses are isolated and not retried. The current
+companies can continue; malformed received responses are isolated and not retried.
+Default batch selection excludes fresh reports and recent unresolved attempts;
+explicit individual requests can re-examine a firm within the reserved daily cap. The current
 implementation checkpoints completed companies, not each internal model call;
 an interrupted research/critique pair needs explicit reconciliation. Provider
 usage is stored for completed reports; trustworthy monetary cost is unknown.
@@ -55,7 +59,7 @@ domains and branch-level attribution still need review. No old lead/draft/contac
 data is overwritten. Skipped unreadable firms appear in job checkpoints rather
 than fabricated reports.
 
-The panel adds **GÃ¶rÃ¼ÅŸme adaylarÄ±**, the selection action and an evidence dossier:
+The panel adds **GÃƒÂ¶rÃƒÂ¼Ã…Å¸me adaylarÃ„Â±**, the selection action and an evidence dossier:
 conditional need, service match, current contact, timing, counter-evidence,
 unknowns and a discovery question. Jeff's state/summary includes the shortlist.
 Existing draft and delivery controls remain separate owner actions.
@@ -67,13 +71,13 @@ the fingerprinted 2 October panel baseline; add `--apply` to install source only
 It accepts LF/CRLF, refuses concurrent source changes, backs up replaced files and
 does not touch databases, services, secrets or model configuration.
 
-Run `tests/test_qualification.py` in the separate panel checkout: fifteen tests
+Run `tests/test_qualification.py` in the separate panel checkout: seventeen tests
 exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
-passed the updated fifteen qualification tests and the five root adapter tests.
-The final staged Linux panel passed 113 tests. Root Jeff
+passed the updated seventeen qualification tests and the five root adapter tests.
+The final staged Linux panel passed 115 tests after catalogue and counter-evidence refinement. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
 

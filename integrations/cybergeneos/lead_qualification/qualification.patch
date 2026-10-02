@@ -154,7 +154,7 @@
  const passed = l => l.gate === 'geçti' || !!l.gate_override;
  const analysing = l => (D.jobs || []).some(j => ['analysis', 'marketing'].includes(j.kind) && (j.status === 'running' || j.status === 'queued') && (j.params?.ids || []).includes(l.id));
 -const LISTS = [['sira', 'Sırada', 'Sizin bir adım atmanızı bekleyenler.'],
-+const qualifying = l => (D.jobs || []).some(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status) && (j.params?.ids || []).includes(l.id));
++const qualifying = l => (D.jobs || []).some(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status) && (j.params?.ids || []).includes(l.id) && !(l.qualification?.current && l.qualification.job_id === j.id));
 +const LISTS = [['gorusme', 'Görüşme adayları', 'Hedef: hizmetimize ihtiyaç duyabilecek, gerekçesi kaynaklarla desteklenen en fazla 10 firma.'],
 +  ['sira', 'Sırada', 'Sizin bir adım atmanızı bekleyenler.'],
    ['havuz', 'Havuz', 'Kapıdan ve analizden geçmeyi bekleyenler. Bu işleri Jeff yapar, siz yalnızca başlatırsınız.'],
@@ -173,7 +173,7 @@
  }
  const plainReason = t => (t || '').replace('Sitemizdeki bir argümana denk gelen görünür bir dert bulunamadı', 'Bizim çözdüğümüz türden görünür bir dert bulunamadı');
 -const whyLine = l => (l.marketing?.current && l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : l.analysis?.bulgular?.[0]?.baslik) || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
-+const whyLine = l => (l.qualification?.current && l.qualification.hypothesis ? 'İhtiyaç hipotezi: ' + l.qualification.hypothesis : '') || (l.marketing?.current && l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : l.analysis?.bulgular?.[0]?.baslik) || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
++const whyLine = l => (l.qualification?.current && l.qualification.hypothesis ? 'İhtiyaç hipotezi: ' + l.qualification.hypothesis : '') || (l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : '') || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
  function renderLeadFilters(){ fillCities(); }  // city and last-scan filters are drawn as removable chips in renderLeads
  function leadPool(){
    const q = state.q.toLocaleLowerCase('tr');
@@ -236,6 +236,20 @@
      if (bt.dataset.batch === 'analysis') {
        const ids = (bt.dataset.ids || '').split(',').filter(Boolean);
        try { const r = await api('jobs', {kind: 'analysis', ids}); state.radarJob = r.job; toast(`Jeff ${ids.length} işletmeyi sırayla analiz edecek. İlerleme Radar ekranında.`); pollJobs(); }
+@@ -1294,11 +1310,11 @@
+     const sel = useSel[l.id] || l.drafts?.use || f.slice(0, 2).map((_, i) => i);
+     body = f.length ? `<ol class="finds2">${f.map((x, i) => `<li>
+         <label class="use"><input type="checkbox" data-use="${i}" ${sel.includes(i) ? 'checked' : ''}> Mesajda kullan</label>
+-        <h4>${l.marketing?.current ? 'İş hipotezi: ' : ''}${esc(x.baslik)}</h4>
++        <h4>İş hipotezi: ${esc(x.baslik)}</h4>
+         <blockquote>"${esc(x.alinti)}"</blockquote>
+         <p class="src">${esc(x.kaynak?.label || 'Kaynak')}${safeUrl(x.kaynak?.url) ? ` · <a href="${esc(x.kaynak.url)}" ${ext}>Kaynakta gör</a>` : ''}${x.kaynak?.observed_at ? ` · ${fmtDate(x.kaynak.observed_at)}` : ''}</p>
+         ${(x.notlar || []).map(n => `<p class="warn"><i class="ph ph-warning" aria-hidden="true"></i>${esc(n)}</p>`).join('')}
+-        ${x.gordugumuz || x.olasi_maliyet ? `<details><summary>Ayrıntı</summary>${x.gordugumuz ? `<p>${l.marketing?.current ? 'Jeff’in yorumu: ' : ''}${esc(x.gordugumuz)}</p>` : ''}${x.olasi_maliyet ? `<p>İş varsayımı: ${esc(x.olasi_maliyet)}</p>` : ''}</details>` : ''}
++        ${x.gordugumuz || x.olasi_maliyet ? `<details><summary>Ayrıntı</summary>${x.gordugumuz ? `<p>Jeff’in yorumu: ${esc(x.gordugumuz)}</p>` : ''}${x.olasi_maliyet ? `<p>İş varsayımı: ${esc(x.olasi_maliyet)}</p>` : ''}</details>` : ''}
+       </li>`).join('')}</ol>
+       <p class="help">Göndermeden önce bulguya bir kez kendiniz bakın: kliniğe yanlış bir şey söylemek ilk izlenimi bozar.</p>`
+       : `<p class="empty-note">${esc(a.gerekce || (a.karar === 'gerek_yok' ? 'Jeff nokta atışı bir bulgu görmedi. Kural gereği bu işletmeye yazılmaz.' : 'Rapor tamamlanamadı.'))}</p>`;
 @@ -1309,7 +1325,19 @@
      const seconds = Object.values(m.steps || {}).reduce((sum, x) => sum + (x.elapsed_seconds || 0), 0);
      body += `<p class="help" aria-live="polite">${esc(m.note || 'İnceleme ve taslak görevi')}${seconds ? ` · ${Math.round(seconds)} saniye` : ''}. Kaynakta bulunan alıntı denetlenir; firmanın ihtiyacı varsayımdır.</p>`;

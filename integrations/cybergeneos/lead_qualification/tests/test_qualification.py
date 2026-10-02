@@ -147,6 +147,21 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(self.s.lead(self.lid), self.lead)
         self.assertEqual(q.board(self.s)['ids'], [self.lid])
 
+    def test_default_selection_skips_fresh_completed_or_uncertain_attempts(self):
+        jid, _ = q.start(self.s, [self.lid], 'test-request-key')
+        self.run_one(jid, [self.research, self.audit])
+        self.s.update_job(jid, status='done')
+        with self.assertRaises(marketing.Conflict):
+            q.start(self.s, [], 'fresh-batch-request')
+        # Explicit per-company review is still possible; there is no hidden retry.
+        self.assertTrue(q.start(self.s, [self.lid], 'explicit-new-request')[1])
+
+    def test_capability_payload_excludes_legacy_absence_and_review_keywords(self):
+        self.assertTrue(q.capabilities())
+        for a in q.capabilities():
+            self.assertNotIn('signals', a)
+            self.assertNotIn('site_claim', a)
+
     def test_stale_changed_and_opted_out_candidates_disappear(self):
         jid, _ = q.start(self.s, [self.lid], 'test-request-key')
         self.run_one(jid, [self.research, self.audit])
