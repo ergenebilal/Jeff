@@ -18,3 +18,9 @@ Local panel regression: 52 tests passed, including both request backends and a
 forged SYSTEM instruction. This repository tests the serializer separately.
 The panel source is not copied wholesale because that checkout contains other
 ongoing, uncommitted user work.
+
+The subsequent company research -> draft -> owner-feedback workflow is packaged
+in [marketing_workflow](marketing_workflow/README.md). It includes checked source
+fingerprints, a replayable patch and a separate SQLite persistence test in this
+repository's pytest suite. Its full 98-test panel validation belongs to the
+separate checkout. No customer delivery is part of that workflow.
