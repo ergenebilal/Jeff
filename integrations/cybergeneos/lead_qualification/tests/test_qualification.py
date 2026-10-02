@@ -135,6 +135,10 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(q.board(self.s)['ids'], [])
         self.assertEqual(self.s.one('SELECT report FROM qualification_reports')['report'], before)
 
+    def test_response_promise_is_not_explicit_backlog(self):
+        self.assertFalse(q.administrative_operation({'signal': 'explicit_message_backlog', 'quote': 'Our coordinator usually answers within the hour.'}))
+        self.assertTrue(q.administrative_operation({'signal': 'explicit_message_backlog', 'quote': 'During peak hours some messages remain unanswered.'}))
+
     def test_request_identity_and_duplicate_domains(self):
         other = self.s.create_lead({'name': 'Örnek Şube', 'city': 'Bursa'})
         self.s.update_lead(other, {'website': self.lead['website'], 'category': 'Diş kliniği'})
