@@ -11,7 +11,7 @@ approve drafts, or claim a meeting probability or purchase intent.
    quoted sources). Public URL, redirect and robots checks reuse the panel reader.
    Shared directories are excluded. Eligibility uses the existing target sectors;
    ambiguous old gate results do not exclude a company from this new examination.
-   Career/HR, contact and FAQ links take priority; discovery follows at most two
+   Career/HR, contact, FAQ and booking/cancellation terms take priority; discovery follows at most two
    link levels. Full fetched text remains available to quote checks while the
    model receives bounded excerpts that preserve process details after menus.
 2. Jeff proposes at most eight quoted facts and a service from the existing
@@ -98,6 +98,11 @@ Each completed company report publishes with its checkpoint in one transaction.
 Restart keeps completed reports. An in-flight model response without a saved
 result is marked uncertain and is never automatically charged again. Other never-started
 companies can continue; malformed received responses are isolated and not retried.
+ASCII JSON key names with curly quotation delimiters can be normalized without
+another model call. The original response and a repair receipt remain stored;
+quoted values are never rewritten. Duplicate keys, malformed values, truncated
+objects and multiple objects still fail closed. This syntax repair cannot bypass
+quotation verification or the mandatory adversarial admission conditions.
 Default batch selection excludes fresh reports and recent unresolved attempts;
 explicit individual requests can re-examine a firm within the reserved daily cap. The current
 implementation checkpoints completed companies, not each internal model call;
@@ -126,14 +131,14 @@ the fingerprinted 2 October panel baseline; add `--apply` to install source only
 It accepts LF/CRLF, refuses concurrent source changes, backs up replaced files and
 does not touch databases, services, secrets or model configuration.
 
-Run `tests/test_qualification.py` in the separate panel checkout: thirty tests
+Run `tests/test_qualification.py` in the separate panel checkout: thirty-four tests
 exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
 passed updated qualification tests and the five root adapter tests.
-The staged Linux panel passed 128 tests after Instagram, source-depth, verified-only
-audit inputs and mandatory adversarial-reasoning changes. Thirty qualification tests passed
+The staged Linux panel passed 132 tests after Instagram, source-depth, verified-only
+audit inputs, mandatory adversarial reasoning, booking-policy discovery and safe JSON-key normalization. Thirty-four qualification tests passed
 on Windows. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
@@ -142,3 +147,9 @@ Business acceptance needs owner feedback and subsequent contact/reply/meeting
 outcomes. Ten source-backed recommendations do not mean ten confirmed needs or
 ten meetings. Private leads, report texts, database backups and credentials are
 excluded from this package.
+
+The user deferred the official Meta Developer Instagram connection on 3 October
+2026 until they prepare access. See [INSTAGRAM_META_TODO.md](INSTAGRAM_META_TODO.md).
+No autonomous browser crawler is activated, and Instagram automation exclusions
+are not bypassed. API permission and account coverage must be verified before
+claiming that third-party profiles or private messaging can be read.
