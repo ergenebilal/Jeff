@@ -58,6 +58,29 @@ class QualificationTests(unittest.TestCase):
         for critique in (None, [], {}, {'alternative_explanation': 'Kısa'}):
             self.assertEqual(self.assess({**self.audit, 'adversarial': critique})['decision'], 'arastirma_gerekli')
 
+    def test_rejection_reason_tracks_admission_not_unverified_model_praise(self):
+        audit = {**self.audit, 'supported_ids': [0], 'distinct_operations': [0], 'reason': 'İki akış güçlü aday gösteriyor.'}
+        report = self.assess(audit)
+        self.assertIn('iki farklı doğrulanmış', report['reason'])
+        self.assertEqual(report['model_reason'], audit['reason'])
+
+    def test_equivalent_official_source_urls_do_not_consume_extra_fetch_budget(self):
+        pages = [{**self.pages[0], 'url': 'https://www.ornek.com/'}]
+        with patch.object(q.sitecheck, 'fetch') as fetch:
+            self.assertEqual(len(q.verified_facts(self.lead, self.research, pages)[0]), 2)
+        fetch.assert_not_called()
+
+    def test_audit_never_receives_unverified_research_facts(self):
+        research = copy.deepcopy(self.research)
+        research['facts'].append({'kind': 'operations', 'signal': 'manual_callback', 'quote': 'Uydurulmuş kayıp talep iddiası.', 'url': 'https://ornek.com'})
+        jid, _ = q.start(self.s, [self.lid], 'audit-source-boundary')
+        with patch.object(q, 'collect', return_value=(self.pages, [])), patch.object(q, 'model', side_effect=[research, self.audit]) as model:
+            q.run(self.s, Handle(self.s, jid, threading.Event()), {})
+        data = model.call_args_list[1].args[1]
+        self.assertNotIn('facts', data['research'])
+        self.assertEqual(len(data['verified_facts']), 2)
+        self.assertNotIn('Uydurulmuş', json.dumps(data, ensure_ascii=False))
+
     def test_instagram_profile_requires_exact_host_and_official_website_link(self):
         self.assertEqual(q.instagram_profile('https://instagram.com/ornek_clinic/?hl=tr'), 'https://www.instagram.com/ornek_clinic/')
         for url in ('https://instagram.com.evil.test/ornek/', 'https://www.instagram.com/accounts/login/',

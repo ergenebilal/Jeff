@@ -63,6 +63,9 @@ trigger: tarihli yeni şube/hizmet/personel ihtiyacı. Güncel sayfayı görmek 
 counter: zaten kullanılan çözüm veya önerimizi gereksiz kılabilecek karşı kanıt. Özellikle ara.
 contact: yalnız resmî sitede yayımlanmış işletme kanalı ve varsa açıkça belirtilen yetkili rolü.
 Her olguya birebir alıntı ve kaynak_url ver. En çok 8 olgu. Kaynağa uymayan yorumu olgu yapma.
+Alıntı 15–35 kelimelik KESİNTİSİZ kaynak metni olsun; özetleme, üç nokta veya
+iki ayrı cümleyi birleştirme. Verilen sayfanın URL'sini aynen kullan. Olgu kimlikleri
+doğrulamada yeniden numaralanır; karşıt okuma yalnız verified_facts.id kullanır.
 operations için signal yalnız şu adlardan biri: multi_branch_routing,
 international_patient_coordination, manual_callback, rescheduling_waitlist,
 treatment_followup, explicit_message_backlog. Başka operasyon varsayma.
@@ -400,7 +403,10 @@ def browser_instagram_evidence(profile, identity_source):
 
 def verified_facts(lead, result, pages):
     valid, dropped = [], []
-    cache = {p['url']: p for p in pages}
+    def source_key(url):
+        parsed = urllib.parse.urlsplit(url)
+        return (parsed.hostname or '').removeprefix('www.'), parsed.path.rstrip('/'), parsed.query
+    cache = {source_key(p['url']): p for p in pages}
     fetches = 0
     facts = result.get('facts')
     if not isinstance(facts, list):
@@ -409,7 +415,7 @@ def verified_facts(lead, result, pages):
         if not isinstance(raw, dict):
             continue
         url, quote = str(raw.get('url') or '')[:500], str(raw.get('quote') or '')[:1000]
-        social_source = cache.get(url)
+        social_source = cache.get(source_key(url))
         social_valid = bool(social_source and social_source.get('source_kind') in ('instagram_profile', 'instagram_post')
                             and (instagram_profile(url) == url or instagram_post(url, social_source.get('profile_url', '')) == url)
                             and social_source.get('identity_scope') == 'official_website_link'
@@ -418,7 +424,7 @@ def verified_facts(lead, result, pages):
             dropped.append('Kaynak veya olgu türü kabul edilmedi'); continue
         if raw['kind'] == 'operations' and raw.get('signal') not in OPERATIONS:
             dropped.append('İş akışı sınıflandırması geçersiz'); continue
-        if url not in cache and fetches < 4:
+        if source_key(url) not in cache and fetches < 4:
             fetches += 1
             try:
                 if not sitecheck.robots_allows(url):
@@ -427,11 +433,11 @@ def verified_facts(lead, result, pages):
                 if not analysis.same_site(lead['website'], final):
                     raise ValueError('Başka alana yönlendirme')
                 parsed = sitecheck.parse(html)
-                cache[url] = {'url': final, 'text': parsed['text'], 'links': parsed['links'], 'observed_at': now(),
+                cache[source_key(url)] = {'url': final, 'text': parsed['text'], 'links': parsed['links'], 'observed_at': now(),
                               'text_sha256': hashlib.sha256(parsed['text'].encode()).hexdigest()}
             except Exception:
                 pass
-        source = cache.get(url)
+        source = cache.get(source_key(url))
         if not source or not analysis.quote_in(quote, source['text']):
             dropped.append('Alıntı güncel resmî kaynakta bulunamadı'); continue
         item = {k: str(raw.get(k) or '')[:1000] for k in ('kind', 'signal', 'quote', 'event_date', 'date_quote')}
@@ -528,6 +534,25 @@ def assess(lead, research, facts, audit, pages, timestamp=None):
     score = fit + need + contact_score + (15 if triggers else 0)
     accepted = bool(fit and strong_need and route and not counters and audit.get('unresolved') is True and adversarial_complete
                     and len(question) >= 15 and len(hypothesis) >= 20 and score >= 70)
+    failures = []
+    if not valid_audit:
+        failures.append('Karşıt okumadaki olgu kimlikleri doğrulanmış kaynaklarla eşleşmedi.')
+    if not adversarial_complete:
+        failures.append('Alternatif açıklama, kanıt sınırı veya çürütme koşulu eksik.')
+    if not fit:
+        failures.append('Sunabildiğimiz hizmetle uyum doğrulanmadı.')
+    if not strong_need:
+        failures.append('En az iki farklı doğrulanmış idari akış veya açık problem beyanı bulunmadı.')
+    if not route:
+        failures.append('Güncel resmî işletme kanalı doğrulanamadı.')
+    if counters:
+        failures.append('Aynı işi karşılayan çözüm veya hizmet kapsamına aykırı karşı kanıt var.')
+    if audit.get('unresolved') is not True:
+        failures.append('Jeff karşıt okumada görüşme hipotezini yeterli bulmadı.')
+    if len(question) < 15 or len(hypothesis) < 20:
+        failures.append('Firmaya özgü hipotez veya sınama sorusu eksik.')
+    if score < 70:
+        failures.append('Öncelik eşiği karşılanmadı.')
     return {'decision': 'gorusme_adayi' if accepted else 'arastirma_gerekli', 'score': score,
             'dimensions': {'service_fit': fit, 'need_signal': need, 'timing': 15 if triggers else 0, 'reachability': contact_score},
             'argument_id': argument['id'] if argument else None, 'hypothesis': hypothesis, 'discovery_question': question,
@@ -535,13 +560,15 @@ def assess(lead, research, facts, audit, pages, timestamp=None):
             'need_status': 'isletmenin_problem_beyani' if explicit else 'guclu_is_yuku_hipotezi' if strong_need else 'yetersiz_kanit',
             'purchase_intent': 'unknown', 'meeting_probability': None, 'contact': route,
             'unknowns': [str(x)[:250] for x in (audit.get('unknowns') or [])[:8]] + ['İhtiyaç ve mevcut iç çözüm görüşmede doğrulanmalı.', 'Karar verici ve satın alma niyeti doğrulanmadı.'],
-            'reason': str(audit.get('reason') or '')[:700], 'facts': facts, 'supported_ids': sorted(supported),
+            'reason': str(audit.get('reason') or '')[:700] if accepted else ' '.join(failures)[:1000],
+            'model_reason': str(audit.get('reason') or '')[:700], 'policy_failures': failures,
+            'facts': facts, 'supported_ids': sorted(supported),
             'blocking_counter_ids': counters, 'at': timestamp, 'expires_at': timestamp+FRESH_DAYS*86400,
             'adversarial': {'version': 2, 'status': 'completed' if adversarial_complete and valid_audit else 'incomplete',
                             'scope': 'Jeff tarafından ayrı karşıt okuma; bağımsız saha doğrulaması değildir.',
                             **{k: str((critique if isinstance(critique, dict) else {}).get(k) or '')[:700] for k in critique_keys},
                             'supported_ids': sorted(supported), 'blocking_counter_ids': counters},
-            'rule_version': 3, 'prompt_version': 5, 'delivered': False, 'human_accepted': False}
+            'rule_version': 3, 'prompt_version': 6, 'delivered': False, 'human_accepted': False}
 
 
 def run(store, h, params):
@@ -587,7 +614,7 @@ def run(store, h, params):
                             excerpts.append(p['text'][max(0, at-1000):at+len(f['quote'])+1000] if at >= 0 else p['text'][:4000])
                         if excerpts:
                             contexts.append({'url': p['url'], 'text': '\n'.join(excerpts)[:10000]})
-                    audit = model(AUDIT, {'company': item['data'], 'research': research, 'verified_facts': facts,
+                    audit = model(AUDIT, {'company': item['data'], 'research': {k: v for k, v in research.items() if k != 'facts'}, 'verified_facts': facts,
                                          'pages': contexts, 'instagram': instagram,
                                          'argument': next((a for a in capabilities() if a['id'] == research.get('argument_id')), None)},
                                   h.id+'-'+lid+'-audit', receipts.setdefault('audit', {}))

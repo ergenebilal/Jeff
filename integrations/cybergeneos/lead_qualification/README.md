@@ -63,6 +63,11 @@ job opening alone is not blocking counter-evidence, and hiring is not software
 purchase intent. The same model's adversarial reading is not independent field
 validation. Follower counts, showroom photos and campaign frequency do not
 establish workload or a bottleneck.
+The critic receives only the verified fact list with its new IDs. Unverified
+research quotations are omitted from the audit payload. Equivalent official URLs
+share their collected page instead of wasting the four extra-source allowance.
+Rejection text reflects the actual admission checks; the model's original reason
+is preserved separately and cannot present an unsupported positive conclusion.
 
 Clinical image interpretation, diagnosis and medical treatment-plan preparation
 cannot count as an administrative callback. A generic digital-follow-up heading
@@ -121,14 +126,14 @@ the fingerprinted 2 October panel baseline; add `--apply` to install source only
 It accepts LF/CRLF, refuses concurrent source changes, backs up replaced files and
 does not touch databases, services, secrets or model configuration.
 
-Run `tests/test_qualification.py` in the separate panel checkout: twenty-seven tests
+Run `tests/test_qualification.py` in the separate panel checkout: thirty tests
 exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
 passed updated qualification tests and the five root adapter tests.
-The staged Linux panel passed 125 tests after Instagram, source-depth and
-mandatory adversarial-reasoning changes. Twenty-seven qualification tests passed
+The staged Linux panel passed 128 tests after Instagram, source-depth, verified-only
+audit inputs and mandatory adversarial-reasoning changes. Thirty qualification tests passed
 on Windows. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
