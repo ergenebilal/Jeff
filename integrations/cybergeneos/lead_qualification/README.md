@@ -45,7 +45,8 @@ receipts with an exact matching publisher, current website identity link and
 retrieval freshness. Existing browser author/path checks are unchanged.
 Publication time is preserved separately; it does not establish an event date,
 internal message volume, response time, booking loss or unmet need. Images,
-videos, comments, testimonials and third-party private messages are not collected.
+videos, comments and third-party private messages are not collected. Publisher
+captions can contain testimonials; these do not establish unmet operational need.
 
 Install only the access token and business account ID in a mode-600 private
 `CGOS_DATA/meta-instagram.json` file outside the repository and served directories
@@ -70,8 +71,9 @@ URLs appeared in the profile and their visible author matches the handle.
 Source time, text digest, website identity link and collection scope remain in
 the report. This supports public evidence collected in a real browser; it does
 not mean the server has an autonomous browser crawler, access to DMs, or access
-to private accounts. Comments and patient testimonials are not imported as
-publisher captions. A snapshot proves what was read then, not today's live text.
+to private accounts. Third-party comments are not imported as publisher captions;
+testimonials do not establish unmet operational need. A snapshot proves what was
+read then, not today's live text.
 Official business contact scoring continues to use website sources only.
 
 The separate Jeff audit now must provide all three: the strongest alternative
