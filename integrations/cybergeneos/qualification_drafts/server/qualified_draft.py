@@ -3,6 +3,7 @@
 The critic is another reading by Jeff, not an independent field investigator.
 No customer delivery, owner feedback or gate override is performed here.
 """
+import copy
 import json
 import time
 
@@ -148,6 +149,41 @@ def verify_sources(store, lead, bound, data):
             'scope':'Alıntı varlığı ve kaynak metni yeniden okundu; bağımsız saha doğrulaması değildir.'}
 
 
+def canonical_outputs(draft, audit, facts):
+    """Keep model originals; reconcile only redundant IDs and an exact open question.
+
+    No message, factual claim, source association, approval or unsupported claim
+    is rewritten. Unknown IDs and non-question unsupported claims still fail.
+    """
+    draft, audit = copy.deepcopy(draft), copy.deepcopy(audit)
+    ids, claims = draft.get('used_fact_ids'), audit.get('claim_audit')
+    allowed = {f['id'] for f in facts}
+    if not isinstance(ids, list) or any(type(i) is not int for i in ids) or not set(ids) <= allowed or not isinstance(claims, list):
+        return draft, audit, {}
+    question = draft.get('open_question')
+    if not isinstance(question, str) or not isinstance(draft.get('text'), str) or not draft['text'].strip().endswith(question.strip()) or draft['text'].count('?') != 1:
+        return draft, audit, {}
+    kept, questions, cited = [], [], set()
+    for claim in claims:
+        if not isinstance(claim, dict):
+            return draft, audit, {}
+        if (isinstance(claim.get('claim'), str) and analysis._flat(claim['claim']) == analysis._flat(question)
+                and claim.get('fact_ids') == [] and claim.get('supported') is False):
+            questions.append(claim)
+            continue
+        refs = claim.get('fact_ids')
+        if not isinstance(refs, list) or any(type(i) is not int for i in refs) or not set(refs) <= set(ids):
+            return draft, audit, {}
+        cited.update(refs);kept.append(claim)
+    unused = [i for i in ids if i not in cited]
+    if not questions and not unused:
+        return draft, audit, {}
+    draft['used_fact_ids'] = [i for i in ids if i in cited]
+    audit['claim_audit'] = kept
+    return draft, audit, {'open_question_records':questions,'unused_declared_fact_ids':unused,
+                          'message_changed':False,'factual_claims_changed':False,'approval_changed':False}
+
+
 def validate(draft, audit, facts, name):
     from . import qualification as q
     text = draft.get('text')
@@ -233,6 +269,13 @@ def run(store, h, row, data, cp):
         cp[step] = {'state':'done', 'output':output, 'usage':{k:v for k,v in receipt.items() if k != 'raw_response'},
                     'elapsed_seconds':round(time.monotonic()-started,2), 'finished_at':now()}
         marketing._save(store, h.id, cp)
+    draft, audit, reconciliation = canonical_outputs(cp['generation']['output'], cp['critique']['output'], base['verified_facts'])
+    if reconciliation:
+        for step, output in (('generation',draft),('critique',audit)):
+            cp[step].setdefault('model_output',copy.deepcopy(cp[step]['output']))
+            cp[step]['output'] = output
+        cp['output_reconciliation'] = {'state':'done','output':reconciliation,'finished_at':now()}
+        marketing._save(store,h.id,cp)
     text, notes = validate(cp['generation']['output'], cp['critique']['output'], base['verified_facts'], lead['name'])
     require_current(store, store.lead(lead['id']), bound)
     drafts = {'source':SOURCE, 'whatsapp':text, 'notes':{'whatsapp':notes}, 'qualification_job':bound['job_id'],

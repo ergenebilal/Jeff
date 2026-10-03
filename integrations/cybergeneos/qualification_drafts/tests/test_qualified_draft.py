@@ -118,6 +118,28 @@ class QualifiedDraftTests(unittest.TestCase):
         with self.assertRaises(marketing.Conflict):
             marketing.review(self.s,self.lid,marketing.content_digest(self.s.lead(self.lid)),'accepted')
 
+    def test_reconcile_exact_open_question_and_unused_known_id_without_rewriting_model(self):
+        extra={'id':2,'kind':'contact','signal':'resmi_iletisim_kanali'}
+        facts=d.payload(self.s.lead(self.lid),d.binding(self.s,self.s.lead(self.lid)))['verified_facts']+[extra]
+        generated=copy.deepcopy(self.draft);generated['used_fact_ids'].append(2)
+        audited=copy.deepcopy(self.audit)
+        audited['claim_audit'].append({'claim':generated['open_question'],'fact_ids':[],'supported':False})
+        drafted,audit,receipt=d.canonical_outputs(generated,audited,facts)
+        d.validate(drafted,audit,facts,self.s.lead(self.lid)['name'])
+        self.assertEqual(receipt['unused_declared_fact_ids'],[2])
+        self.assertFalse(receipt['message_changed']);self.assertFalse(receipt['approval_changed'])
+        self.assertEqual(drafted['text'],generated['text'])
+        self.assertTrue(audit['approved']);self.assertEqual(audit['unsupported_claims'],[])
+        self.assertEqual(generated['used_fact_ids'],[0,1,2]);self.assertEqual(len(audited['claim_audit']),3)
+        for change in ({'claim':'Başka bir soru mu?','fact_ids':[],'supported':False},
+                       {'claim':'talepleri formdan alıp uygun saati ekibinizin onayladığını','fact_ids':[0],'supported':False}):
+            bad=copy.deepcopy(self.audit);bad['claim_audit'].append(change)
+            drafted,audit,_=d.canonical_outputs(self.draft,bad,facts)
+            with self.assertRaises(marketing.Conflict): d.validate(drafted,audit,facts,self.s.lead(self.lid)['name'])
+        unknown=copy.deepcopy(generated);unknown['used_fact_ids'].append(99)
+        drafted,audit,_=d.canonical_outputs(unknown,audited,facts)
+        with self.assertRaises(marketing.Conflict): d.validate(drafted,audit,facts,self.s.lead(self.lid)['name'])
+
     def test_legacy_gate_stays_required_and_idempotency_cannot_switch_source_or_note(self):
         with self.assertRaises(marketing.Conflict):
             marketing.start(self.s,self.lid,'legacy-no-gate')

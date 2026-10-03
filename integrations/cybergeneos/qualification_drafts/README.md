@@ -20,6 +20,12 @@ The critic separately checks channel-specific deadlines, the existing shared
 workflow, and whether the source already answers the proposed discovery question.
 A negative or missing context check blocks publication. A review-protocol version
 change revokes earlier ready drafts; the first live pilot exposed these gaps.
+An exact final open-question audit record with no source IDs is kept outside the
+factual-claim list, and unused declared IDs that are already known are removed.
+Both model originals and this deterministic reconciliation remain in the checkpoint.
+The message, factual claims, source associations and approval decision are unchanged.
+Unknown IDs and unsupported factual claims still fail; no new model call is needed
+to resume a completed, validated checkpoint after this storage correction.
 The official-source statements, actual workload, need and purchase intent
 remain separate. Neither a message volume nor a missed appointment is inferred.
 
