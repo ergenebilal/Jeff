@@ -45,7 +45,7 @@ class QualifiedDraftTests(unittest.TestCase):
             q.run(self.s,Handle(self.s,self.qjob,threading.Event()),{})
         self.s.update_job(self.qjob,status='done')
         self.assertEqual(q.views(self.s)[self.lid]['decision'],'gorusme_adayi')
-        self.draft = {'text':'Merhaba, Örnek Güzellik Merkezi için CyberGene’den yazıyorum. Sitenizde talepleri formdan alıp uygun saati ekibinizin onayladığını ve iptal sonrası bekleme listesindeki müşterilere haber verdiğinizi görüyoruz. Mevcut düzeniniz yeterli olabilir; ekibiniz isterse bu iki idari akışın takibine koşullu destek sunabiliriz. Bu talepleri ve iptal sonrası haberleşmeyi hangi araçla yürütüyorsunuz?',
+        self.draft = {'text':"Merhaba, CyberGene'den yazıyorum. Örnek Güzellik Merkezi'nin sitesinde talepleri formdan alıp uygun saati ekibinizin onayladığını ve iptal sonrası bekleme listesindeki müşterilere haber verdiğinizi görüyoruz. Mevcut düzeniniz yeterli olabilir; ekibiniz isterse bu iki idari akışın takibine koşullu destek sunabiliriz. Bu talepleri ve iptal sonrası haberleşmeyi hangi araçla yürütüyorsunuz?",
                       'used_fact_ids':[0,1],'scope':'Ekibin onayıyla talep ve iptal sonrası idari koordinasyon.',
                       'known_counter':'Mevcut ekip ve sistem aynı işleri yeterli karşılıyor olabilir.',
                       'open_question':'Bu talepleri ve iptal sonrası haberleşmeyi hangi araçla yürütüyorsunuz?'}
@@ -117,6 +117,29 @@ class QualifiedDraftTests(unittest.TestCase):
         self.assertFalse(marketing.views(self.s)[self.lid]['current'])
         with self.assertRaises(marketing.Conflict):
             marketing.review(self.s,self.lid,marketing.content_digest(self.s.lead(self.lid)),'accepted')
+
+    def test_wrong_sender_or_placeholder_purpose_cannot_publish_despite_positive_critic(self):
+        for key, change in (
+            ('wrong-sender-request', {'text':self.draft['text'].replace(d.INTRO, "Merhaba, Örnek Güzellik Merkezi'nden; CyberGene olarak yazıyorum.")}),
+            ('placeholder-purpose', {'scope':'koşullu önerilen idari ek görev'}),
+        ):
+            with self.subTest(key=key):
+                original = copy.deepcopy(self.draft)
+                self.draft.update(change)
+                jid = self.start(key)
+                with self.assertRaises(marketing.Conflict): self.finish(jid)
+                self.s.update_job(jid, status='failed')
+                self.assertIsNone(self.s.lead(self.lid)['drafts'])
+                self.assertIsNone(self.s.one('SELECT published_at FROM marketing_runs WHERE job_id=?',(jid,))['published_at'])
+                self.draft = original
+        self.send.assert_not_called(); self.record.assert_not_called()
+
+    def test_message_policy_change_invalidates_previous_ready_draft_and_feedback(self):
+        self.finish()
+        digest = marketing.content_digest(self.s.lead(self.lid))
+        with patch.object(d, 'VERSION', d.VERSION + 1):
+            self.assertFalse(marketing.views(self.s)[self.lid]['current'])
+            with self.assertRaises(marketing.Conflict): marketing.review(self.s,self.lid,digest,'accepted')
 
     def test_reconcile_exact_open_question_and_unused_known_id_without_rewriting_model(self):
         extra={'id':2,'kind':'contact','signal':'resmi_iletisim_kanali'}

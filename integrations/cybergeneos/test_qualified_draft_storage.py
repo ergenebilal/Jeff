@@ -60,7 +60,7 @@ class QualifiedStorageTests(unittest.TestCase):
         self.report = {'decision':'gorusme_adayi','argument_id':'appointment','supported_ids':[0,1],'facts':self.facts,'adversarial':{'status':'completed'},'expires_at':2000}
         self.s.x('INSERT INTO qualification_reports VALUES(?,?,?,?)',('q-one','lead',json.dumps(self.report),1000))
         self.jid,_ = m.start(self.s,'lead','source-boundary-request',source='qualification')
-        self.generated = {'text':'Hello Fixture, CyberGene here. Your requests are reviewed before confirmation and cancelled appointments go to your waiting list. With your team’s agreement we can support these two administrative tasks, while your existing tools may already be sufficient. Which tools do you use to manage them?',
+        self.generated = {'text':"Merhaba, CyberGene'den yazıyorum. Fixture, your requests are reviewed before confirmation and cancelled appointments go to your waiting list. With your team’s agreement we can support these two administrative tasks, while your existing tools may already be sufficient. Which tools do you use to manage them?",
                           'used_fact_ids':[0,1],'scope':'Conditional administrative support for the existing team.',
                           'known_counter':'The current team and tools may already handle both tasks.',
                           'open_question':'Which tools do you use to manage them?'}

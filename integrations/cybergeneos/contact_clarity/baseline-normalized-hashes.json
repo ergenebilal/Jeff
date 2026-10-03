@@ -1,0 +1,5 @@
+{
+  "app.js": "f9ad167640c07b5aa5b3e32cd8e3e590a1b5e523806491c5c2e8fd81475500d3",
+  "server/qualified_draft.py": "758fb045a17e0eb3bb7e2501026bbbcd92e024235e656f24e2d547dcd335729e",
+  "tests/test_qualified_draft.py": "afa8e0fd5b46c1500440e2974f32cf0c09e3a2ac908bc4717cc77e3d3ff79b91"
+}

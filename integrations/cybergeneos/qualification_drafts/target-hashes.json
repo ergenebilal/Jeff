@@ -6,6 +6,6 @@
   "server/contact.py": "96335ec38c72541fed1ac4fab46c725a51056ea708321948948bcc25588eb162",
   "server/qualification.py": "031e7e08179851b5f339218f18ef0de09705884ee90506d939d2da36d7c831aa",
   "app.js": "2dcbec85a2dea6a1a257794711cc36f075cbcf3d7d2e6ebb205c887149145b27",
-  "server/qualified_draft.py": "758fb045a17e0eb3bb7e2501026bbbcd92e024235e656f24e2d547dcd335729e",
-  "tests/test_qualified_draft.py": "afa8e0fd5b46c1500440e2974f32cf0c09e3a2ac908bc4717cc77e3d3ff79b91"
+  "server/qualified_draft.py": "3180dd7e07dc0fb0bd1a073eae10a65622b8bda3e3686e1eb5a6278ae8babec1",
+  "tests/test_qualified_draft.py": "c0da63af124942b8a47c841109dc9f799b690923797ee9427de39b5a0181ac49"
 }
