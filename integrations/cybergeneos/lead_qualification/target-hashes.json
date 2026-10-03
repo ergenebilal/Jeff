@@ -3,6 +3,6 @@
   "server/store.py": "cee04dfde82c26b082c6ebae266ea7235ff9475cbce64e09802994f398ab641b",
   "server/app.py": "644479288343e2de65aef5f2e22de10b74c18770be15f3a93344bc39c144fef6",
   "server/briefing.py": "6e1d346f886f22be7c56876c885e0cfc83cf016ff6220585f8913881253dadb1",
-  "app.js": "a5279aef060bf9031077336819df7181e9bd02fff724665c21c48ba642b55be9",
-  "server/qualification.py": "321c0e7a2f4f390ab12d4326007cd63b482cecc7776f6efdbef798f442f4baec"
+  "app.js": "81e870a7a7f072cfa984e61dfe65f33706eff12ccca98a0cf93ec10e603ae6b1",
+  "server/qualification.py": "288c1a520f192eeb6cdb42207d12ce4e56ec7611cdcfad39b7de9083c89701a8"
 }
