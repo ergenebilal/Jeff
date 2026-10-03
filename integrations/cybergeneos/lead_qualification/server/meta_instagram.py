@@ -83,7 +83,8 @@ def request(node, fields):
                 code = error['code']
         except (ValueError, TypeError, AttributeError):
             pass
-        raise MetaError('api_error', exc.code, code) from None
+        # Token rejection is a connection problem, not missing business content.
+        raise MetaError('credentials_rejected' if code == 190 else 'api_error', exc.code, code) from None
     except (urllib.error.URLError, OSError, TimeoutError):
         raise MetaError('transport_error') from None
     except (ValueError, TypeError):

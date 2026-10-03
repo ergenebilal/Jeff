@@ -85,6 +85,17 @@ class MetaInstagramTests(unittest.TestCase):
         research['facts'][0]['quote'] = pages[1]['text']
         self.assertEqual(q.verified_facts(lead, research, pages)[0], [])
 
+    def test_rejected_connection_is_not_missing_business_content(self):
+        official = [{'url': 'https://ornek.com', 'links': [(self.profile, 'Instagram')]}]
+        with patch.object(meta, 'discover', side_effect=meta.MetaError('credentials_rejected', 401, 190)), \
+             patch.object(q, 'browser_instagram_evidence', return_value=[]), patch.object(q.sitecheck, 'robots_allows', return_value=False):
+            pages, accounts = q.collect_instagram({'website': 'https://ornek.com'}, official)
+        self.assertEqual(pages, [])
+        self.assertEqual(accounts[0]['meta_status'], 'credentials_rejected')
+        self.assertEqual(accounts[0]['meta_error_code'], 190)
+        self.assertEqual(accounts[0]['status'], 'unreadable')
+        self.assertNotIn(self.secret, json.dumps(accounts))
+
     def test_credentials_are_header_only_and_redirects_never_forward_them(self):
         response = io.BytesIO(json.dumps(self.raw).encode())
         with patch('urllib.request.OpenerDirector.open', return_value=response) as opened:
@@ -104,7 +115,7 @@ class MetaInstagramTests(unittest.TestCase):
         with patch('urllib.request.OpenerDirector.open', side_effect=error):
             with self.assertRaises(meta.MetaError) as captured:
                 meta.request('12345678', 'username')
-        self.assertEqual((captured.exception.reason, captured.exception.status, captured.exception.code), ('api_error', 403, 190))
+        self.assertEqual((captured.exception.reason, captured.exception.status, captured.exception.code), ('credentials_rejected', 403, 190))
         self.assertNotIn(self.secret, str(captured.exception))
         with patch('urllib.request.OpenerDirector.open', return_value=io.BytesIO(b'x'*(meta.MAX_BYTES+1))):
             with self.assertRaisesRegex(meta.MetaError, 'response_too_large'):

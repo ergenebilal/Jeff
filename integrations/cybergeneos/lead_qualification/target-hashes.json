@@ -3,7 +3,7 @@
   "server/store.py": "cee04dfde82c26b082c6ebae266ea7235ff9475cbce64e09802994f398ab641b",
   "server/app.py": "644479288343e2de65aef5f2e22de10b74c18770be15f3a93344bc39c144fef6",
   "server/briefing.py": "6e1d346f886f22be7c56876c885e0cfc83cf016ff6220585f8913881253dadb1",
-  "app.js": "81e870a7a7f072cfa984e61dfe65f33706eff12ccca98a0cf93ec10e603ae6b1",
+  "app.js": "e0486ee26f350493ee19012734f0a235c79ee1bf434d10d80a5c8538f37a8ca0",
   "server/qualification.py": "a3ce36f90b389bcb0d23a053c2d234fc6f6ac86b410fe96a575ed8cd8ced469b",
-  "server/meta_instagram.py": "8baeb15ecf233b01f638fb2c4da735f45e15b44125164487ff021b422b83d36d"
+  "server/meta_instagram.py": "73f1bdf932564aea3db662e9f02cf18fa6b661d34b797cc22cc04eedfe4efc19"
 }
