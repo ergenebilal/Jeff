@@ -13,7 +13,7 @@ import requests
 from datetime import datetime
 from typing import List, Dict, Any, Callable
 
-PROXY_URL = os.environ.get("ANTIGRAVITY_PROXY_URL", "http://100.124.217.48:8999/v1/chat/completions")
+PROXY_URL = os.environ.get("ANTIGRAVITY_PROXY_URL", "http://100.80.122.74:8999/v1/chat/completions")
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"

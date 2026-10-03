@@ -30,8 +30,9 @@ import sqlite3
 import re
 import inspect
 import uuid
+import hashlib
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # Win32 & GUI
 import win32gui
@@ -53,6 +54,15 @@ from PIL import ImageGrab, Image
 
 # ── YAPILANDIRMA & DİZİNLER ──────────────────────────────────────────────────
 NODE_DIR = Path(__file__).resolve().parent
+PROCESS_STARTED_AT = time.time()
+LOADED_SOURCE_SHA256 = {
+    name: hashlib.sha256((NODE_DIR / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py')
+}
+try:
+    SOURCE_RELEASE = json.loads((NODE_DIR / 'deployment.json').read_text(encoding='utf-8')).get('commit', 'unknown')
+except (OSError, ValueError):
+    SOURCE_RELEASE = 'unknown'
 LOGS_DIR = NODE_DIR / "logs"
 DRAFTS_DIR = NODE_DIR / "drafts"
 SCREENSHOTS_DIR = NODE_DIR / "screenshots"
@@ -67,10 +77,10 @@ CONFIG = {
     "listen_host": "0.0.0.0",
     "listen_port": 7788,
     "auth_token": "",
-    "jeff_core_url": "http://100.124.217.48:9119",
-    "antigravity_proxy_url": "http://100.124.217.48:8999",
+    "jeff_core_url": "http://100.80.122.74:9119",
+    "antigravity_proxy_url": "http://100.80.122.74:8999",
     "jeff_bridge_api_url": "http://100.80.122.74:7700",
-    "allowed_ips": ["127.0.0.1", "::1", "100.124.217.48", "100.89.26.86"],
+    "allowed_ips": ["127.0.0.1", "::1", "100.80.122.74", "100.89.26.86", "100.124.217.48"],
     "telegram_bot_token": "",
     "telegram_default_chat_id": 5506784207,
     "poll_interval_sec": 1.0,
@@ -897,6 +907,9 @@ def action_ping(params: dict) -> dict:
             "agent": "pablo",
             "version": CONFIG["version"],
             "session": "interactive_foreground",
+            "process_started_at": PROCESS_STARTED_AT,
+            "source_commit": SOURCE_RELEASE,
+            "loaded_source_sha256": LOADED_SOURCE_SHA256,
             "timestamp": time.time()
         }
     }
@@ -2230,7 +2243,58 @@ def action_marketing_playbook(params: dict) -> dict:
     return {"ok": False, "error": f"Bilinmeyen marketing playbook: {pb_name}"}
 
 
+def action_antigravity(params: dict) -> dict:
+    """
+    Antigravity IDE & AI motoru ile otonom islem yurutur.
+    params:
+      prompt: str (Antigravity'ye verilecek gorev, prompt veya soru)
+      task_type: str ("general", "instagram_post", "frontend_design", "web_browser_test")
+    """
+    prompt = params.get("prompt", "")
+    task_type = params.get("task_type", "general")
+    if not prompt:
+        return {"ok": False, "error": "Bos prompt verilemez"}
+
+    import subprocess
+    is_ig_post = task_type == "instagram_post" or any(w in prompt.lower() for w in ["post", "instagram", "slayt", "carousel"])
+
+    if is_ig_post:
+        designer_script = r"C:\Users\lenovo\.gemini\antigravity-ide\scratch\cybergene-post-designer\cg_post.py"
+        arg = "--next" if any(w in prompt.lower() for w in ["siradaki", "sıradaki", "next", "plan"]) else prompt
+        cmd = ["python", designer_script, arg]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, encoding="utf-8")
+            return {
+                "ok": res.returncode == 0,
+                "result": {
+                    "task_type": "instagram_post",
+                    "stdout": res.stdout,
+                    "stderr": res.stderr
+                }
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        cmd = ["agy", "-p", prompt]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, encoding="utf-8")
+            return {
+                "ok": res.returncode == 0,
+                "result": {
+                    "task_type": "antigravity_general",
+                    "stdout": res.stdout,
+                    "stderr": res.stderr
+                }
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+
 ACTIONS = {
+    "antigravity": action_antigravity,
+    "run_antigravity": action_antigravity,
+    "antigravity_task": action_antigravity,
+    "antigravity_post": action_antigravity,
     "ping": action_ping,
     "shell": action_shell,
     "read": action_read_file,
@@ -2796,7 +2860,8 @@ def main():
     ts_watchdog_thread.start()
 
     # 4. HTTP server başlat
-    server = HTTPServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
+    server = ThreadingHTTPServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
+    server.daemon_threads = True
     log("INFO", f"Pablo REST API aktif: {CONFIG['listen_host']}:{CONFIG['listen_port']}")
     log("INFO", "Pablo interaktif ön plan modunda hazır. Çıkış için Ctrl+C.")
 
