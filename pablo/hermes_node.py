@@ -2356,7 +2356,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b'{"ok": true, "result": "pong", "agent": "pablo"}')
+            self.wfile.write(json.dumps({'ok':True,'result':'pong','agent':'pablo',**action_ping({})['result']}).encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()
