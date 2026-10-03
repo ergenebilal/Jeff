@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 def load_module():
     package = types.ModuleType('_qualification_fixture')
-    package.__path__ = []
+    package.__path__ = [str(Path(__file__).parent/'lead_qualification/server')]
     sys.modules[package.__name__] = package
     for name in ('analysis', 'contact', 'gate', 'marketing', 'outreach', 'reach', 'sitecheck', 'store'):
         mod = types.ModuleType(package.__name__ + '.' + name)
@@ -131,6 +131,22 @@ class QualificationBoundaryTests(unittest.TestCase):
         self.research['facts'][1]['signal'] = self.research['facts'][0]['signal']
         self.run_job()
         self.assertFalse(q.board(self.s)['ids'])
+
+    def test_meta_permalink_needs_attested_fresh_publisher_and_official_site_link(self):
+        import time
+        url = 'https://www.instagram.com/p/ABCDE123/'
+        source = {'url': url, 'text': self.pages[0]['text'], 'observed_at': int(time.time()), 'text_sha256': 'fixture',
+                  'source_kind': 'instagram_post', 'identity_scope': 'official_website_link', 'identity_source': 'https://fixture.example',
+                  'profile_url': 'https://www.instagram.com/fixture/', 'publisher_handle': 'fixture',
+                  'collection_method': 'meta_business_discovery', 'content_scope': 'meta_business_discovery_publisher_caption',
+                  'source_published_at': '2026-09-01T14:00:00+00:00'}
+        research = {'facts': [{**self.research['facts'][0], 'url': url}]}
+        facts = q.verified_facts(self.lead, research, [source])[0]
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0]['event_date'], '')
+        for changes in ({'publisher_handle': 'other'}, {'identity_source': 'https://other.example'},
+                        {'collection_method': 'public_browser_snapshot'}, {'observed_at': 1}):
+            self.assertEqual(q.verified_facts(self.lead, research, [{**source, **changes}])[0], [])
 
     def test_restart_fails_unknown_call_without_replaying_it(self):
         self.s.x('UPDATE qualification_runs SET checkpoint=?', (json.dumps({'lead': {'state': 'calling'}}),))

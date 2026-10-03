@@ -14,7 +14,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from . import analysis, contact, gate, marketing, outreach, reach, sitecheck
+from . import analysis, contact, gate, marketing, meta_instagram, outreach, reach, sitecheck
 from .store import now
 
 SCHEMA = """
@@ -63,6 +63,7 @@ trigger: tarihli yeni şube/hizmet/personel ihtiyacı. Güncel sayfayı görmek 
 counter: zaten kullanılan çözüm veya önerimizi gereksiz kılabilecek karşı kanıt. Özellikle ara.
 contact: yalnız resmî sitede yayımlanmış işletme kanalı ve varsa açıkça belirtilen yetkili rolü.
 Her olguya birebir alıntı ve kaynak_url ver. En çok 8 olgu. Kaynağa uymayan yorumu olgu yapma.
+Meta paylaşımının source_published_at alanı yayın tarihidir; tek başına olay tarihi değildir.
 Alıntı 15–35 kelimelik KESİNTİSİZ kaynak metni olsun; özetleme, üç nokta veya
 iki ayrı cümleyi birleştirme. Verilen sayfanın URL'sini aynen kullan. Olgu kimlikleri
 doğrulamada yeniden numaralanır; karşıt okuma yalnız verified_facts.id kullanır.
@@ -377,6 +378,21 @@ def collect_instagram(lead, official_pages):
                 accounts[profile] = {'profile': profile, 'linked_from': page['url'], 'identity_scope': 'official_website_link', 'status': 'unknown', 'pages': []}
     social = []
     for profile, account in accounts.items():
+        try:
+            official = meta_instagram.discover(profile, account['linked_from'])
+            if official:
+                social.extend(official)
+                account.update(status='readable', pages=[p['url'] for p in official], collection_method='meta_business_discovery',
+                               observed_at=min(p['observed_at'] for p in official), limitation=meta_instagram.LIMITATION,
+                               published_at={p['url']: p['source_published_at'] for p in official if p.get('source_published_at')})
+                continue
+            account['meta_status'] = 'no_readable_caption'
+        except meta_instagram.MetaError as exc:
+            account['meta_status'] = exc.reason
+            if exc.status is not None:
+                account['meta_http_status'] = exc.status
+            if exc.code is not None:
+                account['meta_error_code'] = exc.code
         saved = browser_instagram_evidence(profile, account['linked_from'])
         if saved:
             social.extend(saved)
@@ -467,7 +483,8 @@ def verified_facts(lead, result, pages):
         url, quote = str(raw.get('url') or '')[:500], str(raw.get('quote') or '')[:1000]
         social_source = cache.get(source_key(url))
         social_valid = bool(social_source and social_source.get('source_kind') in ('instagram_profile', 'instagram_post')
-                            and (instagram_profile(url) == url or instagram_post(url, social_source.get('profile_url', '')) == url)
+                            and (instagram_profile(url) == url or instagram_post(url, social_source.get('profile_url', '')) == url
+                                 or meta_instagram.attested_source(social_source, url))
                             and social_source.get('identity_scope') == 'official_website_link'
                             and analysis.same_site(lead['website'], social_source.get('identity_source', '')))
         if raw.get('kind') not in KINDS or not (analysis.same_site(lead['website'], url) or social_valid) or sitecheck.INSTRUCTION_LIKE.search(sitecheck._norm(quote)):
@@ -494,6 +511,9 @@ def verified_facts(lead, result, pages):
         item.update(id=len(valid), url=source['url'], observed_at=source['observed_at'], text_sha256=source['text_sha256'], verification_scope='quote_exists', publisher_claim=True)
         if social_valid:
             item.update(source_kind=source['source_kind'], identity_source=source['identity_source'], content_scope=source['content_scope'])
+            for field in ('collection_method', 'source_published_at', 'profile_url', 'publisher_handle'):
+                if field in source:
+                    item[field] = source[field]
         valid.append(item)
     return valid, dropped, list(cache.values())
 
@@ -647,7 +667,8 @@ def run(store, h, params):
                 started = time.monotonic()
                 try:
                     h.step(None, 'Jeff firmaya özgü iş akışını araştırıyor')
-                    research = model(RESEARCH, {'company': item['data'], 'pages': [{'url': p['url'], 'text': research_text(p['text'])} for p in pages],
+                    research = model(RESEARCH, {'company': item['data'], 'pages': [{'url': p['url'], 'text': research_text(p['text']),
+                                               **{key: p[key] for key in ('source_kind', 'content_scope', 'source_published_at') if key in p}} for p in pages],
                                                'instagram': instagram, 'argumanlar': capabilities(), 'today': date.today().isoformat()},
                                      h.id+'-'+lid+'-research', receipts.setdefault('research', {}))
                     facts, dropped, pages = verified_facts(lead, research, pages)
