@@ -1,0 +1,224 @@
+diff --git a/docs/cybergeneos/server/jobs.py b/docs/cybergeneos/server/jobs.py
+--- a/docs/cybergeneos/server/jobs.py
++++ b/docs/cybergeneos/server/jobs.py
+@@ -81,7 +81,8 @@
+                 ids = params.get('ids') or []
+                 if not isinstance(ids, list) or len(ids) != 1:
+                     raise marketing.Conflict('Her görev için tek firma seçin.')
+-                jid, created = marketing.start(self.store, str(ids[0]), params.get('request_key'), by if by in WHO else 'bilal')
++                jid, created = marketing.start(self.store, str(ids[0]), params.get('request_key'), by if by in WHO else 'bilal',
++                                               source=params.get('source','research'), note=params.get('note',''))
+                 if created:
+                     self.cancels[jid] = threading.Event()
+                     self.queues[kind].put(jid)
+diff --git a/docs/cybergeneos/server/app.py b/docs/cybergeneos/server/app.py
+--- a/docs/cybergeneos/server/app.py
++++ b/docs/cybergeneos/server/app.py
+@@ -108,9 +108,9 @@
+     ok = briefing.approved_leads(store)
+     optouts = {r["lead_id"] for r in store.q("SELECT lead_id FROM optout")}
+     all_leads = store.leads()
+-    st = briefing.steps(store, all_leads)
+     marketing_views = marketing.views(store)
+     qualification_views = qualification.views(store)
++    st = briefing.steps(store, all_leads, marketing_views=marketing_views, qualification_views=qualification_views)
+     for l in all_leads:
+         you = briefing.you_text(l, l["id"] in ok)
+         leads.append({**{k: l[k] for k in ("id", "name", "city", "district", "sector", "category", "src", "stage", "need", "fit", "channel", "size",
+@@ -268,14 +268,18 @@
+     if action == 'qualify':
+         jid, e = jobs.start('qualification', {'ids': [lid], 'request_key': body.get('request_key')}, 'bilal')
+         return (200, {'ok': True, 'job': jid}) if jid else (409, {'error': 'secim_baslamadi', 'detail': e})
+-    if action == 'prepare':
+-        jid, e = jobs.start('marketing', {'ids': [lid], 'request_key': body.get('request_key')}, 'bilal')
++    if action in ('prepare', 'prepare-qualified'):
++        jid, e = jobs.start('marketing', {'ids': [lid], 'request_key': body.get('request_key'),
++                                         'source':'qualification' if action == 'prepare-qualified' else 'research',
++                                         'note':body.get('note','')}, 'bilal')
+         return (200, {'ok': True, 'job': jid}) if jid else (409, {'error': 'inceleme_baslamadi', 'detail': e})
+     if action == 'draft-review':
+         try:
+             return 200, {'ok': True, **marketing.review(store, lid, body.get('digest'), body.get('decision'), body.get('text'))}
+         except (marketing.Conflict, contact.Refused) as e:
+             return 409, {'error': 'taslak_degisti', 'detail': str(e)}
++    if action in ('drafts', 'draft') and json.loads(l.get('drafts') or '{}').get('source') == 'qualification':
++        return 409, {'error':'karsit_inceleme_gerekli', 'detail':'Kaynaklı taslağı değiştirmek için güncel rapordan Jeff’e yeniden hazırlatın; yeni metin karşıt incelemeden geçmeli.'}
+     if action in ('drafts', 'draft', 'research') and store.one("SELECT 1 FROM marketing_runs r JOIN jobs j ON j.id=r.job_id WHERE r.lead_id=? AND j.status IN ('queued','running')", (lid,)):
+         return 409, {'error': 'inceleme_suruyor', 'detail': 'Jeff firma için inceleme ve taslak hazırlıyor; bitmesini bekleyin.'}
+     if action in ("drafts", "contacted", "email", "optout"):
+diff --git a/docs/cybergeneos/server/briefing.py b/docs/cybergeneos/server/briefing.py
+--- a/docs/cybergeneos/server/briefing.py
++++ b/docs/cybergeneos/server/briefing.py
+@@ -138,7 +138,7 @@
+     return {"list": "havuz", "rank": 3, "text": "Kapı bekliyor", "act": ["gate-rerun", "Kapıdan geçir"]}
+ 
+ 
+-def steps(store, leads=None):
++def steps(store, leads=None, *, marketing_views=None, qualification_views=None):
+     """next_step for every lead, keyed by id, with approvals, opt-outs and running analyses read once."""
+     leads = store.leads() if leads is None else leads
+     pending = {a["lead_id"] for a in store.approvals() if a["status"] == "Bekliyor"}
+@@ -149,7 +149,25 @@
+         if j["kind"] in ("analysis", "marketing") and j["status"] in ("running", "queued"):
+             running |= set((_j(j.get("params"), {}) or {}).get("ids") or [])
+     from . import reach
+-    return {l["id"]: next_step(l, l["id"] in pending, l["id"] in ok, l["id"] in optouts, l["id"] in running, reach.writable(l)) for l in leads}
++    result = {l["id"]: next_step(l, l["id"] in pending, l["id"] in ok, l["id"] in optouts, l["id"] in running, reach.writable(l)) for l in leads}
++    from . import marketing, qualification
++    marketing_views = marketing.views(store) if marketing_views is None else marketing_views
++    qualification_views = qualification.views(store) if qualification_views is None else qualification_views
++    for lead in leads:
++        lid = lead['id']
++        if lid in optouts or lid in running or lead['stage'] in ('Gönderildi','Yanıt geldi','Görüşme','Kazanıldı','Kapandı'):
++            continue
++        m = marketing_views.get(lid) or {}
++        q = qualification_views.get(lid) or {}
++        if m.get('source') == 'qualification':
++            if not m.get('current'):
++                text = 'Taslak yeniden inceleme gerektiriyor' if m.get('published_at') else 'Taslak denetlenemedi; gerekçeyi inceleyin' if m.get('status') == 'failed' else 'Jeff kaynaklı taslağı hazırlıyor'
++            else:
++                text = {'accepted':'Taslak uygun bulundu; gönderilmedi', 'rejected':'Taslak uygun bulunmadı; yeniden hazırlatın'}.get((m.get('review') or {}).get('decision'),'Kaynaklı taslağı değerlendirin')
++            result[lid] = {'list':'sira','rank':4,'text':text,'act':['open','Taslağı incele']}
++        elif q.get('current') and q.get('decision') == 'gorusme_adayi':
++            result[lid] = {'list':'havuz','rank':1,'text':'Kaynaklı görüşme adayı; taslağı Jeff hazırlasın','act':['prepare-qualified','Taslak hazırlat']}
++    return result
+ 
+ 
+ def approved_leads(store):
+diff --git a/docs/cybergeneos/server/contact.py b/docs/cybergeneos/server/contact.py
+--- a/docs/cybergeneos/server/contact.py
++++ b/docs/cybergeneos/server/contact.py
+@@ -59,6 +59,11 @@
+ def must_allow(store, lead, need_finding=True):
+     if opted_out(store, lead["id"]):
+         raise Refused("Bu işletme ret listesinde; kendisine yazılmaz.")
++    if json.loads(lead.get('drafts') or '{}').get('source') == 'qualification':
++        from . import marketing
++        view = marketing.views(store).get(lead['id']) or {}
++        if not view.get('current') or (view.get('review') or {}).get('decision') != 'accepted':
++            raise Refused('Kaynaklı taslak güncel olmalı ve panel sahibi tarafından uygun bulunmalı.')
+     a = json.loads(lead.get("analysis") or "null") or {}
+     if need_finding and a.get("karar") != "bulgu_var":
+         raise Refused("Keskin bulgu yoksa temas yok: önce analizde bulgu çıkmalı.")
+diff --git a/docs/cybergeneos/server/qualification.py b/docs/cybergeneos/server/qualification.py
+--- a/docs/cybergeneos/server/qualification.py
++++ b/docs/cybergeneos/server/qualification.py
+@@ -809,6 +809,9 @@
+     out = {}
+     if not store.one("SELECT 1 FROM sqlite_master WHERE type='table' AND name='qualification_reports'"):
+         return out
++    invalidations = set()
++    if store.one("SELECT 1 FROM sqlite_master WHERE type='table' AND name='marketing_source_invalidations'"):
++        invalidations = {(r['lead_id'],r['qualification_job'],r['report_digest']) for r in store.q('SELECT * FROM marketing_source_invalidations')}
+     for row in store.q('SELECT * FROM qualification_reports ORDER BY created_at DESC,rowid DESC'):
+         if row['lead_id'] in out:
+             continue
+@@ -840,12 +843,13 @@
+                 report['dimensions']['need_signal'] = need
+                 report.update(decision='arastirma_gerekli', need_status='yetersiz_kanit', policy_revision=2,
+                               reason='Önceki model seçimi hizmet kapsamı kontrolünden geçmedi: tıbbi değerlendirme veya genel takip başlığı idari iş yükü kanıtı sayılmadı. En az iki farklı uygun akış veya açık problem gerekli.')
+-        current = bool(eligible(store, lead) and marketing.digest(snapshot(lead)) == row['input_digest'] and report['expires_at'] > now())
++        source_invalidated = (row['lead_id'],row['job_id'],marketing.digest(json.loads(row['report']))) in invalidations
++        current = bool(not source_invalidated and eligible(store, lead) and marketing.digest(snapshot(lead)) == row['input_digest'] and report['expires_at'] > now())
+         if report.get('decision') == 'gorusme_adayi' and (report.get('adversarial') or {}).get('status') != 'completed':
+             report['stored_decision'] = report['decision']
+             report.setdefault('prior_model_reason', report.get('reason'))
+             report.update(decision='arastirma_gerekli', reason='Önceki araştırma korunuyor; genişletilmiş karşıt karar kontrolü ve Instagram kapsamı için yeniden inceleme gerekli.')
+-        out[row['lead_id']] = {**report, 'job_id': row['job_id'], 'current': current}
++        out[row['lead_id']] = {**report, 'job_id': row['job_id'], 'current': current, 'source_invalidated':source_invalidated}
+     return out
+ 
+ 
+diff --git a/docs/cybergeneos/app.js b/docs/cybergeneos/app.js
+--- a/docs/cybergeneos/app.js
++++ b/docs/cybergeneos/app.js
+@@ -1299,7 +1299,8 @@
+   const a = l.analysis, ext = 'target="_blank" rel="noopener noreferrer"';
+   const reasons = (l.gate_reasons || []).map(r => plainReason(r.text)).join(' ');
+   let body;
+-  if (s.busy) body = '<p class="empty-note"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Jeff araştırıyor. Birkaç dakika sürer, bitince rapor burada çıkar.</p>';
++  if (l.marketing?.source === 'qualification' || l.drafts?.source === 'qualification' || (l.qualification?.current && l.qualification.decision === 'gorusme_adayi')) body = '<p class="help">İlk temas taslağı güncel aday raporundaki kanıtlara bağlanır. İşletmenin iç düzeni ve gerçek ihtiyaç görüşmede doğrulanmalı.</p>';
++  else if (s.busy) body = '<p class="empty-note"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Jeff araştırıyor. Birkaç dakika sürer, bitince rapor burada çıkar.</p>';
+   else if (!a) {
+     if (l.gate === 'elendi' && !l.gate_override) body = `<p class="empty-note">Kapıda elendi: ${esc(reasons)}</p>${LP('gate-override', 'Yine de araştırılsın')}`;
+     else if (l.gate === 'şüpheli' && !l.gate_override) body = `<p class="empty-note">Kapı emin olamadı: ${esc(reasons)}</p>${LP('gate-override', 'Yine de araştırılsın')}`;
+@@ -1329,7 +1330,7 @@
+ }
+ function qualificationCol(l){
+   const q = l.qualification;
+-  const action = qualifying(l) ? '<p class="help">Jeff görüşme gerekçesini inceliyor.</p>' : LP('qualify', 'Görüşme gerekçesini Jeff araştırsın');
++  const action = qualifying(l) ? '<p class="help">Jeff görüşme gerekçesini inceliyor.</p>' : LP('qualify', 'Görüşme gerekçesini Jeff araştırsın') + (q?.current && q.decision === 'gorusme_adayi' && !analysing(l) ? LP('prepare-qualified', 'Güncel kanıttan taslak hazırlasın') : '');
+   if (!q) return `<div class="reviewbox"><h4>Görüşmeye değer mi?</h4><p class="help">Somut iş yükü, hizmet uyumu ve güncel işletme kanalı birlikte değerlendirilir.</p>${action}</div>`;
+   const labels = {service_fit: 'Hizmet uyumu', need_signal: 'İhtiyaç işareti', timing: 'Zamanlama', reachability: 'Ulaşılabilirlik'};
+   return `<div class="reviewbox"><h4>${q.current ? q.decision === 'gorusme_adayi' ? 'Görüşme adayı' : 'Güçlü aday için kanıt yetersiz' : 'Değerlendirme güncelliğini kaybetti'}</h4>
+@@ -1342,6 +1343,7 @@
+     <details class="mini"><summary>Kaynaklar, karşı kanıt ve bilinmeyenler</summary><ol class="evidence">${(q.facts || []).map(f => `<li><p>${esc(f.quote)}</p>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Resmî kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · ${q.supported_ids?.includes(f.id) ? 'Jeff ayrı okumada dayanak olarak değerlendirdi' : 'Öncelik kararına dayanak yapılmadı'}</p></li>`).join('')}</ol><ul>${(q.unknowns || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>${action}</div>`;
+ }
+ function messageCol(l){
++  if (l.marketing?.source === 'qualification' || l.drafts?.source === 'qualification' || (l.qualification?.current && l.qualification.decision === 'gorusme_adayi' && !l.drafts)) return qualifiedMessageCol(l);
+   const a = l.analysis, d = l.drafts, sent = l.contacts || [];
+   const head = '<h3 class="wh">Raporu özelleştir</h3>';
+   if (analysing(l)) return `<section class="wcol msg">${head}<p class="empty-note">Jeff çalışıyor. İnceleme ve taslak tamamlandığında burada değerlendirebilirsiniz.</p></section>`;
+@@ -1376,6 +1378,33 @@
+     ${sent.length ? `<ul class="contact-log">${sent.map(c => `<li>${CH_LABEL[c.channel]}, ${fmtDate(c.at)}</li>`).join('')}</ul>` : ''}
+   </section>`;
+ }
++function qualifiedMessageCol(l){
++  const m = l.marketing || {}, d = l.drafts || {};
++  const ready = m.current && m.published_at && d.marketing_job === m.job_id;
++  const candidate = l.qualification?.current && l.qualification.decision === 'gorusme_adayi';
++  const historical = m.published_at && d.marketing_job === m.job_id;
++  const status = analysing(l) ? 'Jeff kaynakları ve taslağın iddialarını denetliyor.' : m.current
++    ? {'accepted': 'Taslağı uygun buldunuz. Gönderim yapılmadı.', 'rejected': 'Taslağı uygun bulmadınız. Jeff’e not verip yeniden hazırlatabilirsiniz.'}[m.review?.decision] || 'Taslak ve karşıt inceleme hazır; değerlendirmeniz bekleniyor.'
++    : m.stale_reason || (m.status === 'failed' ? m.note || 'Taslak denetlenemedi; hazır olarak işaretlenmedi.' : 'Güncel aday raporundaki kaynaklardan tek ilk temas taslağı hazırlanır.');
++  const audit = m.audit;
++  return `<section class="wcol msg" aria-label="Kaynaklı ilk temas taslağı"><h3 class="wh">İlk temas taslağı</h3>
++    <p class="help" aria-live="polite">${esc(status)}</p>
++    ${analysing(l) ? '<p class="empty-note">Bittiğinde metin ve dayanakları burada görünecek.</p>' : ''}
++    ${historical ? `<label class="kicker" for="c-text">${ready ? 'Jeff’in hazırladığı metin' : 'Önceki metin · yeniden inceleme gerekli'}</label><textarea class="draft" id="c-text" readonly>${esc(d.whatsapp || '')}</textarea>
++      <p><b>Önerilen görev:</b> ${esc(d.scope)}</p><p><b>Mevcut çözüm:</b> ${esc(d.known_counter)}</p>` : ''}
++    ${audit ? `<div class="reviewbox"><h4>Taslağın karşıt incelemesi · ${audit.approved === true ? 'Uygun bulundu' : 'Uygun bulunmadı'}</h4>
++      <p>${esc(audit.reason)}</p><p><b>Alternatif açıklama:</b> ${esc(audit.alternative_explanation)}</p>
++      <p><b>Kanıtın sınırı:</b> ${esc(audit.evidence_limit)}</p><p><b>Tekliften ne zaman vazgeçeriz?</b> ${esc(audit.disconfirming_condition)}</p>
++      <p class="help">Jeff’in ayrı oturumdaki eleştirel okumasıdır; bağımsız saha doğrulaması ve kullanıcı kabulü değildir.</p>
++      ${(audit.unsupported_claims || []).length ? `<ul>${audit.unsupported_claims.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>` : ''}
++    ${ready ? `<details class="mini" open><summary>Cümle ve kanıt eşleşmesi</summary><ol class="evidence">${(d.claim_audit || []).map(c => `<li><p>${esc(c.claim)}</p>${c.fact_ids.map(id => `<span class="tag">Kaynak ${id + 1}</span>`).join(' ')}</li>`).join('')}</ol>
++      <ol class="evidence">${(m.evidence || []).map(f => `<li><b>Kaynak ${f.id + 1}</b><blockquote>${esc(f.quote)}</blockquote>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · Yayıncı beyanı; alıntının kaynakta bulunduğu denetlendi.</p></li>`).join('')}</ol></details>
++      <div class="reviewbox"><p class="help">Değerlendirmeniz gönderim yapmaz. Metinde değişiklik için Jeff’e not verin; yeni taslak yeniden karşıt incelemeden geçer.</p>
++        <div class="row">${LP('review-accept', 'Uygun buldum')}${LB('review-reject', 'Uygun değil')}${LB('copy-text', 'Metni kopyala', 'btn-glass')}</div></div>` : ''}
++    ${m.source_check?.verified_at ? `<p class="help">Taslak öncesi kaynak denetimi: ${fmtDate(m.source_check.verified_at)}. Rapor yenilendiğinde, geçerliliğini kaybettiğinde veya hizmet kapsamı değiştiğinde eski taslak yeniden inceleme gerektirir.</p>` : ''}
++    ${candidate && !analysing(l) && !l.optout ? `<label class="kicker" for="q-draft-note">Jeff’e üslup notunuz (isteğe bağlı)</label><input class="field-input" id="q-draft-note" maxlength="300" value="${esc(d.note || '')}" placeholder="Örn. daha kısa ve doğrudan yaz"><div class="row">${LP('prepare-qualified', historical ? 'Güncel kanıttan yeniden hazırlasın' : 'Güncel kanıttan taslak hazırlasın')}</div>` : ''}
++  </section>`;
++}
+ function openLead(id){
+   const l = D.leads.find(x => x.id === id); if (!l) return;
+   openLeadId = id; sheetKind = 'lead';
+@@ -1432,8 +1461,8 @@
+       if (!key) { key = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); sessionStorage.setItem(keyName, key); }
+       const r = await api(`lead/${id}/qualify`, {request_key: key}); sessionStorage.removeItem(keyName); state.radarJob = r.job; pollJobs(); await done(); return;
+     }
+-    if (a === 'prepare') {
+-      const keyName = `cgos-prepare-${id}`;
++    if (a === 'prepare' || a === 'prepare-qualified') {
++      const keyName = `cgos-${a}-${id}`;
+       let requestKey = sessionStorage.getItem(keyName);
+       if (!requestKey) {
+         requestKey = typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+@@ -1441,7 +1470,7 @@
+         sessionStorage.setItem(keyName, requestKey);
+       }
+       try {
+-        const r = await api(`lead/${id}/prepare`, {request_key: requestKey});
++        const r = await api(`lead/${id}/${a}`, {request_key: requestKey, ...(a === 'prepare-qualified' ? {note: ($('#q-draft-note')?.value || '').trim()} : {})});
+         sessionStorage.removeItem(keyName);
+         state.radarJob = r.job; knownJobs?.add(r.job);
+         toast('Görevin durumunu ve sonucunu bu firma kartından görebilirsiniz.'); pollJobs();
+@@ -1450,7 +1479,7 @@
+     }
+     if (['review-accept', 'review-reject', 'review-edit'].includes(a)) {
+       // Only a saved version can be accepted. Edits first invalidate the old decision.
+-      const tab = contactTab[id] || (L.wa ? 'whatsapp' : L.email ? 'email' : L.instagram ? 'instagram' : L.form ? 'form' : 'whatsapp');
++      const tab = L.drafts?.source === 'qualification' ? 'whatsapp' : contactTab[id] || (L.wa ? 'whatsapp' : L.email ? 'email' : L.instagram ? 'instagram' : L.form ? 'form' : 'whatsapp');
+       const stored = {whatsapp: L.drafts?.whatsapp, instagram: L.drafts?.instagram, email: L.drafts?.email_govde, form: L.drafts?.email_govde}[tab];
+       if (a === 'review-accept' && (txt() !== (stored || '').trim() || (tab === 'email' && $('#c-subject')?.value !== L.drafts.email_konu))) return toast('Önce düzenlemeyi kaydedin, sonra güncel taslağı değerlendirin.');
+       try {
