@@ -78,14 +78,31 @@ def hermes_jobs_line(jobs_path=HOME / '.hermes/cron/jobs.json'):
     try:
         data = json.loads(Path(jobs_path).read_text(encoding='utf-8'))
         jobs = data.get('jobs', data) if isinstance(data, dict) else data
+        if not isinstance(jobs,list) or any(not isinstance(j,dict) for j in jobs):
+            raise ValueError('Invalid job inventory')
         active = [j for j in jobs if j.get('enabled', True) and not j.get('paused_at')]
         paused = len(jobs) - len(active)
-        failing = [j.get('name') for j in active if str(j.get('last_status')) == 'error']
+        groups = {key: [] for key in ('error','delivery_failed','timeout','interrupted','unknown')}
+        for job in active:
+            raw = str(job.get('last_status') or 'unknown')
+            status = raw.strip().lower().replace(' ','_')
+            if status == 'ok':
+                continue
+            category = status if status in groups else 'unknown'
+            name = job.get('name') or job.get('id') or 'kimlik bilinmiyor'
+            when = job.get('last_run_at') or job.get('last_run') or 'çalışma zamanı bilinmiyor'
+            detail = f'{name} [son çalışma: {when}]'
+            if category == 'unknown':
+                detail += f' [ham sonuç: {raw}]'
+            groups[category].append(detail)
     except (OSError, ValueError, AttributeError):
         return f"Jeff'in kendi zamanlanmış işleri: {UNAVAILABLE}"
     text = f"Jeff'in kendi zamanlanmış işleri: {len(active)} aktif, {paused} duraklatılmış"
-    if failing:
-        text += f"; son çalışmada hata veren: {', '.join(map(str, failing[:4]))}"
+    labels={'error':'son çalışmada hata veren','delivery_failed':'çalıştı; teslim başarısız',
+            'timeout':'zaman aşımı','interrupted':'kesilen','unknown':'sonucu bilinmeyen'}
+    for category,items in groups.items():
+        if items:
+            text += f"; {labels[category]}: {', '.join(items)}"
     return text
 
 

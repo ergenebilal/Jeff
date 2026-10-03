@@ -33,6 +33,34 @@ class GatewayTests(unittest.TestCase):
 
 
 class JobsTests(unittest.TestCase):
+    def test_delivery_failed_timeout_interrupted_unknown_are_visible(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'jobs.json'
+            p.write_text(json.dumps({'jobs':[
+                {'name':'opp-digest-push','last_status':'delivery_failed','last_run':'fixture time'},
+                {'name':'slow','last_status':'timeout'},
+                {'name':'cut','last_status':'interrupted'},
+                {'name':'new-result','last_status':'unexpected'},
+                {'name':'never-run'},
+                {'name':'paused-old-error','enabled':False,'last_status':'error'}]}))
+            text=js.hermes_jobs_line(p)
+        for name in ('opp-digest-push','slow','cut','new-result','never-run','fixture time','unexpected'):
+            self.assertIn(name,text)
+        self.assertNotIn('paused-old-error',text)
+        self.assertIn('teslim başarısız',text)
+
+    def test_all_failures_remain_visible_above_four(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'jobs.json'
+            p.write_text(json.dumps([{'id':str(i),'last_status':'error'} for i in range(6)]))
+            text=js.hermes_jobs_line(p)
+        self.assertIn('5 [son çalışma:',text)
+
+    def test_invalid_inventory_is_unknown(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'jobs.json'; p.write_text('{"jobs":17}')
+            self.assertIn(js.UNAVAILABLE,js.hermes_jobs_line(p))
+
     def test_counts_active_paused_and_failing(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'jobs.json'
