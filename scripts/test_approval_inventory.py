@@ -105,6 +105,13 @@ class ApprovalInventoryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bridge.NodeApprovalSnapshot(journal_waiting=-1)
 
+    def test_canonical_view_preserves_legacy_archive_counts_without_duplicate_waiting(self):
+        from approval_ledger import ApprovalLedger
+        ledger=ApprovalLedger(self.path);ledger.initialize()
+        self.snapshot(journal_waiting=0,marketing_waiting=0,journal_legacy_expired=18,marketing_legacy_expired=3)
+        result=inventory.collect(self.path,NOW)
+        self.assertEqual(result['waiting'],0);self.assertEqual(result['expired'],21)
+
 
 if __name__ == '__main__':
     unittest.main()

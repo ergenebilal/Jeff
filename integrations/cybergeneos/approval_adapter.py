@@ -69,6 +69,7 @@ def install(app,client=None,owner=None):
         config=json.loads((Path(app.DATA)/'approval-gateway.json').read_text())
         client=ApprovalClient(config);owner=config['owner_id']
     adapter=PanelApprovalAdapter(store,client,owner)
+    adapter.decay()
     original_create=store.create_approval;original_list=store.approvals;original_act=app.act_approval
     def create(a):return adapter.register(original_create(a))
     def listing():adapter.decay();return original_list()

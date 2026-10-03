@@ -17,6 +17,7 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
     now = now or datetime.now(timezone.utc)
     cutoff = (now - timedelta(hours=stale_hours)).isoformat()
     totals = {'waiting': 0, 'old': 0, 'stuck': 0, 'expired': 0, 'unavailable': [], 'sources': {}}
+    legacy_expired=0
     try:
         db = read_only(bridge_db)
     except sqlite3.Error:
@@ -46,6 +47,7 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
                 totals['unavailable'].append('Pablo ve pazarlama onayları')
             else:
                 snapshot = json.loads(row[1])
+                legacy_expired+=int(snapshot.get('journal_legacy_expired',0))+int(snapshot.get('marketing_legacy_expired',0))
                 if snapshot.get('notification_delivery_unknown',0):
                     totals['unavailable'].append('Pablo karar bildirimi: teslim doğrulanamadı')
                 for name, label, prefix in (('journal', 'Pablo onayları', 'journal'), ('marketing', 'Pazarlama onayları', 'marketing')):
@@ -70,6 +72,9 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
                 totals['sources']['panel'] = count
                 totals['waiting'] += count
                 totals['old'] += old
+                panel_tables={r[0] for r in panel.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if 'canonical_approval_links' in panel_tables:
+                    legacy_expired+=panel.execute("SELECT count(*) FROM canonical_approval_links WHERE canonical_id IS NULL AND reason='expired'").fetchone()[0]
             finally:
                 panel.close()
         except sqlite3.Error:
@@ -83,7 +88,7 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
                 legacy_sources=dict(totals['sources'])
                 totals['waiting']=canonical.execute('SELECT count(*) FROM approval_records WHERE '+active,(now.timestamp(),)).fetchone()[0]
                 totals['old']=canonical.execute('SELECT count(*) FROM approval_records WHERE '+active+' AND created_at<?',(now.timestamp(),now.timestamp()-stale_hours*3600)).fetchone()[0]
-                totals['expired']=canonical.execute("SELECT count(*) FROM approval_records WHERE status='expired' OR (status IN ('pending','approved') AND expires_at<=?)",(now.timestamp(),)).fetchone()[0]
+                totals['expired']=legacy_expired+canonical.execute("SELECT count(*) FROM approval_records WHERE status='expired' OR (status IN ('pending','approved') AND expires_at<=?)",(now.timestamp(),)).fetchone()[0]
                 totals['sources']={}
                 for source,group in (('native','tasks'),('journal','journal'),('marketing_campaign','marketing'),('marketing_idea','marketing'),('panel','panel')):
                     count=canonical.execute('SELECT count(DISTINCT r.approval_id) FROM approval_records r JOIN approval_source_links l USING(approval_id) WHERE l.source=? AND r.'+active,(source,now.timestamp())).fetchone()[0]

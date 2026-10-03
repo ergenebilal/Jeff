@@ -2435,6 +2435,7 @@ def node_approval_snapshot():
             for table in ('outreach_campaigns', 'instagram_content_ideas'):
                 summary['marketing_waiting'] += db.execute(f"SELECT count(*) FROM {table} WHERE status='PENDING_APPROVAL'").fetchone()[0]
                 summary['marketing_old'] += db.execute(f"SELECT count(*) FROM {table} WHERE status='PENDING_APPROVAL' AND approval_requested_at<?", (cutoff,)).fetchone()[0]
+            summary['marketing_legacy_expired']=db.execute("SELECT count(*) FROM approval_archives a LEFT JOIN canonical_review_links l ON l.source=a.source AND l.source_id=a.source_id WHERE a.reason='EXPIRED' AND l.canonical_id IS NULL").fetchone()[0]
         finally:
             db.close()
         summary['marketing_complete'] = True
