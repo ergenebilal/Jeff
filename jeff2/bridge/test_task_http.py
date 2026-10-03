@@ -83,6 +83,21 @@ class TaskHttpSmoke(unittest.TestCase):
                     self.fail('Bridge did not become ready')
                 health_data = call('GET', '/health')
                 self.assertTrue(health_data['draft_worker_ready'])
+                binding={'task_id':'canonical-smoke','action':'fixture','recipient':'local-fixture','channel':'fixture','input_digest':'1'*64}
+                decision=call('POST','/decisions/request',{'source':'panel','source_id':'fixture-approval',
+                              'binding':binding,'expires_at':time.time()+60})
+                aid=decision['approval_id']
+                owner_body={'user_id':'42','chat_id':'42','input_digest':'1'*64,'decision':'approve'}
+                with self.assertRaises(HTTPError) as untrusted:
+                    call('POST','/decisions/'+aid+'/decision',owner_body)
+                self.assertEqual(untrusted.exception.code,401)
+                call('POST','/decisions/'+aid+'/decision',owner_body,decision=True)
+                claim=call('POST','/decisions/'+aid+'/claim',{'binding':binding,'worker':'fixture-worker'})
+                with self.assertRaises(HTTPError) as duplicate_claim:
+                    call('POST','/decisions/'+aid+'/claim',{'binding':binding,'worker':'other-worker'})
+                self.assertEqual(duplicate_claim.exception.code,409)
+                call('POST','/decisions/'+aid+'/complete',{'claim_id':claim['claim_id'],'worker':'fixture-worker','outcome':'fixture_only'})
+                self.assertEqual(call('GET','/decisions/'+aid)['status'],'consumed')
                 import hashlib
                 self.assertEqual(health_data['loaded_source_sha256']['task_artifacts.py'],
                                  hashlib.sha256((bridge_dir / 'task_artifacts.py').read_bytes()).hexdigest())

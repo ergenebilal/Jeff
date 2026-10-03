@@ -26,6 +26,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import Response
 from task_contract import TaskConflict, TaskCreate, TaskLedger, TaskNotFound
+from approval_ledger import ApprovalLedger, ApprovalConflict
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
@@ -36,7 +37,7 @@ HOST = None
 PORT = int(os.environ.get("BRIDGE_PORT", "7700"))
 LOADED_SOURCE_SHA256 = {
     name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
-    for name in ('jeff_bridge_api.py', 'task_contract.py', 'task_artifacts.py')
+    for name in ('jeff_bridge_api.py', 'task_contract.py', 'task_artifacts.py','approval_ledger.py')
 }
 
 def validate_bridge_key(key):
@@ -252,6 +253,68 @@ class ApprovalDecisionRequest(BaseModel):
     chat_id: str
     input_digest: str = Field(pattern=r'^[a-f0-9]{64}$')
     decision: str = Field(pattern=r'^(approve|reject)$')
+
+
+class CanonicalApprovalRequest(BaseModel):
+    source: str = Field(pattern=r'^(journal|marketing_campaign|marketing_idea|panel)$')
+    source_id: str = Field(min_length=1,max_length=128)
+    binding: dict
+    expires_at: float
+    created_at: float | None = None
+
+class CanonicalClaimRequest(BaseModel):
+    binding: dict
+    worker: str = Field(min_length=1,max_length=128)
+
+class CanonicalCompleteRequest(BaseModel):
+    claim_id: str
+    worker: str
+    outcome: str = Field(min_length=1,max_length=80)
+
+async def canonical_call(method,*args):
+    try:
+        return await asyncio.to_thread(getattr(ApprovalLedger(DB_PATH),method),*args)
+    except ApprovalConflict as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+def require_owner_gateway(key,user_id=None,chat_id=None):
+    configured=os.environ.get('APPROVAL_DECISION_KEY')
+    owner=os.environ.get('TASK_APPROVAL_OWNER')
+    if not configured or configured==BRIDGE_KEY or not key or not hmac.compare_digest(key,configured):
+        raise HTTPException(status_code=401,detail='Invalid approval gateway key')
+    if not owner or (user_id is not None and str(user_id)!=owner) or (chat_id is not None and str(chat_id)!=owner):
+        raise HTTPException(status_code=409,detail='Wrong approval owner or chat')
+    return owner
+
+@app.post('/decisions/request')
+async def canonical_request(body: CanonicalApprovalRequest,x_bridge_key: Optional[str]=Header(default=None)):
+    require_key(x_bridge_key)
+    return await canonical_call('request',body.source,body.source_id,body.binding,body.expires_at,body.created_at)
+
+@app.get('/decisions/queue')
+async def canonical_queue(x_bridge_key: Optional[str]=Header(default=None)):
+    require_key(x_bridge_key)
+    return await canonical_call('queue')
+
+@app.get('/decisions/{approval_id}')
+async def canonical_get(approval_id: str,x_bridge_key: Optional[str]=Header(default=None)):
+    require_key(x_bridge_key)
+    return await canonical_call('get',approval_id)
+
+@app.post('/decisions/{approval_id}/decision')
+async def canonical_decide(approval_id: str,body: ApprovalDecisionRequest,x_approval_key: Optional[str]=Header(default=None)):
+    owner=require_owner_gateway(x_approval_key,body.user_id,body.chat_id)
+    return await canonical_call('decide',approval_id,body.input_digest,owner,body.decision=='approve')
+
+@app.post('/decisions/{approval_id}/claim')
+async def canonical_claim(approval_id: str,body: CanonicalClaimRequest,x_bridge_key: Optional[str]=Header(default=None)):
+    require_key(x_bridge_key)
+    return await canonical_call('claim',approval_id,body.binding,body.worker)
+
+@app.post('/decisions/{approval_id}/complete')
+async def canonical_complete(approval_id: str,body: CanonicalCompleteRequest,x_bridge_key: Optional[str]=Header(default=None)):
+    require_key(x_bridge_key)
+    return await canonical_call('complete',approval_id,body.claim_id,body.worker,body.outcome)
 
 
 def task_artifact_probe(task):

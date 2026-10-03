@@ -9,6 +9,7 @@ import uuid
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+from approval_ledger import ApprovalLedger, ApprovalConflict
 
 
 class TaskConflict(Exception):
@@ -157,6 +158,11 @@ class TaskLedger:
             columns = {r['name'] for r in db.execute('PRAGMA table_info(task_records)')}
             if 'plan_json' not in columns:
                 db.execute('ALTER TABLE task_records ADD COLUMN plan_json TEXT')
+            ApprovalLedger.initialize_on(db)
+
+    def _approval_binding(self,row):
+        return {'task_id':row['task_id'],'action':'artifact_write','recipient':row['assigned_worker'] or 'jeff-server',
+                'channel':'managed_artifact','input_digest':row['input_digest']}
 
     def _timestamp(self):
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat()
@@ -351,6 +357,8 @@ class TaskLedger:
             db.execute('INSERT INTO task_approvals VALUES(?,?,?,?,?,?,?,?)',
                        (aid, task_id, row['input_digest'], 'pending', self.clock() + ttl,
                         self._timestamp(), None, None))
+            ApprovalLedger(self.path,self.clock).request_on(db,'native',aid,self._approval_binding(row),
+                                                         self.clock()+ttl,approval_id=aid)
             if row['status'] == 'queued':
                 self._transition(db, row, 'waiting_approval', 'approval-gate', {'approval_id': aid})
             else:
@@ -385,6 +393,10 @@ class TaskLedger:
                 db.execute("UPDATE task_approvals SET status='expired' WHERE approval_id=?", (approval_id,))
                 db.commit()
                 raise TaskConflict('Approval expired; request renewal')
+            try:
+                ApprovalLedger(self.path,self.clock).decide_on(db,approval_id,input_digest,str(owner),approve)
+            except ApprovalConflict as exc:
+                raise TaskConflict(str(exc)) from exc
             db.execute('UPDATE task_approvals SET status=?,decided_at=?,owner_id=? WHERE approval_id=?',
                        ('approved' if approve else 'rejected', self._timestamp(), str(owner), approval_id))
             return self._transition(db, row, 'queued' if approve else 'cancelled', 'owner',
@@ -422,6 +434,15 @@ class TaskLedger:
                     self._reject(db, row, 'claimed', worker, 'Valid owner approval required', TaskConflict)
                 db.execute("UPDATE task_approvals SET status='consumed' WHERE approval_id=?",
                            (row['approval_id'],))
+                canonical=ApprovalLedger(self.path,self.clock)
+                record=canonical._row(db,row['approval_id'])
+                if record['status']=='approved':
+                    claimed=canonical.claim_on(db,row['approval_id'],self._approval_binding(row),worker)
+                    # Managed artifacts have an independent idempotent content verifier; external adapters
+                    # keep the claim until an execution receipt is reconciled.
+                    canonical.complete_on(db,row['approval_id'],claimed['claim_id'],worker,'managed_artifact_claim')
+                elif record['status']!='consumed' or row['side_effect_class']!='none':
+                    raise TaskConflict('Canonical approval is not executable')
             if row['attempt'] >= row['max_attempts']:
                 self._reject(db, row, 'claimed', worker, 'Maximum attempts reached', TaskConflict)
             return self._transition(db, row, 'claimed', worker,
@@ -529,6 +550,10 @@ class TaskLedger:
             result = self._transition(db, row, 'cancelled', actor,
                                     {'lease_owner': None, 'lease_expires_at': None})
             db.execute("UPDATE task_approvals SET status='revoked' WHERE task_id=? AND status IN ('pending','approved')", (task_id,))
+            canonical=ApprovalLedger(self.path,self.clock)
+            for approval in db.execute("SELECT approval_id FROM approval_records WHERE task_id=? AND status IN ('pending','approved')",(task_id,)).fetchall():
+                db.execute("UPDATE approval_records SET status='revoked',archived_at=? WHERE approval_id=?",(self.clock(),approval[0]))
+                canonical._event(db,approval[0],'revoked',actor)
             return result
 
     def reconcile(self, task_id, actor):
