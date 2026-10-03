@@ -231,15 +231,65 @@ def model(system, data, session, receipt):
     content = (choice.get('message') or {}).get('content', '')
     receipt.update(model=result.get('model'), usage=result.get('usage'), cost=None,
                    response_received=True, finish_reason=choice.get('finish_reason'), raw_response=content)
-    return analysis.parse_json(content)
+    return parse_response(content, receipt)
+
+
+def parse_response(text, receipt):
+    """Repair curly delimiters of ASCII JSON keys only; never rewrite evidence.
+
+    A received response is not a reason to charge another model call. Invalid
+    values, duplicate keys and truncated/multiple objects remain invalid.
+    """
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate JSON key')
+            result[key] = value
+        return result
+    match = re.search(r'\{.*\}', text or '', re.S)
+    if not match:
+        raise ValueError('JSON object absent')
+    fragment = match.group(0)
+    try:
+        result = json.loads(fragment, object_pairs_hook=unique)
+    except json.JSONDecodeError:
+        output, frames, repairs, index = [], [], 0, 0
+        while index < len(fragment):
+            char = fragment[index]
+            if char == '"':
+                _, end = json.decoder.scanstring(fragment, index+1, True)
+                output.append(fragment[index:end]);index = end;continue
+            if char in '“”':
+                if not frames or frames[-1] != ['{', 'key']:
+                    raise ValueError('Invalid JSON value delimiter')
+                key = re.match(r'[“”]([A-Za-z_][A-Za-z_0-9]*)[“”](\s*:)', fragment[index:])
+                if not key:
+                    raise ValueError('Invalid JSON key')
+                output.append('"'+key[1]+'"'+key[2]);index += key.end();repairs += 1;frames[-1][1] = 'value';continue
+            if char in '{[':
+                frames.append([char, 'key' if char == '{' else 'value'])
+            elif char in '}]':
+                if frames:
+                    frames.pop()
+            elif frames and frames[-1][0] == '{' and char in ':,':
+                frames[-1][1] = 'value' if char == ':' else 'key'
+            output.append(char);index += 1
+        if not repairs:
+            raise ValueError('Invalid JSON response')
+        result = json.loads(''.join(output), object_pairs_hook=unique)
+        receipt['syntactic_repairs'] = {'smart_key_delimiters': repairs, 'values_changed': False}
+    if not isinstance(result, dict):
+        raise ValueError('JSON object required')
+    return result
 
 
 def collect(lead):
     """Bounded current official pages; no third-party or missing-feature inference."""
     pages, seen, errors = [], set(), []
     queue = [(lead['website'], 0)]
-    extra = re.compile(r'iletisim|contact|hakkimiz|about|ekib|hekim|doctor|international|tourism|turizm|randevu|kariyer|career|insan.kaynak|faq|sss|sikca|haber|news', re.I)
-    priority = re.compile(r'iletisim|contact|randevu|kariyer|career|insan.kaynak|faq|sss|sikca', re.I)
+    extra = re.compile(r'iletisim|contact|hakkimiz|about|ekib|hekim|doctor|international|tourism|turizm|randevu|kariyer|career|insan.kaynak|faq|sss|sikca|haber|news|booking|appointment|cancell|terms|conditions|policy|package|payment|kosull|sozlesme|iptal', re.I)
+    priority = re.compile(r'iletisim|contact|randevu|kariyer|career|insan.kaynak|faq|sss|sikca|booking|appointment|cancell|terms|conditions|iptal', re.I)
     while queue and len(seen) < 8:
         url, depth = queue.pop(0)
         if url.rstrip('/') in seen or not analysis.same_site(lead['website'], url):
@@ -568,7 +618,7 @@ def assess(lead, research, facts, audit, pages, timestamp=None):
                             'scope': 'Jeff tarafından ayrı karşıt okuma; bağımsız saha doğrulaması değildir.',
                             **{k: str((critique if isinstance(critique, dict) else {}).get(k) or '')[:700] for k in critique_keys},
                             'supported_ids': sorted(supported), 'blocking_counter_ids': counters},
-            'rule_version': 3, 'prompt_version': 6, 'delivered': False, 'human_accepted': False}
+            'rule_version': 3, 'prompt_version': 7, 'delivered': False, 'human_accepted': False}
 
 
 def run(store, h, params):

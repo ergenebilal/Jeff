@@ -81,6 +81,37 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(len(data['verified_facts']), 2)
         self.assertNotIn('Uydurulmuş', json.dumps(data, ensure_ascii=False))
 
+    def test_curly_json_key_repair_preserves_source_quote_and_never_repairs_values(self):
+        receipt = {}
+        text = '{“facts”: [{“quote”: "Kaynakta {“facts”: yazıyor; bu alıntı değişmez.", “url”: "https://ornek.com"}]}'
+        result = q.parse_response(text, receipt)
+        self.assertEqual(result['facts'][0]['quote'], 'Kaynakta {“facts”: yazıyor; bu alıntı değişmez.')
+        self.assertEqual(receipt['syntactic_repairs'], {'smart_key_delimiters': 3, 'values_changed': False})
+        with self.assertRaises(ValueError):
+            q.parse_response('{“facts”: [{“quote”: “Yeni alıntı uydurma”}]}', {})
+
+    def test_ambiguous_duplicate_truncated_or_multiple_json_responses_fail_closed(self):
+        for text in ('{"fit": false, "fit": true}', '{“fit”: false, “fit”: true}',
+                     '{"facts": [{"quote": "Yarım yanıt"}]', '{"fit":true} {"fit":false}', 'JSON olmayan yanıt'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                q.parse_response(text, {})
+
+    def test_plain_json_quote_content_stays_unchanged(self):
+        receipt = {}
+        data = {'facts': [{'quote': '“Randevu” sözcüğü kaynakta aynen böyle.', 'url': 'https://ornek.com'}]}
+        self.assertEqual(q.parse_response(json.dumps(data, ensure_ascii=False), receipt), data)
+        self.assertNotIn('syntactic_repairs', receipt)
+
+    def test_english_booking_change_policies_are_not_lost_behind_generic_navigation(self):
+        html = {'https://ornek.com': '<a href="/doctors">Doctors</a><a href="/terms-conditions">Terms and conditions</a>',
+                'https://ornek.com/terms-conditions': '<p>Please contact our booking team to change your confirmed appointment.</p>',
+                'https://ornek.com/doctors': '<p>Our doctors</p>'}
+        with patch.object(q.sitecheck, 'robots_allows', return_value=True), patch.object(q.sitecheck, 'fetch', side_effect=lambda url: (url, html[url], {})):
+            pages, errors = q.collect(self.lead)
+        self.assertFalse(errors)
+        self.assertEqual(pages[1]['url'], 'https://ornek.com/terms-conditions')
+        self.assertIn('change your confirmed appointment', pages[1]['text'])
+
     def test_instagram_profile_requires_exact_host_and_official_website_link(self):
         self.assertEqual(q.instagram_profile('https://instagram.com/ornek_clinic/?hl=tr'), 'https://www.instagram.com/ornek_clinic/')
         for url in ('https://instagram.com.evil.test/ornek/', 'https://www.instagram.com/accounts/login/',
