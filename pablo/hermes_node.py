@@ -57,7 +57,7 @@ NODE_DIR = Path(__file__).resolve().parent
 PROCESS_STARTED_AT = time.time()
 LOADED_SOURCE_SHA256 = {
     name: hashlib.sha256((NODE_DIR / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py')
+    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py')
 }
 try:
     SOURCE_RELEASE = json.loads((NODE_DIR / 'deployment.json').read_text(encoding='utf-8')).get('commit', 'unknown')
@@ -2595,6 +2595,9 @@ def send_telegram_approval_request(chat_id: int, appr_id: str, action_name: str,
     token = CONFIG.get("telegram_bot_token")
     if not token or not chat_id:
         return
+    from pablo_notification_policy import reserve,finish
+    if not reserve(NODE_DIR/'task-journal.sqlite3',appr_id,action_name):
+        return
     try:
         import requests
         url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -2615,9 +2618,12 @@ def send_telegram_approval_request(chat_id: int, appr_id: str, action_name: str,
             ]
         }
         r = requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML", "reply_markup": reply_markup}, timeout=15)
-        if r.status_code == 200:
+        accepted=r.status_code==200 and r.json().get('ok') is True and bool(r.json().get('result',{}).get('message_id'))
+        finish(NODE_DIR/'task-journal.sqlite3',appr_id,accepted)
+        if accepted:
             log("INFO", f"Approval Gate butonlu mesaj iletildi (ID: {appr_id})")
     except Exception as e:
+        finish(NODE_DIR/'task-journal.sqlite3',appr_id,False)
         log("WARN", f"Approval buton gönderme hatası: {e}")
 
 def answer_telegram_callback(callback_id: str, text: str):

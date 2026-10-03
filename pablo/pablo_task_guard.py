@@ -276,7 +276,9 @@ class TaskGuard:
                 "SELECT coalesce(sum(expires>=?),0), coalesce(sum(expires<?),0) FROM requests "
                 "WHERE status='APPROVAL_REQUIRED' AND consumed=0", (self.clock(), self.clock())).fetchone()
             expired=db.execute("SELECT count(*) FROM approval_archives WHERE source='journal' AND reason='EXPIRED'").fetchone()[0]
-        return {'journal_waiting': waiting, 'journal_expired': expired, 'journal_complete': True}
+            tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            unknown=db.execute("SELECT count(*) FROM approval_notifications WHERE status IN ('delivery_unknown','sending')").fetchone()[0] if 'approval_notifications' in tables else 0
+        return {'journal_waiting': waiting, 'journal_expired': expired, 'journal_complete': True,'notification_delivery_unknown':unknown}
 
     def queue_result(self, payload):
         with self.connect() as db:

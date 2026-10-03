@@ -70,4 +70,12 @@ class AdapterTests(unittest.TestCase):
     def test_no_credential_is_fail_closed(self):
         with self.assertRaises(ApprovalUnavailable): ApprovalClient({}).request('journal','id',self.binding,10060)
 
+    def test_quiet_marketing_review_is_queued_without_claiming_delivery(self):
+        import marketing_pipeline
+        with patch.object(gateway,'ApprovalClient',return_value=self.client),patch.object(gateway,'get_telegram_config',return_value={'telegram_default_chat_id':'42','quiet_notifications':True}),patch.object(gateway.time,'time',return_value=self.now[0]),patch.object(gateway,'MarketingPipeline') as pipeline,patch.object(gateway,'send_telegram_raw') as telegram,patch.object(marketing_pipeline,'DB_PATH',Path(self.temp.name)/'marketing.db'):
+            pipeline.get_campaign.return_value=self.row
+            result=gateway.send_campaign_approval_card(6)
+            self.assertEqual(result['status'],'QUEUED_QUIET');self.assertFalse(result['delivered'])
+            telegram.assert_not_called();pipeline.update_campaign_status.assert_called_once_with(6,'PENDING_APPROVAL')
+
 if __name__=='__main__':unittest.main()

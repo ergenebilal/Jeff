@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from pablo_task_guard import TaskGuard
-from pablo_approval_maintenance import marketing_decay,review_link
+from pablo_approval_maintenance import marketing_decay,review_link,connect
 
 class DecayTests(unittest.TestCase):
     def test_eighteen_expired_records_archive_once_and_never_execute(self):
@@ -23,13 +23,13 @@ class DecayTests(unittest.TestCase):
     def test_four_old_pending_records_leave_active_queue_preserving_content(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'marketing.db'
-            with sqlite3.connect(path) as db:
+            with connect(path) as db:
                 db.execute('CREATE TABLE outreach_campaigns(id INTEGER,status TEXT,approval_requested_at TEXT,message_body TEXT)')
                 db.executemany('INSERT INTO outreach_campaigns VALUES(?,?,?,?)',[(i,'PENDING_APPROVAL','2020-01-01 00:00:00','original') for i in range(4)])
                 db.execute("INSERT INTO outreach_campaigns VALUES(5,'PENDING_APPROVAL',NULL,'new')")
             review_link(path,'marketing_campaign',5,'canonical-new',1e12)
             marketing_decay(path,1e9);marketing_decay(path,1e9)
-            with sqlite3.connect(path) as db:
+            with connect(path) as db:
                 self.assertEqual(db.execute("SELECT count(*) FROM outreach_campaigns WHERE status='PENDING_APPROVAL'").fetchone()[0],1)
                 self.assertEqual(db.execute('SELECT count(*) FROM approval_archives').fetchone()[0],4)
                 self.assertEqual(db.execute("SELECT count(*) FROM outreach_campaigns WHERE message_body='original'").fetchone()[0],4)

@@ -13,7 +13,11 @@ def financial_decisions(path,now):
     try:
         with sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True) as db:
             db.row_factory=sqlite3.Row
-            rows=db.execute("SELECT approval_id,action,recipient,expires_at FROM approval_records WHERE status='pending' AND expires_at>?",(now,)).fetchall()
+            tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            # Windows owns its inline financial card. Do not send a second
+            # notification for the same canonical decision from the server.
+            exclude=" AND approval_id NOT IN (SELECT approval_id FROM approval_source_links WHERE source='journal')" if 'approval_source_links' in tables else ''
+            rows=db.execute("SELECT approval_id,action,recipient,expires_at FROM approval_records WHERE status='pending' AND expires_at>?"+exclude,(now,)).fetchall()
         return [{'id':'approval:'+r['approval_id'],'kind':'money_decision','evidence_ref':'approval:'+r['approval_id'],
                  'deadline':r['expires_at'],'message':f"Finansal işlem için karar gerekiyor: {r['action']} → {r['recipient']}\nOnay: {r['approval_id']}\nSon karar zamanı: {time.strftime('%d.%m %H:%M UTC',time.gmtime(r['expires_at']))}"}
                 for r in rows if r['action'] in FINANCIAL_ACTIONS]

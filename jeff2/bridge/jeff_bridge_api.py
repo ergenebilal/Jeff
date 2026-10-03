@@ -503,6 +503,7 @@ class AlfredResult(BaseModel):
 
 
 class NodeApprovalSnapshot(BaseModel):
+    notification_delivery_unknown: int = Field(default=0,ge=0)
     journal_waiting: int = Field(default=0, ge=0, le=1000000)
     journal_expired: int = Field(default=0, ge=0, le=1000000)
     journal_complete: bool = False

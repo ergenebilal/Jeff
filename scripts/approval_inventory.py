@@ -46,6 +46,8 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
                 totals['unavailable'].append('Pablo ve pazarlama onayları')
             else:
                 snapshot = json.loads(row[1])
+                if snapshot.get('notification_delivery_unknown',0):
+                    totals['unavailable'].append('Pablo karar bildirimi: teslim doğrulanamadı')
                 for name, label, prefix in (('journal', 'Pablo onayları', 'journal'), ('marketing', 'Pazarlama onayları', 'marketing')):
                     if not snapshot.get(prefix + '_complete'):
                         totals['unavailable'].append(label)

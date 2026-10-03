@@ -100,6 +100,9 @@ def send_campaign_approval_card(campaign_id: int, chat_id: Optional[int] = None)
         ]
     }
 
+    if cfg.get('quiet_notifications'):
+        MarketingPipeline.update_campaign_status(campaign_id,'PENDING_APPROVAL')
+        return {'ok':True,'status':'QUEUED_QUIET','delivered':False,'approval_id':canonical_id}
     res = send_telegram_raw("sendMessage", {
         "chat_id": target_chat,
         "text": text,
@@ -182,6 +185,9 @@ def send_content_idea_approval_card(idea_id: int, chat_id: Optional[int] = None)
         ]
     }
 
+    if cfg.get('quiet_notifications'):
+        MarketingPipeline.update_content_idea_status(idea_id,'PENDING_APPROVAL')
+        return {'ok':True,'status':'QUEUED_QUIET','delivered':False,'approval_id':canonical_id}
     res = send_telegram_raw("sendMessage", {
         "chat_id": target_chat,
         "text": text,
