@@ -64,6 +64,19 @@ class QualificationTests(unittest.TestCase):
         self.assertIn('iki farklı doğrulanmış', report['reason'])
         self.assertEqual(report['model_reason'], audit['reason'])
 
+    def test_booking_service_variants_do_not_hide_change_policy(self):
+        variants = ''.join('<a href="/randevu?service='+str(i)+'">Randevu</a>' for i in range(12))
+        html = {'https://ornek.com': variants+'<a href="/randevu-politikasi">Randevu politikası</a>',
+                'https://ornek.com/randevu-politikasi': '<p>İptal ve erteleme için ekibimize yazın.</p>'}
+        def fetch(url):
+            return url, html.get(url, '<p>Hizmet seçimi ve randevu formu.</p>'), {}
+        with patch.object(q.sitecheck, 'robots_allows', return_value=True), patch.object(q.sitecheck, 'fetch', side_effect=fetch):
+            pages, errors = q.collect(self.lead)
+        self.assertFalse(errors)
+        self.assertEqual(pages[1]['url'], 'https://ornek.com/randevu-politikasi')
+        self.assertEqual(len(pages), 8)
+        self.assertTrue(any('?service=' in page['url'] for page in pages))
+
     def test_equivalent_official_source_urls_do_not_consume_extra_fetch_budget(self):
         pages = [{**self.pages[0], 'url': 'https://www.ornek.com/'}]
         with patch.object(q.sitecheck, 'fetch') as fetch:
@@ -126,6 +139,34 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual(len(q.verified_facts(self.lead, facts, pages)[0]), 1)
         pages[0]['identity_source'] = 'https://other.com'
         self.assertEqual(len(q.verified_facts(self.lead, facts, pages)[0]), 0)
+
+    def test_booking_link_targets_reach_both_jeff_readings_without_submitting(self):
+        links = [('https://wa.me/+905385126980?text=Beykent%20randevu%20almak%20istiyorum', 'Randevu Al'),
+                 ('https://wa.me.evil.test/905385126980', 'Randevu'), ('https://user@wa.me/905385126980', ''),
+                 ('javascript:send()', 'Randevu'), ('http://127.0.0.1/book', ''), ('/randevu/', 'Randevu')]
+        routes = q.booking_routes('https://ornek.com', links)
+        self.assertEqual(len(routes), 2)
+        self.assertEqual(routes[0]['prefilled_message'], 'Beykent randevu almak istiyorum')
+        self.assertFalse(routes[0]['submission_executed'])
+        pages = [{**self.pages[0], 'booking_routes': routes}]
+        jid, _ = q.start(self.s, [self.lid], 'booking-route-context')
+        with patch.object(q, 'collect', return_value=(pages, [])), patch.object(q, 'model', side_effect=[self.research, self.audit]) as model:
+            q.run(self.s, Handle(self.s, jid, threading.Event()), {})
+        self.assertEqual(model.call_args_list[0].args[1]['booking_routes'], routes)
+        self.assertEqual(model.call_args_list[1].args[1]['booking_routes'], routes)
+        report = q.views(self.s)[self.lid]
+        self.assertEqual(report['booking_routes'], routes)
+
+    def test_many_social_sources_share_context_budget_and_retain_process_details(self):
+        quote = 'İptal sonrası bekleme listesindeki hastalarımızı arıyoruz.'
+        text = 'Menü bilgisi '*1600+quote+' Son açıklama '*800
+        pages = [{**self.pages[0], 'text': text}]+[{'url': 'https://www.instagram.com/p/ID'+str(i)+'/',
+                'text': 'Paylaşım başlığı '*300+quote+' Son not '*200, 'source_kind': 'instagram_post'} for i in range(90)]
+        contexts = q.research_pages(pages)
+        self.assertEqual(len(contexts), len(pages))
+        self.assertLessEqual(sum(len(page['text']) for page in contexts), 50000)
+        self.assertTrue(all(page['text_truncated'] for page in contexts))
+        self.assertTrue(all(quote in page['text'] for page in contexts))
 
     def test_unreadable_instagram_is_unknown_not_missing_feature_or_contact_proof(self):
         linked = [{**self.pages[0], 'links': [('https://instagram.com/ornek_clinic/', 'Instagram')]}]

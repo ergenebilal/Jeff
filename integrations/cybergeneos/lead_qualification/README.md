@@ -34,7 +34,7 @@ WhatsApp link or form alone does not prove an existing automation solution.
 
 ## Instagram and mandatory adversarial decisions
 
-Official Meta Business Discovery now reads publisher biographies and up to four
+Official Meta Business Discovery now reads publisher biographies and up to thirty
 recent publisher captions per verified business profile. It uses Facebook Login,
 Graph API v25.0, a fixed provider origin, GET requests, bounded responses, no
 automatic retries or pagination and bearer headers. Redirects never forward
@@ -154,14 +154,14 @@ the fingerprinted 2 October panel baseline; add `--apply` to install source only
 It accepts LF/CRLF, refuses concurrent source changes, backs up replaced files and
 does not touch databases, services, secrets or model configuration.
 
-Run `tests/test_qualification.py` in the separate panel checkout: thirty-four tests
+Run `tests/test_qualification.py` in the separate panel checkout: thirty-seven tests
 exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
 passed updated qualification tests and the six root adapter tests.
-The staged Linux panel passed 138 tests after Instagram, source-depth, verified-only
-audit inputs, mandatory adversarial reasoning, booking-policy discovery and safe JSON-key normalization. Thirty-four qualification and six Meta integration tests passed
+The staged Linux panel passed 142 tests after Instagram, source-depth, verified-only
+audit inputs, mandatory adversarial reasoning, booking-policy discovery and safe JSON-key normalization. Thirty-seven qualification and seven Meta integration tests passed
 on Windows. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
@@ -171,7 +171,7 @@ outcomes. Ten source-backed recommendations do not mean ten confirmed needs or
 ten meetings. Private leads, report texts, database backups and credentials are
 excluded from this package.
 
-Meta access was supplied and verified on 3 October 2026. The staged server
+Meta access was supplied and verified on 3 October 2026. The initial staged server
 collector read four real website-linked business profiles and ten publisher
 captions. The connected own account is `cybergene.ai`. Read access and permission
 grants were verified without posting, commenting or sending messages.
@@ -183,3 +183,36 @@ every conversation. This package activates research only; own-account publishing
 comment operations and eligible conversation handling need separate durable
 execution and reconciliation. See [INSTAGRAM_META_TODO.md](INSTAGRAM_META_TODO.md).
 Third-party profiles are research sources, never accounts Jeff can manage.
+
+## Deeper Instagram history and booking-route reconciliation
+
+The collector now requests up to 30 recent media items in one official API call
+per website-linked profile. Coverage distinguishes returned items, readable and
+unique captions, the observed publication range, captions within 90 days,
+undated captions and reaching the cap. Duplicate permalinks cannot inflate
+coverage. Every account keeps `complete_window=unknown`: neither a cap nor an
+older post proves exhaustive coverage. No pagination, image/video extraction,
+private-message reading or follower-based pain inference is added.
+
+Current website link targets are now passed to both Jeff readings and stored
+in the report. Exact public WhatsApp links preserve their prefilled appointment
+and branch text; website/external booking links remain observations, not proof
+of calendar functionality or completed appointments. They are not submitted.
+The critic must not describe an appointment WhatsApp route as questions-only,
+and must examine which additional task the proposed service would actually add.
+At most 24 distinct route targets enter the research payload.
+
+Research text shares a 50,000-character allowance across the collected sources.
+Each source retains its URL, scope, publication date and truncation indicator;
+full collected text remains in quotation verification. This is an input-text
+limit, not a monetary or agent-tool-call cap. Process excerpts survive menus
+and bounded context clipping. The model's same-session critique is still not
+independent field validation.
+
+Staged live discovery read 126 publisher captions across five professional
+profiles; two other account reads were unavailable and remained unknown.
+Innovation's real booking buttons and branch links open WhatsApp with appointment
+text. This corrects the older hypothesis that WhatsApp was only for questions
+and cancellations; it does not establish automation or response performance.
+
+Clean source routes are visited before service-selection query variants; query pages remain eligible within the eight-page allowance. This avoids wasting the sample on repeated forms without assuming all query-bearing pages are equivalent.

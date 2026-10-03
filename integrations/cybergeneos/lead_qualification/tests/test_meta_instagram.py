@@ -129,6 +129,20 @@ class MetaInstagramTests(unittest.TestCase):
         for stamp in (None, 'not-a-date', '2026-01-01T00:00:00', '2099-01-01T00:00:00Z'):
             self.assertIsNone(meta.published_at(stamp))
 
+    def test_history_cap_dates_duplicates_and_full_window_are_not_confused(self):
+        raw = copy.deepcopy(self.raw)
+        raw['business_discovery']['media']['data'] *= 40
+        with patch.object(meta, 'request', return_value=raw) as request:
+            pages = meta.discover(self.profile, 'https://ornek.com')
+        self.assertIn('media.limit(30)', request.call_args.args[1])
+        self.assertEqual(pages.coverage['returned_media_items'], 30)
+        self.assertTrue(pages.coverage['limit_reached'])
+        self.assertEqual(pages.coverage['readable_captions'], 1)
+        self.assertEqual(pages.coverage['duplicate_permalinks'], 29)
+        self.assertEqual(pages.coverage['complete_window'], 'unknown')
+        self.assertFalse(pages.coverage['pagination_followed'])
+        self.assertNotIn(self.secret, json.dumps(pages.coverage))
+
 
 if __name__ == '__main__':
     unittest.main()

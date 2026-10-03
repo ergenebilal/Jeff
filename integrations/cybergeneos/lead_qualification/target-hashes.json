@@ -4,6 +4,6 @@
   "server/app.py": "644479288343e2de65aef5f2e22de10b74c18770be15f3a93344bc39c144fef6",
   "server/briefing.py": "6e1d346f886f22be7c56876c885e0cfc83cf016ff6220585f8913881253dadb1",
   "app.js": "81e870a7a7f072cfa984e61dfe65f33706eff12ccca98a0cf93ec10e603ae6b1",
-  "server/qualification.py": "5e1b9b20f46d04f5d7684eea56448ee971d92db98db5ba0bf767228548360817",
-  "server/meta_instagram.py": "c21db116794ae95fe5b2e34b6e52747fc51315c4c19f4163e6b652b798d34015"
+  "server/qualification.py": "a3ce36f90b389bcb0d23a053c2d234fc6f6ac86b410fe96a575ed8cd8ced469b",
+  "server/meta_instagram.py": "8baeb15ecf233b01f638fb2c4da735f45e15b44125164487ff021b422b83d36d"
 }
