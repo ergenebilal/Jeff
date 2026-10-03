@@ -34,6 +34,27 @@ WhatsApp link or form alone does not prove an existing automation solution.
 
 ## Instagram and mandatory adversarial decisions
 
+Official Meta Business Discovery now reads publisher biographies and up to four
+recent publisher captions per verified business profile. It uses Facebook Login,
+Graph API v25.0, a fixed provider origin, GET requests, bounded responses, no
+automatic retries or pagination and bearer headers. Redirects never forward
+credentials. Missing/expired permissions or unavailable accounts remain unknown;
+the trusted public-browser fallback remains available without bypassing robots.
+Generic Instagram /p and /reel permalinks are admitted only from collected API
+receipts with an exact matching publisher, current website identity link and
+retrieval freshness. Existing browser author/path checks are unchanged.
+Publication time is preserved separately; it does not establish an event date,
+internal message volume, response time, booking loss or unmet need. Images,
+videos, comments, testimonials and third-party private messages are not collected.
+
+Install only the access token and business account ID in a mode-600 private
+`CGOS_DATA/meta-instagram.json` file outside the repository and served directories
+(override: `CGOS_META_INSTAGRAM_CREDENTIALS`). Required shape:
+`{"access_token":"<private token>","business_account_id":"<account ID>","version":"v25.0"}`.
+No app secret or webhook verification token is required for this collector.
+Credentials, raw provider errors and authentication headers never enter the
+research/model payload, UI, receipts or logs.
+
 Each research run finds Instagram profiles linked from current official website
 pages (at most three accounts). Exact host/path validation excludes lookalikes,
 login URLs and unrelated profiles. A readable public profile needs matching
@@ -136,9 +157,9 @@ exercise generic/duplicate/unsupported evidence rejection, blocking counters,
 event dating, official contact, request identity, reserved budget, restart
 ambiguity, real SQLite publication, stale/opt-out exclusion, list cap and cancel.
 The complete panel suite passed 112 tests on Windows before activation; the response-isolation repair
-passed updated qualification tests and the five root adapter tests.
-The staged Linux panel passed 132 tests after Instagram, source-depth, verified-only
-audit inputs, mandatory adversarial reasoning, booking-policy discovery and safe JSON-key normalization. Thirty-four qualification tests passed
+passed updated qualification tests and the six root adapter tests.
+The staged Linux panel passed 138 tests after Instagram, source-depth, verified-only
+audit inputs, mandatory adversarial reasoning, booking-policy discovery and safe JSON-key normalization. Thirty-four qualification and six Meta integration tests passed
 on Windows. Root Jeff
 CI runs a small SQLite adapter test suite of the packaged module; it is not the
 full separate panel or an assessment of real sales performance.
@@ -148,8 +169,15 @@ outcomes. Ten source-backed recommendations do not mean ten confirmed needs or
 ten meetings. Private leads, report texts, database backups and credentials are
 excluded from this package.
 
-The user deferred the official Meta Developer Instagram connection on 3 October
-2026 until they prepare access. See [INSTAGRAM_META_TODO.md](INSTAGRAM_META_TODO.md).
-No autonomous browser crawler is activated, and Instagram automation exclusions
-are not bypassed. API permission and account coverage must be verified before
-claiming that third-party profiles or private messaging can be read.
+Meta access was supplied and verified on 3 October 2026. The staged server
+collector read four real website-linked business profiles and ten publisher
+captions. The connected own account is `cybergene.ai`. Read access and permission
+grants were verified without posting, commenting or sending messages.
+
+The user also authorized full Instagram account management. The credential has
+content publishing, comment management, insight and messaging permissions. Those
+grants do not prove that each management workflow is implemented or usable for
+every conversation. This package activates research only; own-account publishing,
+comment operations and eligible conversation handling need separate durable
+execution and reconciliation. See [INSTAGRAM_META_TODO.md](INSTAGRAM_META_TODO.md).
+Third-party profiles are research sources, never accounts Jeff can manage.

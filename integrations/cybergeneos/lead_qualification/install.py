@@ -38,7 +38,7 @@ def install(repo_root, apply=False):
                                 cwd=stage, capture_output=True)
         if result.returncode:
             raise RuntimeError('Panel patch could not be staged')
-        for name in ('server/qualification.py',):
+        for name in ('server/qualification.py', 'server/meta_instagram.py'):
             shutil.copy2(bundle / name, stage / 'docs/cybergeneos' / name)
         for name, expected in target.items():
             staged_path = stage / 'docs/cybergeneos' / name
