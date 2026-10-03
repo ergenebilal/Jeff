@@ -272,7 +272,8 @@ def telegram_sender(token, chat_id, opener=urllib.request.urlopen):
                                      headers={'Content-Type': 'application/json'}, method='POST')
         try:
             with opener(req, timeout=10) as resp:
-                return resp.status == 200
+                payload=json.loads(resp.read().decode('utf-8'))
+                return resp.status == 200 and payload.get('ok') is True and bool(payload.get('result',{}).get('message_id'))
         except Exception as exc:
             print(f'[watchdog] telegram gonderilemedi ({type(exc).__name__})', file=sys.stderr)
             return False
@@ -297,6 +298,7 @@ def main(argv=None):
     ap.add_argument('--state', required=True)
     ap.add_argument('--env-file')
     ap.add_argument('--backup-dir', default='/home/hermes/backups')
+    ap.add_argument('--bridge-db', default='/home/hermes/jeff2/bridge/bridge.db')
     ap.add_argument('--dry-run', action='store_true', help='print messages instead of sending')
     args = ap.parse_args(argv)
 
@@ -318,11 +320,21 @@ def main(argv=None):
     now = time.time()
     state = load_state(args.state)
     new_state, events = evaluate(default_checks(args.backup_dir), state, now)
-    new_state = apply_events(events, new_state, now, send)
+    try:
+        from scripts.attention_policy import AttentionOutbox,financial_decisions,irreversible_disk_decision
+    except ImportError:
+        from attention_policy import AttentionOutbox,financial_decisions,irreversible_disk_decision
+    items=financial_decisions(args.bridge_db,now)+irreversible_disk_decision(new_state,now)
+    for record in new_state.values():record['notification_policy']='dashboard_only'
+    delivered=0
+    if args.dry_run:
+        for item in items:send(item['message'])
+    else:
+        delivered=AttentionOutbox(Path(args.state).with_name('attention.db')).dispatch(items,send)
     if not args.dry_run:   # a rehearsal must never mark problems as announced
         save_state(args.state, new_state)
     bad = [k for k, v in new_state.items() if not v.get('ok', True)]
-    print(f'[watchdog] {len(new_state)} kontrol, sorunlu: {bad or "yok"}, mesaj: {len(events)}')
+    print(f'[watchdog] {len(new_state)} kontrol, sorunlu: {bad or "yok"}, karar: {len(items)}, teslim: {delivered}')
     return 0
 
 

@@ -107,6 +107,9 @@ def hermes_jobs_line(jobs_path=HOME / '.hermes/cron/jobs.json'):
 
 
 def reports_line(sent_state=HOME / 'logs/morning_report_state.json', now=None):
+    if (Path(sent_state).parent/'reports').is_dir():
+        files=sorted((Path(sent_state).parent/'reports').glob('*.txt'),key=lambda p:p.stat().st_mtime)
+        return 'Rutin raporlar: yerel arşiv; bildirim sessiz; son kayıt: '+(files[-1].name if files else 'henüz yok')
     try:
         data = json.loads(Path(sent_state).read_text(encoding='utf-8'))
     except (OSError, ValueError):
@@ -138,6 +141,14 @@ def watchdog_lines(state_path=HOME / 'logs/watchdog_state.json', now_ts=None):
     return lines
 
 
+def attention_line(path=HOME/'logs/attention.db'):
+    try:
+        with sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True) as db:
+            counts=dict(db.execute('SELECT status,count(*) FROM attention_outbox GROUP BY status'))
+        return f"Karar bildirimleri: teslim {counts.get('sent',0)}, teslimi belirsiz {counts.get('delivery_unknown',0)}, bitmemiş {counts.get('sending',0)}"
+    except sqlite3.Error:return 'Karar bildirimleri: veri alınamadı'
+
+
 def build_status(now=None, gateway=gateway_line, jobs=hermes_jobs_line, reports=reports_line, dog=watchdog_lines, model=model_route_line):
     now = now or datetime.now(timezone.utc)
     lines = [f"Jeff durumu, {now.astimezone().strftime('%d.%m.%Y %H:%M')}", '']
@@ -146,6 +157,7 @@ def build_status(now=None, gateway=gateway_line, jobs=hermes_jobs_line, reports=
     lines.extend(dog())
     lines.append(jobs())
     lines.append(reports())
+    lines.append(attention_line())
     lines.append('')
     lines.append('Bu ekrandaki her satır az önce ölçüldü; ölçülemeyen "veri alinamadi" der.')
     return '\n'.join(lines)

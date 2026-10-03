@@ -310,24 +310,14 @@ def main(argv=None, now=None):
         print(report.encode(enc, 'replace').decode(enc, 'replace'))
         return 0
 
-    env = dict(os.environ)
-    if args.env_file:
-        env.update(wd.load_env_file(args.env_file))
-    token, chat = env.get('ALERT_BOT_TOKEN'), env.get('ALERT_CHAT_ID')
-    if not token or not chat:
-        print('[rapor] ALERT_BOT_TOKEN / ALERT_CHAT_ID yok', file=sys.stderr)
-        return 2
-    send = wd.telegram_sender(token, chat)
-    parts = split_message(report)
-    # Claim the day before sending so a slow/duplicate cron run cannot send twice; roll back on failure.
-    _mark(args.sent_state, args.kind, day)
-    for part in parts:
-        if not send(part):
-            _mark(args.sent_state, args.kind, None)
-            print('[rapor] gonderilemedi, sonraki calismada tekrar denenecek', file=sys.stderr)
-            return 1
-    print(f'[rapor] gonderildi ({len(parts)} parca)')
+    # Routine reports remain available locally. They never wake the owner or
+    # claim Telegram delivery; evidenced decisions use attention_policy only.
+    report_dir=Path(args.sent_state).parent/'reports'
+    report_dir.mkdir(parents=True,exist_ok=True)
+    (report_dir/(args.kind+'-'+day+'.txt')).write_text(report,encoding='utf-8')
+    print('[rapor] yerel rapor kaydedildi; rutin bildirim sessiz')
     return 0
+
 
 
 if __name__ == '__main__':

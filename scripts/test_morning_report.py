@@ -232,44 +232,26 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             sender.assert_not_called()
 
-    def test_sends_once_per_day(self):
+    def test_routine_report_is_local_and_never_marked_delivered(self):
         with tempfile.TemporaryDirectory() as d:
-            args = self.creds(d)
-            code, sender = self.run_main(d, NOW, args)
-            self.assertEqual(sender.call_count, 1)
-            code, sender = self.run_main(d, NOW + timedelta(minutes=10), args)
-            sender.assert_not_called()
-            code, sender = self.run_main(d, NOW + timedelta(days=1), args)   # next day sends again
-            self.assertEqual(sender.call_count, 1)
-
-    def test_failed_send_is_retried_later(self):
-        with tempfile.TemporaryDirectory() as d:
-            args = self.creds(d)
-            code, _ = self.run_main(d, NOW, args, sent=mock.Mock(return_value=False))
-            self.assertEqual(code, 1)
-            code, sender = self.run_main(d, NOW + timedelta(minutes=10), args)
-            self.assertEqual(sender.call_count, 1)
-
-    def test_missing_credentials(self):
-        with tempfile.TemporaryDirectory() as d, mock.patch.dict('os.environ', {}, clear=True):
-            code, _ = self.run_main(d, NOW, ['--send'])
-            self.assertEqual(code, 2)
-
-    def test_kinds_are_tracked_separately(self):
-        with tempfile.TemporaryDirectory() as d:
-            args = self.creds(d)
-            evening_now = datetime(2026, 9, 30, 16, 30, tzinfo=timezone.utc)   # 19:30 Istanbul
-            self.run_main(d, NOW, args)
-            code, sender = self.run_main(d, evening_now, args + ['--kind', 'evening', '--at', '19:00'])
-            self.assertEqual(sender.call_count, 1)
-            code, sender = self.run_main(d, evening_now, args + ['--kind', 'evening', '--at', '19:00'])
+            args=self.creds(d)
+            code,sender=self.run_main(d,NOW,args)
+            self.assertEqual(code,0);sender.assert_not_called()
+            self.assertTrue(list((Path(d)/'reports').glob('morning-*.txt')))
+            self.assertFalse((Path(d)/'sent.json').exists())
+            code,sender=self.run_main(d,NOW+timedelta(minutes=10),args)
             sender.assert_not_called()
 
-    def test_old_state_file_still_blocks_a_second_morning_send(self):
+    def test_local_reports_require_no_telegram_credentials(self):
+        with tempfile.TemporaryDirectory() as d,mock.patch.dict('os.environ',{},clear=True):
+            code,sender=self.run_main(d,NOW,['--send'])
+            self.assertEqual(code,0);sender.assert_not_called()
+
+    def test_all_routine_kinds_stay_quiet(self):
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / 'sent.json').write_text(json.dumps({'last_sent': '2026-09-30'}))
-            code, sender = self.run_main(d, NOW, self.creds(d))
-            sender.assert_not_called()
+            for kind in ('morning','evening','weekly'):
+                code,sender=self.run_main(d,NOW,self.creds(d)+['--kind',kind,'--at','00:00'])
+                self.assertEqual(code,0);sender.assert_not_called()
 
     def test_until_and_weekday_guards(self):
         with tempfile.TemporaryDirectory() as d:
@@ -281,7 +263,7 @@ class DeliveryTests(unittest.TestCase):
             code, sender = self.run_main(d, NOW, args + ['--kind', 'weekly', '--weekday', '6', '--at', '00:00'])
             sender.assert_not_called()
             code, sender = self.run_main(d, NOW, args + ['--kind', 'weekly', '--weekday', '2', '--at', '00:00'])
-            self.assertEqual(sender.call_count, 1)
+            sender.assert_not_called()
 
     def test_dry_run_never_sends_or_marks_sent(self):
         with tempfile.TemporaryDirectory() as d:
