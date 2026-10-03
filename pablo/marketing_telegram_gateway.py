@@ -10,6 +10,8 @@ Mobil Kokpit ve Hızlı İcra Entegrasyonu:
 """
 
 import json
+import time
+from pablo_approval_client import ApprovalClient, ApprovalUnavailable, review_binding
 from html import escape
 import urllib.request
 from typing import Dict, Any, Optional
@@ -77,11 +79,20 @@ def send_campaign_approval_card(campaign_id: int, chat_id: Optional[int] = None)
         f"<i>Tek dokunuşla onaylayabilir veya iptal edebilirsiniz:</i>"
     )
 
+    try:
+        decision=ApprovalClient(cfg).request('marketing_campaign',campaign_id,
+            review_binding('marketing_campaign',campaign_id,camp),time.time()+48*3600,time.time())
+        if decision['status']!='pending':
+            return {'ok':False,'status':'NEEDS_REVALIDATION'}
+        canonical_id=decision['approval_id']
+    except ApprovalUnavailable:
+        return {'ok':False,'status':'APPROVAL_UNAVAILABLE'}
+
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "🚀 ONAYLA & İCRA ET", "callback_data": f"mkt_appr:{campaign_id}"},
-                {"text": "❌ REDDET", "callback_data": f"mkt_rejc:{campaign_id}"}
+                {"text": "🚀 ONAYLA & İCRA ET", "callback_data": f"mkt_appr:{campaign_id}:{canonical_id}"},
+                {"text": "❌ REDDET", "callback_data": f"mkt_rejc:{campaign_id}:{canonical_id}"}
             ]
         ]
     }
@@ -147,11 +158,20 @@ def send_content_idea_approval_card(idea_id: int, chat_id: Optional[int] = None)
         f"gönderi bu onayla yayınlanmaz, ayrı bir yayın onayı gerekir.</i>"
     )
 
+    try:
+        decision=ApprovalClient(cfg).request('marketing_idea',idea_id,
+            review_binding('marketing_idea',idea_id,idea),time.time()+48*3600,time.time())
+        if decision['status']!='pending':
+            return {'ok':False,'status':'NEEDS_REVALIDATION'}
+        canonical_id=decision['approval_id']
+    except ApprovalUnavailable:
+        return {'ok':False,'status':'APPROVAL_UNAVAILABLE'}
+
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": "🎨 SANAT YÖNETİMİNE GEÇ", "callback_data": f"ig_appr:{idea_id}"},
-                {"text": "❌ REDDET", "callback_data": f"ig_rejc:{idea_id}"}
+                {"text": "🎨 SANAT YÖNETİMİNE GEÇ", "callback_data": f"ig_appr:{idea_id}:{canonical_id}"},
+                {"text": "❌ REDDET", "callback_data": f"ig_rejc:{idea_id}:{canonical_id}"}
             ]
         ]
     }
@@ -169,7 +189,7 @@ def send_content_idea_approval_card(idea_id: int, chat_id: Optional[int] = None)
     return res
 
 
-def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_id: int) -> Dict[str, Any]:
+def _handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_id: int) -> Dict[str, Any]:
     """
     Telegram'da [🚀 ONAYLA & İCRA ET] veya [❌ REDDET] butonuna basıldığında tetiklenir.
     """
@@ -279,3 +299,38 @@ def handle_marketing_callback(cb_id: str, cb_data: str, from_user_id: int, chat_
         return {"ok": simulated_ok, "status": "SIMULATED" if simulated_ok else "FAILED", "result": exec_res}
 
     return {"ok": False, "status": "UNKNOWN_ACTION"}
+
+
+def handle_marketing_callback(cb_id, cb_data, from_user_id, chat_id):
+    cfg=get_telegram_config()
+    owner=str(cfg.get('telegram_default_chat_id') or '')
+    if not owner or str(from_user_id)!=owner or str(chat_id)!=owner:
+        return {'ok':False,'status':'UNAUTHORIZED'}
+    parts=cb_data.split(':')
+    if len(parts)!=3:
+        return {'ok':False,'status':'NEEDS_REVALIDATION'}
+    action,ref,aid=parts
+    if action not in ('mkt_appr','mkt_rejc','ig_appr','ig_rejc'):
+        return {'ok':False,'status':'UNKNOWN_ACTION'}
+    try: ref=int(ref)
+    except ValueError: return {'ok':False,'status':'INVALID_CALLBACK'}
+    source='marketing_idea' if action.startswith('ig_') else 'marketing_campaign'
+    row=(MarketingPipeline.get_content_idea(ref) if source=='marketing_idea' else MarketingPipeline.get_campaign(ref))
+    if not row or row.get('status')!='PENDING_APPROVAL':
+        return {'ok':False,'status':'NOT_PENDING'}
+    client=ApprovalClient(cfg)
+    try:
+        binding=review_binding(source,ref,row)
+        # No callback is allowed to create an approval or renew an old card.
+        client.decide(aid,binding,from_user_id,chat_id,action.endswith('_appr'))
+        claim=client.claim(aid,binding,'marketing-review') if action.endswith('_appr') else None
+    except ApprovalUnavailable:
+        return {'ok':False,'status':'APPROVAL_UNAVAILABLE'}
+    result={'ok':False,'status':'UNKNOWN'}
+    try:
+        result=_handle_marketing_callback(cb_id,action+':'+str(ref),from_user_id,chat_id)
+        return result
+    finally:
+        if claim:
+            try: client.complete(aid,claim['claim_id'],'marketing-review',result['status'])
+            except ApprovalUnavailable: result['approval_reconciliation']='required'

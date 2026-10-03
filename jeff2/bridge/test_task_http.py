@@ -98,6 +98,24 @@ class TaskHttpSmoke(unittest.TestCase):
                 self.assertEqual(duplicate_claim.exception.code,409)
                 call('POST','/decisions/'+aid+'/complete',{'claim_id':claim['claim_id'],'worker':'fixture-worker','outcome':'fixture_only'})
                 self.assertEqual(call('GET','/decisions/'+aid)['status'],'consumed')
+                from pablo_approval_client import ApprovalClient
+                client=ApprovalClient({'auth_token':env['BRIDGE_KEY'],
+                    'approval_decision_key':env['APPROVAL_DECISION_KEY'],'jeff_bridge_api_url':base})
+                executions=[]
+                owner_guard=TaskGuard(Path(temporary)/'canonical-node.db',
+                    {'fixture':lambda p: executions.append(p) or {'ok':True}},
+                    owner='42',desktop_ready=lambda:True,approvals=client)
+                pending=owner_guard.execute('fixture',{'require_approval':True,'text':'immutable fixture'},'guard-http')
+                self.assertEqual(pending['status'],'APPROVAL_REQUIRED')
+                self.assertEqual(owner_guard.approve(pending['approval_id'],'7','42')['status'],'REJECTED')
+                self.assertFalse(executions)
+                self.assertEqual(owner_guard.approve(pending['approval_id'],'42','42')['status'],'SUCCESS')
+                self.assertEqual(len(executions),1)
+                owner_guard.approve(pending['approval_id'],'42','42')
+                restarted=TaskGuard(Path(temporary)/'canonical-node.db',{},owner='42',desktop_ready=lambda:True,approvals=client)
+                self.assertEqual(restarted.execute('fixture',{'require_approval':True,'text':'immutable fixture'},'guard-http')['status'],'SUCCESS')
+                self.assertEqual(len(executions),1)
+                self.assertEqual(call('GET','/decisions/'+pending['approval_id'])['status'],'consumed')
                 import hashlib
                 self.assertEqual(health_data['loaded_source_sha256']['task_artifacts.py'],
                                  hashlib.sha256((bridge_dir / 'task_artifacts.py').read_bytes()).hexdigest())

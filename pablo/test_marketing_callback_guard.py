@@ -11,6 +11,10 @@ USER = 42
 def call(action, ref, campaign=None, idea=None):
     """Run the callback with the database, Telegram and delivery all replaced by mocks."""
     pipeline = mock.Mock()
+    if campaign is not None:
+        campaign=dict(channel='email',recipient_target='fixture@example.test',message_body='fixture',**campaign)
+    if idea is not None:
+        idea=dict(caption_draft='fixture',**idea)
     pipeline.get_campaign.return_value = campaign
     pipeline.get_content_idea.return_value = idea
     playbooks = mock.Mock()
@@ -18,8 +22,9 @@ def call(action, ref, campaign=None, idea=None):
     with mock.patch.object(gw, 'MarketingPipeline', pipeline), \
             mock.patch.object(gw, 'MarketingPlaybooks', playbooks), \
             mock.patch.object(gw, 'send_telegram_raw') as tg, \
+            mock.patch.object(gw, 'ApprovalClient') as client, \
             mock.patch.object(gw, 'get_telegram_config', return_value={'telegram_default_chat_id': str(USER)}):
-        result = gw.handle_marketing_callback('cb', f'{action}:{ref}', USER, USER)
+        result = gw.handle_marketing_callback('cb', f'{action}:{ref}:fixture-id', USER, USER)
     return result, pipeline, playbooks, tg
 
 
@@ -36,7 +41,7 @@ class CampaignApprovalGuard(unittest.TestCase):
             self.assertEqual(result['status'], 'NOT_PENDING', state)
             pipeline.update_campaign_status.assert_not_called()
             playbooks.execute_campaign_delivery.assert_not_called()
-            self.assertIn('artık onaya açık değil', tg.call_args.args[1]['text'])
+            tg.assert_not_called()
 
     def test_unknown_campaign_is_refused(self):
         result, pipeline, playbooks, _ = call('mkt_appr', 999, campaign=None)
@@ -54,10 +59,11 @@ class CampaignApprovalGuard(unittest.TestCase):
         with mock.patch.object(gw, 'MarketingPipeline') as pipeline, \
                 mock.patch.object(gw, 'MarketingPlaybooks') as playbooks, \
                 mock.patch.object(gw, 'send_telegram_raw') as tg, \
+                mock.patch.object(gw, 'ApprovalClient'), \
                 mock.patch.object(gw, 'get_telegram_config', return_value={'telegram_default_chat_id': USER}):
-            pipeline.get_campaign.return_value = {'status': 'PENDING_APPROVAL'}
+            pipeline.get_campaign.return_value = {'status': 'PENDING_APPROVAL','channel':'email','recipient_target':'fixture@example.test','message_body':'fixture'}
             playbooks.execute_campaign_delivery.return_value = {'ok': False, 'error': '<fixture failure>'}
-            result = gw.handle_marketing_callback('cb', 'mkt_appr:6', USER, USER)
+            result = gw.handle_marketing_callback('cb', 'mkt_appr:6:fixture-id', USER, USER)
         self.assertFalse(result['ok'])
         self.assertEqual(result['status'], 'FAILED')
         self.assertIn('tamamlanamadı', tg.call_args.args[1]['text'])

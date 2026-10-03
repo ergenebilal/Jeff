@@ -9,6 +9,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pablo_antigravity import ALIASES as ANTIGRAVITY_ALIASES, prepare as prepare_antigravity
+from pablo_approval_client import action_binding, ApprovalUnavailable
 
 
 def fingerprint(action, params):
@@ -233,13 +234,17 @@ def is_approval_required(action: str, params: dict) -> tuple:
 
 
 class TaskGuard:
-    def __init__(self, path, actions, owner, desktop_ready, clock=time.time, ttl=300):
+    def __init__(self, path, actions, owner, desktop_ready, clock=time.time, ttl=300, approvals=None):
         self.path, self.actions, self.owner = str(path), actions, str(owner or '')
         self.desktop_ready, self.clock, self.ttl = desktop_ready, clock, ttl
+        self.approvals=approvals
         self.lock = threading.RLock()
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, action TEXT, params TEXT, status TEXT, response TEXT, approval TEXT, expires REAL, consumed INTEGER DEFAULT 0)')
             db.execute('CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, payload TEXT)')
+            for name,definition in (('created_at','REAL'),('canonical_claim','TEXT')):
+                if name not in {r[1] for r in db.execute('PRAGMA table_info(requests)')}:
+                    db.execute('ALTER TABLE requests ADD COLUMN '+name+' '+definition)
 
     @contextmanager
     def connect(self):
@@ -307,10 +312,20 @@ class TaskGuard:
             result = self.response(rid, 'IN_PROGRESS')
             db.execute('INSERT INTO requests(id,digest,action,params,status,response) VALUES(?,?,?,?,?,?)',
                        (rid, digest, action, json.dumps(params), result['status'], json.dumps(result)))
+            db.execute('UPDATE requests SET created_at=? WHERE id=?',(self.clock(),rid))
             # Kırmızı Çizgi Kontrolü (Approval Gate)
             needs_approval, reason = is_approval_required(action, params)
             if needs_approval:
                 aid = str(uuid.uuid4())
+                if self.approvals is not None:
+                    try:
+                        record=self.approvals.request('journal',rid,action_binding(rid,action,params,digest),
+                                                      self.clock()+self.ttl,self.clock())
+                        aid=record['approval_id']
+                        if record['status']!='pending':
+                            return self.store(db,rid,self.response(rid,'BLOCKED',error='Canonical request is not pending; do not replay'))
+                    except ApprovalUnavailable:
+                        return self.store(db,rid,self.response(rid,'APPROVAL_UNAVAILABLE',error='Canonical approval unavailable; no local grant'))
                 result = self.response(rid, 'APPROVAL_REQUIRED', approval_id=aid, reason=reason, error=f'Owner approval required: {reason}')
                 db.execute('UPDATE requests SET approval=?,expires=? WHERE id=?', (aid, self.clock() + self.ttl, rid))
                 return self.store(db, rid, result)
@@ -332,13 +347,32 @@ class TaskGuard:
             if consumed or status != 'APPROVAL_REQUIRED':
                 return self.response(rid, 'REJECTED', error='Approval already consumed')
             params = json.loads(raw)
-            if self.clock() > expires or fingerprint(action, params) != digest or reject:
+            if self.clock() >= expires or fingerprint(action, params) != digest:
                 db.execute('UPDATE requests SET consumed=1 WHERE id=?', (rid,))
                 return self.store(db, rid, self.response(rid, 'REJECTED', error='Expired, changed or rejected approval'))
+            if self.approvals is not None:
+                try:
+                    binding=action_binding(rid,action,params,digest)
+                    self.approvals.decide(approval_id,binding,user_id,chat_id,not reject)
+                    if not reject:
+                        claim=self.approvals.claim(approval_id,binding,'pablo')
+                        db.execute('UPDATE requests SET canonical_claim=? WHERE id=?',(claim['claim_id'],rid))
+                except ApprovalUnavailable:
+                    return self.response(rid,'APPROVAL_UNAVAILABLE',error='Decision or claim unavailable; no execution')
+            if reject:
+                db.execute('UPDATE requests SET consumed=1 WHERE id=?',(rid,))
+                return self.store(db,rid,self.response(rid,'REJECTED',error='Owner rejected approval'))
             db.execute('UPDATE requests SET consumed=1 WHERE id=?', (rid,))
             self.store(db, rid, self.response(rid, 'IN_PROGRESS'))
             db.commit()
-        return self._run(rid, action, params)
+        result=self._run(rid, action, params)
+        if self.approvals is not None:
+            with self.connect() as db:
+                row=db.execute('SELECT canonical_claim FROM requests WHERE id=?',(rid,)).fetchone()
+            if row and row[0]:
+                try: self.approvals.complete(approval_id,row[0],'pablo',result['status'])
+                except ApprovalUnavailable: result['approval_reconciliation']='required'
+        return result
 
     def _run(self, rid, action, params):
         # One desktop action at a time; repeat the desktop check at execution time.

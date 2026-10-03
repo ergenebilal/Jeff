@@ -360,44 +360,9 @@ class IntentGuard:
                 appr["consumed"] = True
                 return True, "VERIFIED_AND_CONSUMED"
 
-        # B. Gerçek task-journal.sqlite3 günlüğü kontrolü
-        journal_path = getattr(self, "journal_db_path", None) or str(NODE_DIR / "task-journal.sqlite3")
-        if not os.path.exists(journal_path):
-            return False, f"JOURNAL_DB_NOT_FOUND: Onay günlüğü bulunamadı ({journal_path})."
-
-        try:
-            with sqlite3.connect(journal_path, timeout=5) as jdb:
-                jdb.execute("BEGIN IMMEDIATE")
-                jdb.row_factory = sqlite3.Row
-                row = jdb.execute(
-                    "SELECT id, action, params, status, expires, consumed FROM requests WHERE approval = ?",
-                    (approval_id,)
-                ).fetchone()
-
-                if not row:
-                    return False, "UNVERIFIED_APPROVAL_TOKEN: approval_id sunucu onay günlüğünde bulunamadı (uydurma veya sahte belirteç)."
-
-                r_dict = dict(row)
-                if r_dict.get("consumed") == 1:
-                    return False, "APPROVAL_ALREADY_CONSUMED: Bu onay belirteci daha önce tüketilmiş. Tek-kullanımlık onaylar tekrar kullanılamaz."
-
-                if r_dict.get("expires") and time.time() > r_dict.get("expires"):
-                    return False, "APPROVAL_EXPIRED: Onay belirtecinin süresi dolmuş."
-
-                # Eylem türü doğrulaması: Bu onay gerçekten browser_act için mi verildi?
-                approved_action = r_dict.get("action")
-                if action and approved_action and not self._actions_match(approved_action, action):
-                    return False, f"APPROVAL_ACTION_MISMATCH: Bu onay '{approved_action}' eylemi için onaylanmış, '{action}' eyleminde kullanılamaz."
-
-                # Atomik tek-kullanımlık tüketim (Yarış durumlarına karşı conditional update)
-                cur = jdb.execute("UPDATE requests SET consumed = 1 WHERE approval = ? AND consumed = 0", (approval_id,))
-                if cur.rowcount == 0:
-                    return False, "APPROVAL_ALREADY_CONSUMED_RACE: Onay belirteci eşzamanlı başka bir işlem tarafından tüketildi."
-
-                jdb.commit()
-                return True, "VERIFIED_AND_CONSUMED"
-        except Exception as exc:
-            return False, f"APPROVAL_VERIFICATION_ERROR: {exc}"
+        # A token alone does not bind the new request's full input. Only the
+        # TaskGuard owner-decision -> canonical claim path can grant execution.
+        return False, "CANONICAL_REVALIDATION_REQUIRED: Yeni işlem için girdiye bağlı onay gerekir."
 
     def register_valid_approval(self, approval_id: str, action: str = None, expires_in: float = 300):
         """Test ortamında geçerli bir tek-kullanımlık onay belirteci kaydeder."""
@@ -809,8 +774,10 @@ def task_guard():
     global _task_guard
     with _task_guard_init_lock:
         if _task_guard is None:
+            from pablo_approval_client import ApprovalClient
             _task_guard = PabloWorkcopyTaskGuard(NODE_DIR / 'task-journal.sqlite3', ACTIONS,
-                                                 CONFIG.get('telegram_default_chat_id'), desktop_ready)
+                                                 CONFIG.get('telegram_default_chat_id'), desktop_ready,
+                                                 approvals=ApprovalClient(CONFIG))
     return _task_guard
 
 def execute_request(action, params, request_id=None):
