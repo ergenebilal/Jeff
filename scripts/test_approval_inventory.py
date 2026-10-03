@@ -86,7 +86,7 @@ class ApprovalInventoryTests(unittest.TestCase):
         clock[0] = 20
         self.assertEqual(guard.approval_snapshot()['journal_expired'], 1)
         self.assertEqual(guard.approve(req['approval_id'], 42, 42)['status'], 'REJECTED')
-        self.assertEqual(guard.approval_snapshot()['journal_expired'], 0)
+        self.assertEqual(guard.approval_snapshot()['journal_expired'], 1)
 
     def test_heartbeat_and_read_api_use_authenticated_shared_view(self):
         import jeff_bridge_api as bridge
@@ -97,7 +97,9 @@ class ApprovalInventoryTests(unittest.TestCase):
                 journal_waiting=2, journal_complete=True, marketing_waiting=3, marketing_complete=True))
             asyncio.run(bridge.alfred_heartbeat(body, 'fixture-key'))
             data = asyncio.run(bridge.approval_inventory('fixture-key'))
-            self.assertEqual(data['waiting'], 5)
+            self.assertEqual(data['waiting'], 0)
+            self.assertTrue(data['canonical'])
+            self.assertTrue(any('mutabakat' in v for v in data['unavailable']))
             with self.assertRaises(bridge.HTTPException):
                 asyncio.run(bridge.approval_inventory('wrong-key'))
             with self.assertRaises(ValueError):

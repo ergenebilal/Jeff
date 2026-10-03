@@ -55,6 +55,11 @@ class PanelApprovalAdapter:
 
     def decay(self):
         now=self.clock()
+        for row in self.store.q("SELECT id,created_at FROM approvals WHERE status='Bekliyor' AND id NOT IN (SELECT local_id FROM canonical_approval_links)"):
+            expiry=float(row['created_at'])+172800
+            reason='expired' if expiry<=now else 'needs_revalidation'
+            self.store.x('INSERT INTO canonical_approval_links VALUES(?,?,?,?,?)',(row['id'],None,expiry,now,reason))
+            self.store.x("UPDATE approvals SET status=? WHERE id=?",('Süresi doldu' if reason=='expired' else 'Yeniden doğrulama gerekiyor',row['id']))
         self.store.x("UPDATE approvals SET status='Süresi doldu' WHERE status='Bekliyor' AND id IN (SELECT local_id FROM canonical_approval_links WHERE expires_at<=?)",(now,))
         self.store.x('UPDATE canonical_approval_links SET archived_at=?,reason=? WHERE expires_at<=? AND archived_at IS NULL',(now,'expired',now))
 

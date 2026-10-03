@@ -85,6 +85,9 @@ def send_campaign_approval_card(campaign_id: int, chat_id: Optional[int] = None)
         if decision['status']!='pending':
             return {'ok':False,'status':'NEEDS_REVALIDATION'}
         canonical_id=decision['approval_id']
+        from pablo_approval_maintenance import review_link
+        from marketing_pipeline import DB_PATH
+        review_link(DB_PATH,'marketing_campaign',campaign_id,canonical_id,decision['expires_at'])
     except ApprovalUnavailable:
         return {'ok':False,'status':'APPROVAL_UNAVAILABLE'}
 
@@ -164,6 +167,9 @@ def send_content_idea_approval_card(idea_id: int, chat_id: Optional[int] = None)
         if decision['status']!='pending':
             return {'ok':False,'status':'NEEDS_REVALIDATION'}
         canonical_id=decision['approval_id']
+        from pablo_approval_maintenance import review_link
+        from marketing_pipeline import DB_PATH
+        review_link(DB_PATH,'marketing_idea',idea_id,canonical_id,decision['expires_at'])
     except ApprovalUnavailable:
         return {'ok':False,'status':'APPROVAL_UNAVAILABLE'}
 

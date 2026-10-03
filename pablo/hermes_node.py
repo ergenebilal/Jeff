@@ -2427,6 +2427,8 @@ def node_approval_snapshot():
         pass
     try:
         from marketing_pipeline import DB_PATH as marketing_db
+        from pablo_approval_maintenance import marketing_decay
+        marketing_decay(marketing_db)
         db = sqlite3.connect(marketing_db.resolve().as_uri() + '?mode=ro', uri=True)
         try:
             cutoff = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() - 48 * 3600))

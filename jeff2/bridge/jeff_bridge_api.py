@@ -148,8 +148,13 @@ async def lifespan(app: FastAPI):
         from task_artifacts import run_draft_worker
         draft_task = asyncio.create_task(run_draft_worker(DB_PATH, os.environ['TASK_ARTIFACT_ROOT']))
     app.state.draft_task = draft_task
+    from approval_maintenance import run as run_approval_maintenance
+    approval_task=asyncio.create_task(run_approval_maintenance(DB_PATH))
     log.info("Aider runner started")
     yield
+    approval_task.cancel()
+    try:await approval_task
+    except asyncio.CancelledError:pass
     runner_task.cancel()
     if draft_task:
         draft_task.cancel()

@@ -72,4 +72,23 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
                 panel.close()
         except sqlite3.Error:
             totals['unavailable'].append('Panel onayları')
+    # Once the canonical ledger exists, source projections are coverage checks,
+    # never additional decisions. One approval linked twice is counted once.
+    if 'approval_records' in tables:
+        try:
+            with read_only(bridge_db) as canonical:
+                active="status IN ('pending','approved') AND expires_at>?"
+                legacy_sources=dict(totals['sources'])
+                totals['waiting']=canonical.execute('SELECT count(*) FROM approval_records WHERE '+active,(now.timestamp(),)).fetchone()[0]
+                totals['old']=canonical.execute('SELECT count(*) FROM approval_records WHERE '+active+' AND created_at<?',(now.timestamp(),now.timestamp()-stale_hours*3600)).fetchone()[0]
+                totals['expired']=canonical.execute("SELECT count(*) FROM approval_records WHERE status='expired' OR (status IN ('pending','approved') AND expires_at<=?)",(now.timestamp(),)).fetchone()[0]
+                totals['sources']={}
+                for source,group in (('native','tasks'),('journal','journal'),('marketing_campaign','marketing'),('marketing_idea','marketing'),('panel','panel')):
+                    count=canonical.execute('SELECT count(DISTINCT r.approval_id) FROM approval_records r JOIN approval_source_links l USING(approval_id) WHERE l.source=? AND r.'+active,(source,now.timestamp())).fetchone()[0]
+                    totals['sources'][group]=totals['sources'].get(group,0)+count
+                for source,count in legacy_sources.items():
+                    if count>totals['sources'].get(source,0):
+                        totals['unavailable'].append(source+': eski kayıtların mutabakatı gerekiyor')
+                totals['canonical']=True
+        except sqlite3.Error:return None
     return totals

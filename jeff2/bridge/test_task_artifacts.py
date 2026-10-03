@@ -118,7 +118,7 @@ class ArtifactTests(unittest.TestCase):
         self.ready(True); self.ledger.request_approval('draft-1', ttl=30)
         self.clock[0] += 31
         counts = collect(self.root / 'ledger.db', now=datetime.fromtimestamp(self.clock[0], timezone.utc))
-        self.assertEqual((counts['waiting'], counts['expired']), (1, 1))
+        self.assertEqual((counts['waiting'], counts['expired']), (0, 1))
         self.ledger.cancel('draft-1', 'panel')
         self.assertEqual(self.ledger.approvals(), [])
 

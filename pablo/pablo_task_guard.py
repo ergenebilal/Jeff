@@ -270,9 +270,12 @@ class TaskGuard:
     def approval_snapshot(self):
         """No messages or params are exposed; expired approvals need renewal."""
         with self.connect() as db:
+            from pablo_approval_maintenance import journal_decay
+            journal_decay(db,self.clock())
             waiting, expired = db.execute(
                 "SELECT coalesce(sum(expires>=?),0), coalesce(sum(expires<?),0) FROM requests "
                 "WHERE status='APPROVAL_REQUIRED' AND consumed=0", (self.clock(), self.clock())).fetchone()
+            expired=db.execute("SELECT count(*) FROM approval_archives WHERE source='journal' AND reason='EXPIRED'").fetchone()[0]
         return {'journal_waiting': waiting, 'journal_expired': expired, 'journal_complete': True}
 
     def queue_result(self, payload):
