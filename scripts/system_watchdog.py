@@ -169,7 +169,7 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
               http_reachable('http://127.0.0.1:8774/health'), 120),
         Check('chat:answers', 'Sohbetin gercek cevabi', 'Sitedeki sohbet acik gorunuyor ama cevap uretemiyor (yapay zeka yolu bozuk)',
               chat_answers(), 1800),
-        Check('http:proxy', 'Yapay zeka koprusu', 'Jeff dusunemez, cevap uretemez',
+        Check('http:proxy', 'Yapay zeka koprusu', 'Proxy model rotasi kullanilamaz; diger rotalar ayri kontrol edilir',
               http_reachable('http://127.0.0.1:8999/v1/models'), 120),
         Check('http:bridge', 'Gorev panosu (ag)', 'Pablo ile baglanti kopar',
               http_reachable('http://100.80.122.74:7700/health', any_answer), 300),

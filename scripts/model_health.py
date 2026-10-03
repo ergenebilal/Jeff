@@ -1,8 +1,8 @@
 """Does Jeff still have a working brain? Tries every model route with a one-word request.
 
-Routes, in the order Jeff prefers them (see routes()):
-  proxy       the Antigravity bridge on this machine (Jeff's main route today)
-  opencode-go the OpenCode Go subscription (Jeff's configured spare tire)
+Routes are probes; the preferred route is read from the active configuration:
+  proxy       the Antigravity bridge on this machine
+  opencode-go the OpenCode Go subscription
   gemini      Google's official Gemini API, directly
   openrouter  OpenRouter
 
@@ -90,8 +90,8 @@ def main_route_from_config(path):
         import yaml
         provider = (yaml.safe_load(open(path, encoding='utf-8')) or {}).get('model', {}).get('provider', '')
     except Exception:
-        return 'proxy'
-    return PROVIDER_TO_ROUTE.get(str(provider).strip().lower(), 'proxy')
+        return 'unknown'
+    return PROVIDER_TO_ROUTE.get(str(provider).strip().lower(), 'unknown')
 
 
 def env_conflicts(files, wanted):
@@ -115,7 +115,34 @@ def run(env, opener=urllib.request.urlopen, now=time.time, conflicts=(), main='p
             continue
         extra = {'x-opencode-session': str(uuid.uuid4())} if name == 'opencode-go' else None   # the relay rejects requests without it
         results.append(probe(name, url, key, model, opener=opener, extra_headers=extra))
-    return {'checked_at': int(now()), 'routes': results, 'env_conflicts': list(conflicts), 'main': main}
+    report = {'checked_at': int(now()), 'routes': results, 'env_conflicts': list(conflicts), 'main': main}
+    report.update(health_snapshot(report, now=now))
+    return report
+
+
+def health_snapshot(report, max_age_seconds=30 * 60, now=time.time):
+    """Probe availability is distinct from the route used by a real session."""
+    preferred = report.get('main', 'unknown')
+    observed = report.get('checked_at')
+    rows = report.get('routes', [])
+    if not isinstance(rows, list):
+        rows = []
+    available = [r.get('route') for r in rows if isinstance(r, dict) and r.get('ok') is True]
+    by = {r.get('route'): r for r in rows if isinstance(r, dict)}
+    fresh = isinstance(observed, (int, float)) and 0 <= now() - observed <= max_age_seconds
+    primary = by.get(preferred)
+    if not fresh or primary is None or report.get('env_conflicts'):
+        status = 'unknown'
+    elif primary.get('ok') is True:
+        status = 'healthy'
+    elif available:
+        status = 'degraded'
+    else:
+        status = 'unavailable'
+    return {'preferred_route': preferred, 'preferred_status': 'healthy' if primary and primary.get('ok') is True and fresh else
+            'unavailable' if primary and fresh else 'unknown', 'available_routes': available if fresh else [],
+            'observed_at': observed, 'health_status': status, 'actual_session_route': 'unknown',
+            'last_success_at': report.get('last_success_at', {})}
 
 
 def summarize(report):
@@ -128,17 +155,28 @@ def summarize(report):
     if by.get(main, {}).get('ok'):
         spare = [r for r in working if r != main]
         return 'all_ok', f'ana yol ({main}) calisiyor' + (f', yedek: {", ".join(spare)}' if spare else ', YEDEK YOL YOK')
-    return 'spare_tire', f'ana yol cevap vermiyor; Jeff yedek yolla ({", ".join(working)}) dusunuyor'
+    return 'spare_tire', f'ana yol ({main}) cevap vermiyor; probe testinde yedek yolla ({", ".join(working)}) cevap alinabildi; gercek oturum rotasi ayri makbuz gerektirir'
 
 
 def write_report(report, path):
-    tmp = f'{path}.tmp'
+    try:
+        with open(path, encoding='utf-8') as previous:
+            successes = json.load(previous).get('last_success_at', {})
+        if not isinstance(successes, dict):
+            successes = {}
+    except (OSError, ValueError, AttributeError):
+        successes = {}
+    for route in report.get('routes', []):
+        if route.get('ok') is True:
+            successes[route['route']] = report['checked_at']
+    report['last_success_at'] = successes
+    tmp = f'{path}.{uuid.uuid4().hex}.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False)
     os.replace(tmp, path)
 
 
-def watchdog_probe(path, max_age_seconds=45 * 60, now=time.time):
+def watchdog_probe(path, max_age_seconds=30 * 60, now=time.time):
     """Adapter for system_watchdog: (ok, detail) from the last written report. A stale or unreadable
     report counts as a problem, so the checker itself cannot silently die."""
     def probe_fn():

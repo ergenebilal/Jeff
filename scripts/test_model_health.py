@@ -162,7 +162,7 @@ class WatchdogAdapterTests(unittest.TestCase):
             self.assertEqual(mh.main_route_from_config(cfg), 'opencode-go')
             cfg.write_text('model:' + chr(10) + '  provider: antigravity' + chr(10))
             self.assertEqual(mh.main_route_from_config(cfg), 'proxy')
-            self.assertEqual(mh.main_route_from_config(Path(d) / 'missing.yaml'), 'proxy')
+            self.assertEqual(mh.main_route_from_config(Path(d) / 'missing.yaml'), 'unknown')
         env = {'GOOGLE_API_KEY': KEY, 'OPENROUTER_API_KEY': KEY, 'OPENCODE_GO_API_KEY': KEY}
         # main = opencode-go: the bridge being down is only a bad SPARE, not an emergency
         opener = by_url({'127.0.0.1': status_opener(500), 'opencode.ai': ok_opener})
@@ -205,3 +205,29 @@ class WatchdogAdapterTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HealthTruthTests(unittest.TestCase):
+    def report(self, primary=False, spare=True):
+        return {'checked_at':1000,'main':'opencode-go','routes':[
+            {'route':'opencode-go','ok':primary},{'route':'proxy','ok':spare}]}
+
+    def test_spare_success_does_not_heal_primary_or_prove_session_route(self):
+        view=mh.health_snapshot(self.report(),now=lambda:1100)
+        self.assertEqual(view['health_status'],'degraded')
+        self.assertEqual(view['preferred_status'],'unavailable')
+        self.assertEqual(view['actual_session_route'],'unknown')
+
+    def test_all_down_stale_missing_and_recovery(self):
+        self.assertEqual(mh.health_snapshot(self.report(False,False),now=lambda:1100)['health_status'],'unavailable')
+        self.assertEqual(mh.health_snapshot(self.report(),now=lambda:2801)['health_status'],'unknown')
+        self.assertEqual(mh.health_snapshot({},now=lambda:1100)['health_status'],'unknown')
+        self.assertEqual(mh.health_snapshot(self.report(True),now=lambda:1100)['health_status'],'healthy')
+
+    def test_success_time_only_advances_on_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'report.json'
+            mh.write_report(self.report(True),p)
+            failed=self.report(False,False); failed['checked_at']=1200
+            mh.write_report(failed,p)
+            self.assertEqual(json.loads(p.read_text())['last_success_at']['opencode-go'],1000)
