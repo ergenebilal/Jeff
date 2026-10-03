@@ -9,6 +9,7 @@ Every line is measured now; a source that cannot be read says "veri alinamadi" i
 import json
 import re
 import subprocess
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -47,6 +48,29 @@ def gateway_line(runner=subprocess.run):
     if conflicts >= 3:
         return f'Jeff (Telegram): açık ama başka bir kopya aynı botu dinliyor ({conflicts} çakışma, son 30 dk)'
     return 'Jeff (Telegram): çalışıyor'
+
+
+def model_route_line(db_path=HOME / '.hermes/state.db', now_ts=None):
+    """Only actual call receipts establish a used route; probes never do."""
+    now_ts=time.time() if now_ts is None else now_ts
+    try:
+        db=sqlite3.connect(Path(db_path).resolve().as_uri()+'?mode=ro',uri=True)
+        try:
+            row=db.execute('SELECT requested_route,actual_route,status,fallback_used,fallback_reason,ended_at '
+                           'FROM model_route_receipts ORDER BY rowid DESC LIMIT 1').fetchone()
+        finally:
+            db.close()
+        if row is None:
+            return 'Son model çağrısı: bilinmiyor (makbuz yok)'
+        requested,actual,status,fallback,reason,ended=row
+        text=f'Son model çağrısı: {actual}; sonuç: {status}; tercih: {requested}'
+        if fallback:
+            text+=f'; fallback nedeni: {reason or "bilinmiyor"}'
+        if ended is None or now_ts-ended>1800:
+            text+='; geçmiş/bitmemiş makbuz, güncel sağlık değildir'
+        return text
+    except (OSError,sqlite3.Error):
+        return 'Son model çağrısı: bilinmiyor (makbuz okunamadı)'
 
 
 def hermes_jobs_line(jobs_path=HOME / '.hermes/cron/jobs.json'):
@@ -97,10 +121,11 @@ def watchdog_lines(state_path=HOME / 'logs/watchdog_state.json', now_ts=None):
     return lines
 
 
-def build_status(now=None, gateway=gateway_line, jobs=hermes_jobs_line, reports=reports_line, dog=watchdog_lines):
+def build_status(now=None, gateway=gateway_line, jobs=hermes_jobs_line, reports=reports_line, dog=watchdog_lines, model=model_route_line):
     now = now or datetime.now(timezone.utc)
     lines = [f"Jeff durumu, {now.astimezone().strftime('%d.%m.%Y %H:%M')}", '']
     lines.append(gateway())
+    lines.append(model())
     lines.extend(dog())
     lines.append(jobs())
     lines.append(reports())

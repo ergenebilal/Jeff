@@ -1,0 +1,9 @@
+name: model-route-receipts
+version: 1.0.0
+description: Local receipts for actual model attempts, without prompts or credentials
+author: CyberGene
+kind: standalone
+provides_hooks:
+  - pre_api_request
+  - post_api_request
+  - api_request_error
