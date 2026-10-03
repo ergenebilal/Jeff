@@ -1,0 +1,132 @@
+--- a/docs/cybergeneos/app.js
++++ b/docs/cybergeneos/app.js
+@@ -1136,6 +1136,14 @@
+ }
+ const plainReason = t => (t || '').replace('Sitemizdeki bir argümana denk gelen görünür bir dert bulunamadı', 'Bizim çözdüğümüz türden görünür bir dert bulunamadı');
+ const whyLine = l => (l.qualification?.current && l.qualification.hypothesis ? 'İhtiyaç hipotezi: ' + l.qualification.hypothesis : '') || (l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : '') || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
++function candidateSummary(l){
++  const full = l.qualification?.hypothesis || whyLine(l);
++  const text = String(full);
++  const colon = text.indexOf(':');
++  const start = colon >= 0 && colon < 40 ? text.slice(colon + 1).trim() : text;
++  const sentence = start.split(/[.!?](?:\s|$)|[;:]/)[0].trim();
++  return sentence.length > 180 ? sentence.slice(0, 180).replace(/\s+\S*$/, '') + '…' : sentence + (sentence ? '.' : '');
++}
+ function renderLeadFilters(){ fillCities(); }  // city and last-scan filters are drawn as removable chips in renderLeads
+ function leadPool(){
+   const q = state.q.toLocaleLowerCase('tr');
+@@ -1144,11 +1152,14 @@
+ }
+ function leadRow([l, s]){
+   const where = l.district || l.city || '';
++  const candidate = state.leadSec === 'gorusme' && l.qualification;
+   return `<li class="lrow ${s.list}${s.busy ? ' busy' : ''}">
++    ${candidate ? '<div class="lrow-summary">' : ''}
+     <button class="lrow-main" type="button" data-lead="${l.id}" title="${esc(l.name)}">
+       <span class="lrow-name"><span class="t">${esc(l.short || l.name)}</span>${l.section === 'yeni' ? '<span class="new">yeni</span>' : ''}</span>
+-      <span class="lrow-why">${esc([where, whyLine(l)].filter(Boolean).join(' · '))}</span>
++      <span class="lrow-why">${esc([where, candidate ? candidateSummary(l) : whyLine(l)].filter(Boolean).join(' · '))}</span>
+     </button>
++    ${candidate ? `<details class="lrow-reason"><summary>(neden?)</summary><p>${esc(whyLine(l))}</p></details></div>` : ''}
+     <span class="lrow-step ${s.tone || ''}">${s.busy ? '<i class="ph ph-circle-notch spin" aria-hidden="true"></i> ' : ''}${esc(s.text)}</span>
+     ${s.act ? `<button class="btn ${s.list === 'sira' ? 'btn-primary' : 'btn-glass'} btn-sm" type="button" data-row="${s.act[0]}" data-id="${l.id}">${esc(s.act[1])}</button>` : '<span></span>'}
+   </li>`;
+@@ -1401,7 +1412,7 @@
+       <ol class="evidence">${(m.evidence || []).map(f => `<li><b>Kaynak ${f.id + 1}</b><blockquote>${esc(f.quote)}</blockquote>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · Yayıncı beyanı; alıntının kaynakta bulunduğu denetlendi.</p></li>`).join('')}</ol></details>
+       <div class="reviewbox"><p class="help">Değerlendirmeniz gönderim yapmaz. Metinde değişiklik için Jeff’e not verin; yeni taslak yeniden karşıt incelemeden geçer.</p>
+         <div class="row">${LP('review-accept', 'Uygun buldum')}${LB('review-reject', 'Uygun değil')}${LB('copy-text', 'Metni kopyala', 'btn-glass')}</div></div>` : ''}
+-    ${m.source_check?.verified_at ? `<p class="help">Taslak öncesi kaynak denetimi: ${fmtDate(m.source_check.verified_at)}. Rapor yenilendiğinde, geçerliliğini kaybettiğinde veya hizmet kapsamı değiştiğinde eski taslak yeniden inceleme gerektirir.</p>` : ''}
++    ${m.source_check?.verified_at ? `<p class="help" data-source-check>Taslak öncesi kaynak denetimi: ${fmtDate(m.source_check.verified_at)}. Rapor yenilendiğinde, geçerliliğini kaybettiğinde veya hizmet kapsamı değiştiğinde eski taslak yeniden inceleme gerektirir.</p>` : ''}
+     ${candidate && !analysing(l) && !l.optout ? `<label class="kicker" for="q-draft-note">Jeff’e üslup notunuz (isteğe bağlı)</label><input class="field-input" id="q-draft-note" maxlength="300" value="${esc(d.note || '')}" placeholder="Örn. daha kısa ve doğrudan yaz"><div class="row">${LP('prepare-qualified', historical ? 'Güncel kanıttan yeniden hazırlasın' : 'Güncel kanıttan taslak hazırlasın')}</div>` : ''}
+   </section>`;
+ }
+@@ -1422,7 +1433,48 @@
+       </div>
+       <div class="row head-acts">${nav}<button class="icon-btn" type="button" data-close aria-label="Kapat"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+     </div>
+-    <div class="sheet-body work">${leadSide(l, s)}${reportCol(l, s)}${messageCol(l)}</div>`, 'lead');
++    <div class="sheet-body work">${leadSide(l, s)}${reportCol(l, s)}${messageCol(l)}</div>`, decisionFirst(l) ? 'lead decision-first' : 'lead');
++  if (decisionFirst(l)) organizeDecisionCard(l);
++}
++// Pilot: move the existing content and action nodes, keeping the full draft and handlers.
++function decisionFirst(l){
++  return l.id === 'lbc4b1bd986' && (l.marketing?.source === 'qualification' || l.drafts?.source === 'qualification');
++}
++function organizeDecisionCard(l){
++  const body = $('#overlay .sheet-body'), report = body.querySelector('.report'), msg = body.querySelector('.msg'), side = body.querySelector('.side');
++  const fold = title => {
++    const el = document.createElement('details'); el.className = 'fold decision-fold';
++    const summary = document.createElement('summary'); summary.textContent = title;
++    const content = document.createElement('div'); content.className = 'in';
++    el.append(summary, content); return [el, content];
++  };
++  const top = document.createElement('section'); top.className = 'decision-top';
++  top.innerHTML = `<p class="decision-reason">${esc(candidateSummary(l))}</p>`;
++  const heading = msg.querySelector('h3'); top.append(heading);
++  const text = msg.querySelector('#c-text');
++  if (text) {
++    const preview = document.createElement('p'); preview.className = 'decision-preview';
++    // Quote the draft's closing question; never replace the complete copyable text.
++    const sentences = text.value.trim().split(/(?<=[.!?])\s+/);
++    preview.textContent = sentences[sentences.length - 1]; top.append(preview);
++  }
++  const actions = msg.querySelector('[data-la="review-accept"]')?.closest('.row');
++  if (actions) { actions.classList.add('decision-actions'); top.append(actions); }
++  const status = msg.querySelector('[aria-live]'); if (status) top.append(status);
++  const [why, whyContent] = fold('Neden bu?');
++  const [proof, proofContent] = fold('Kanıt?');
++  // Every original evidence disclosure is retained, inside one closed outer disclosure.
++  for (const section of [report, msg]) {
++    for (const detail of section.querySelectorAll('details.mini')) {
++      detail.open = true; proofContent.append(detail);
++    }
++  }
++  const checked = msg.querySelector('[data-source-check]'); if (checked) proofContent.append(checked);
++  const [full, fullContent] = fold('Taslağın tamamı');
++  if (text) { fullContent.append(msg.querySelector('label[for="c-text"]'), text); }
++  const [info, infoContent] = fold('İşletme bilgileri ve notlar'); infoContent.append(side);
++  whyContent.append(report, msg);
++  body.replaceChildren(top, ...(text ? [full] : []), why, proof, info);
+ }
+ async function showEvidence(id){
+   const box = $('#evidence-list'); if (!box) return;
+--- a/docs/cybergeneos/index.html
++++ b/docs/cybergeneos/index.html
+@@ -714,6 +714,37 @@
+ @media (prefers-reduced-motion:reduce){
+   *,*::before,*::after{animation:none!important;transition:none!important}
+ }
++/* Decision-first pilot; other lead cards retain their existing workspace. */
++.lrow-summary{min-width:0}
++.lrow-summary .lrow-main{width:100%}
++.lrow-summary .lrow-why{white-space:normal}
++.lrow-reason{font-size:13px;color:var(--soft);margin-top:4px}
++.lrow-reason>summary{cursor:pointer;color:var(--lav);width:fit-content;min-height:28px;padding:4px 0;list-style:none}
++.lrow-reason>p{line-height:1.6;margin:4px 0 8px}
++.sheet.lead.decision-first{width:min(840px,calc(100% - 24px))}
++.sheet.lead.decision-first .sheet-body.work{display:block;overflow-y:auto;padding:20px 24px 28px;height:auto}
++.sheet-body>section.decision-top{padding:0 0 18px}
++.decision-reason{font-size:15px;line-height:1.55;margin:0 0 18px;color:var(--text)}
++.decision-top .wh{font-size:13px;color:var(--soft);margin:0 0 8px}
++.decision-preview{font-size:15px;line-height:1.6;color:var(--soft);margin:0 0 16px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
++.decision-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
++.decision-actions .btn{min-height:44px;justify-content:center;padding:10px 8px;white-space:normal}
++.decision-top>.help{margin:12px 0 0}
++.decision-fold>.in>.wcol{padding:12px 0;overflow:visible;border:0}
++.decision-fold .draft{width:100%;min-height:240px;resize:vertical}
++.decision-fold .evidence{overflow-wrap:anywhere}
++@media(max-width:640px){
++  .sheet.lead.decision-first{width:100%;top:0;right:0;bottom:0;border-radius:0}
++  .sheet.lead.decision-first .sheet-head{padding:16px;gap:10px}
++  .sheet.lead.decision-first .sheet-head h2{font-size:21px;line-height:1.2}
++  .sheet.lead.decision-first .head-acts{gap:4px}
++  .sheet.lead.decision-first .pager{display:none}
++  .sheet.lead.decision-first .sheet-body.work{padding:16px}
++  .decision-reason{font-size:14px;margin-bottom:14px}
++  .decision-preview{font-size:14px}
++  .decision-actions{gap:6px}
++  .decision-actions .btn{font-size:12px;padding:8px 4px}
++}
+ </style>
+ </head>
+ <body>

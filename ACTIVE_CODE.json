@@ -46,6 +46,7 @@
     "jeff_cognitive/runtime_bridge.py",
     "jeff_cognitive/state.py",
     "scripts/task_draft.py",
+    "integrations/cybergeneos/decision_first/install.py",
     "integrations/cybergeneos/qualification_drafts/install.py",
     "integrations/cybergeneos/qualification_drafts/server/marketing.py",
     "integrations/cybergeneos/qualification_drafts/server/qualified_draft.py"
