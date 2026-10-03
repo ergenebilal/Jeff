@@ -18,7 +18,15 @@ from pathlib import Path
 ORIGIN = 'https://graph.facebook.com'
 VERSION = 'v25.0'
 MAX_BYTES = 1024 * 1024
-LIMITATION = 'Resmî Meta API: yayıncı biyografisi ve en son dört paylaşım açıklaması; görüntü, özel mesaj trafiği ve yanıt süresi incelenmedi.'
+MEDIA_LIMIT = 30
+WINDOW_DAYS = 90
+LIMITATION = 'Resmî Meta API: biyografi ve en son 30 medya öğesinin okunabilir yayıncı açıklamaları; 90 günlük kapsam ayrıca belirtilir. Görüntü, özel mesaj trafiği ve yanıt süresi incelenmedi.'
+
+
+class Discovery(list):
+    def __init__(self, pages, coverage):
+        super().__init__(pages)
+        self.coverage = coverage
 
 
 class MetaError(Exception):
@@ -110,7 +118,7 @@ def discover(profile, identity_source):
     if profile != 'https://www.instagram.com/'+handle+'/' or not re.fullmatch(r'[a-z0-9_.]{1,30}', handle):
         raise MetaError('invalid_profile')
     _, account = credentials()
-    fields = 'business_discovery.username('+handle+'){username,biography,website,media.limit(4){username,caption,permalink,timestamp}}'
+    fields = 'business_discovery.username('+handle+'){username,biography,website,media.limit('+str(MEDIA_LIMIT)+'){username,caption,permalink,timestamp}}'
     raw = request(account, fields).get('business_discovery')
     if not isinstance(raw, dict) or not isinstance(raw.get('username'), str) or raw['username'].lower() != handle:
         raise MetaError('publisher_mismatch')
@@ -126,13 +134,29 @@ def discover(profile, identity_source):
                       'content_scope': 'meta_business_discovery_publisher_caption' if kind == 'instagram_post' else 'meta_business_discovery_publisher_biography'})
     add(profile, raw.get('biography'), 'instagram_profile')
     media = raw.get('media', {}).get('data', []) if isinstance(raw.get('media'), dict) else []
-    for post in media[:4] if isinstance(media, list) else []:
+    samples = media[:MEDIA_LIMIT] if isinstance(media, list) else []
+    seen = set()
+    duplicates = 0
+    for post in samples:
         if not isinstance(post, dict) or not isinstance(post.get('username'), str) or post['username'].lower() != handle:
             continue
         url = permalink(post.get('permalink'))
+        if url in seen:
+            duplicates += 1
+            continue
         if url:
+            seen.add(url)
             add(url, post.get('caption'), 'instagram_post', published_at(post.get('timestamp')))
-    return pages
+    posts = [page for page in pages if page['source_kind'] == 'instagram_post']
+    recent = [page for page in posts if page['source_published_at'] and observed-datetime.fromisoformat(page['source_published_at']).timestamp() <= WINDOW_DAYS*86400]
+    dates = sorted(page['source_published_at'] for page in posts if page['source_published_at'])
+    # Reaching a cap or an older post does not prove that every post was returned.
+    coverage = {'requested_media_limit': MEDIA_LIMIT, 'returned_media_items': len(samples), 'readable_captions': len(posts),
+                'window_days': WINDOW_DAYS, 'captions_in_window': len(recent), 'undated_captions': sum(not page['source_published_at'] for page in posts),
+                'oldest_publication': dates[0] if dates else None, 'newest_publication': dates[-1] if dates else None,
+                'limit_reached': len(samples) == MEDIA_LIMIT, 'duplicate_permalinks': duplicates,
+                'complete_window': 'unknown', 'pagination_followed': False}
+    return Discovery(pages, coverage)
 
 
 def attested_source(source, url):

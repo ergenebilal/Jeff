@@ -64,6 +64,11 @@ counter: zaten kullanılan çözüm veya önerimizi gereksiz kılabilecek karş�
 contact: yalnız resmî sitede yayımlanmış işletme kanalı ve varsa açıkça belirtilen yetkili rolü.
 Her olguya birebir alıntı ve kaynak_url ver. En çok 8 olgu. Kaynağa uymayan yorumu olgu yapma.
 Meta paylaşımının source_published_at alanı yayın tarihidir; tek başına olay tarihi değildir.
+booking_routes alanı okuyucunun resmî sayfadaki gerçek bağlantı hedefi gözlemidir.
+WhatsApp'ta şube/randevu metniyle açılan bağlantı varsa 'yalnız telefonla randevu' deme.
+Form veya mesaj kanalı, otomatik takvim/onay/yanıt kanıtı değildir; hangi ek idari
+işi devralabileceğimizi bu mevcut yollarla birlikte açıkla. Okunan paylaşım geçmişi
+kısıtlıdır: coverage.complete_window unknown ise bütün 90 gün incelendi deme.
 Alıntı 15–35 kelimelik KESİNTİSİZ kaynak metni olsun; özetleme, üç nokta veya
 iki ayrı cümleyi birleştirme. Verilen sayfanın URL'sini aynen kullan. Olgu kimlikleri
 doğrulamada yeniden numaralanır; karşıt okuma yalnız verified_facts.id kullanır.
@@ -94,6 +99,11 @@ operations olguları en az İKİ FARKLI somut koordinasyon/manuel iş akışı i
 Aynı akışın tekrarı, yabancı dil sayfası tek başına veya 'çok hizmetimiz var' yeterli değildir.
 explicit_need yalnız açık problem/yardım ifadesi. Genel reklam vaadi açık problem değildir.
 Önerilen argüman gerçek yetenekleriyle bu işi karşılıyor mu? Karşı kanıt varsa ele.
+booking_routes gözlemlerini denetlenmiş kaynaklarla birlikte kullan. Randevu
+metniyle açılan WhatsApp bağlantısı varken bu kanalı yalnız soru/iptal diye daraltma.
+Mevcut form/WhatsApp zaten yazılı talep topluyorsa yalnız 'yazılı talep toplama'
+önerisi aynı işi tekrar eder; sunabileceğimiz ek koordinasyon, uygun saat veya
+kurallı yanıt farkını kanıtla ilişkilendir. Bu fark bilinmiyorsa açıkça belirt.
 WhatsApp bağlantısı, bir form, yabancı dil sayfası veya genel geri dönüş vaadi
 OTOMASYONun bu işi çözdüğünün kanıtı değildir; bunları tek başına blocking_counter yapma.
 Olumlu bir tanıtım/yorum iş yükünü çürütmez. Gerçek karşı kanıt, aynı idari işi zaten
@@ -306,6 +316,8 @@ def collect(lead):
             # Keep the fetched text for quote verification. Navigation boilerplate
             # must not erase the actual job description or FAQ near the page end.
             pages.append({'url': final, 'text': parsed['text'], 'links': parsed['links'], 'observed_at': now(),
+                          'booking_routes': [{**route, 'observed_at': now(), 'source_text_sha256': hashlib.sha256(parsed['text'].encode()).hexdigest()}
+                                             for route in booking_routes(final, parsed['links'])],
                           'text_sha256': hashlib.sha256(parsed['text'].encode()).hexdigest()})
             if depth < 2:
                 for href, label in parsed['links']:
@@ -313,10 +325,76 @@ def collect(lead):
                     if extra.search(sitecheck._norm(href+' '+label)) and analysis.same_site(lead['website'], nxt) and nxt.rstrip('/') not in seen:
                         if not any(pending.rstrip('/') == nxt.rstrip('/') for pending, _ in queue):
                             queue.append((nxt, depth+1))
-                queue.sort(key=lambda item: (not bool(priority.search(sitecheck._norm(item[0]))), item[1]))
+                # Service-selection variants often repeat the booking form. Read
+                # distinct clean routes and policies first without assuming that
+                # all query-bearing pages have identical content.
+                queue.sort(key=lambda item: (bool(urllib.parse.urlsplit(item[0]).query),
+                                             not bool(priority.search(sitecheck._norm(item[0]))), item[1]))
         except Exception as e:
             errors.append({'url': url, 'error': type(e).__name__})
     return pages, errors
+
+
+def booking_routes(source, links):
+    """Observed public link targets; no message, form submission or calendar claim."""
+    routes, seen = [], set()
+    for href, label in links:
+        target = urllib.parse.urljoin(source, href)
+        try:
+            parsed = urllib.parse.urlsplit(target)
+            if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.port:
+                continue
+            host = parsed.hostname
+            if host in ('wa.me', 'api.whatsapp.com'):
+                if host == 'wa.me' and not re.fullmatch(r'/\+?\d{7,15}/?', parsed.path):
+                    continue
+                if host == 'api.whatsapp.com' and parsed.path.rstrip('/') != '/send':
+                    continue
+                channel = 'whatsapp'
+                message = urllib.parse.parse_qs(parsed.query).get('text', [''])[0][:500]
+            elif analysis.same_site(source, target) and re.search(r'randevu|appointment|booking|rezerv', sitecheck._norm(target+' '+label)):
+                channel, message = 'website_link', ''
+            elif (host or '').removeprefix('www.') in {'calendly.com', 'fresha.com', 'booksy.com', 'setmore.com', 'doktortakvimi.com', 'gnom.guru'}:
+                channel, message = 'external_booking_link', ''
+            else:
+                continue
+            if target in seen or len(routes) >= 12:
+                continue
+            seen.add(target)
+            routes.append({'source_url': source, 'target_url': target[:1500], 'label': label[:100], 'channel': channel,
+                           'prefilled_message': message, 'scope': 'published_link_target', 'submission_executed': False})
+        except (ValueError, TypeError):
+            continue
+    return routes
+
+
+def company_routes(pages):
+    routes, seen = [], set()
+    for page in pages:
+        for route in page.get('booking_routes', []):
+            if route['target_url'] not in seen and len(routes) < 24:
+                routes.append(route)
+                seen.add(route['target_url'])
+    return routes
+
+
+def research_pages(pages, budget=50000):
+    """Share a fixed text allowance across every collected source, not only its head."""
+    allowances = [min(len(page['text']), 600 if page.get('source_kind') == 'instagram_post' else 3500) for page in pages]
+    remaining = max(0, budget-sum(allowances))
+    for index, page in enumerate(pages):
+        extra = min(remaining, max(0, min(len(page['text']), 10000)-allowances[index]))
+        allowances[index] += extra
+        remaining -= extra
+    # Worst-case three profiles and official pages can exceed the first allowance.
+    scale = min(1, budget/max(1, sum(allowances)))
+    contexts = []
+    for page, allowance in zip(pages, allowances):
+        limit = max(1, int(allowance*scale))
+        text = research_text(page['text'], limit=limit)
+        contexts.append({'url': page['url'], 'text': text, 'text_truncated': len(text) < len(page['text']),
+                         **{key: page[key] for key in ('source_kind', 'content_scope', 'source_published_at') if key in page}})
+    return contexts
 
 
 def research_text(text, limit=10000):
@@ -325,18 +403,23 @@ def research_text(text, limit=10000):
         return text
     process = re.compile(r'koordinat[oö]r|randevu|iptal|geri.ar|callback|reschedul|waitlist|appointment|reception|insan.kaynak|responsibilit|sorumluluk|crm|transfer', re.I)
     spans = []
-    budget = limit-4000
+    head, tail = min(2000, limit//4), min(1800, limit//4)
+    budget = limit-head-tail-30
     focused = re.compile(r'iptal|reschedul|waitlist|responsibilit|sorumluluk|koordinat[oö]r|geri.ar|callback', re.I)
     matches = list(focused.finditer(text)) + list(process.finditer(text))
     for match in matches:
-        start, end = max(0, match.start()-350), min(len(text), match.end()+750)
-        if start < 2000 or end > len(text)-1800 or any(start < b and end > a for a, b in spans):
+        width = min(1100, budget-7)
+        if width < 100:
+            break
+        start = max(head, match.start()-min(350, width//3))
+        end = min(len(text)-tail, start+width)
+        if match.start() < head or match.end() > len(text)-tail or any(start < b and end > a for a, b in spans):
             continue
         if end-start > budget:
             continue
         spans.append((start, end))
         budget -= end-start+7
-    parts = [text[:2000]] + [text[a:b] for a, b in sorted(spans)] + [text[-1800:]]
+    parts = [text[:head]] + [text[a:b] for a, b in sorted(spans)] + [text[-tail:] if tail else '']
     return '\n[…]\n'.join(parts)[:limit]
 
 
@@ -380,6 +463,7 @@ def collect_instagram(lead, official_pages):
     for profile, account in accounts.items():
         try:
             official = meta_instagram.discover(profile, account['linked_from'])
+            account['coverage'] = getattr(official, 'coverage', {})
             if official:
                 social.extend(official)
                 account.update(status='readable', pages=[p['url'] for p in official], collection_method='meta_business_discovery',
@@ -638,7 +722,7 @@ def assess(lead, research, facts, audit, pages, timestamp=None):
                             'scope': 'Jeff tarafından ayrı karşıt okuma; bağımsız saha doğrulaması değildir.',
                             **{k: str((critique if isinstance(critique, dict) else {}).get(k) or '')[:700] for k in critique_keys},
                             'supported_ids': sorted(supported), 'blocking_counter_ids': counters},
-            'rule_version': 3, 'prompt_version': 7, 'delivered': False, 'human_accepted': False}
+            'rule_version': 3, 'prompt_version': 8, 'delivered': False, 'human_accepted': False}
 
 
 def run(store, h, params):
@@ -667,8 +751,8 @@ def run(store, h, params):
                 started = time.monotonic()
                 try:
                     h.step(None, 'Jeff firmaya özgü iş akışını araştırıyor')
-                    research = model(RESEARCH, {'company': item['data'], 'pages': [{'url': p['url'], 'text': research_text(p['text']),
-                                               **{key: p[key] for key in ('source_kind', 'content_scope', 'source_published_at') if key in p}} for p in pages],
+                    routes = company_routes(pages)
+                    research = model(RESEARCH, {'company': item['data'], 'pages': research_pages(pages), 'booking_routes': routes,
                                                'instagram': instagram, 'argumanlar': capabilities(), 'today': date.today().isoformat()},
                                      h.id+'-'+lid+'-research', receipts.setdefault('research', {}))
                     facts, dropped, pages = verified_facts(lead, research, pages)
@@ -686,11 +770,11 @@ def run(store, h, params):
                         if excerpts:
                             contexts.append({'url': p['url'], 'text': '\n'.join(excerpts)[:10000]})
                     audit = model(AUDIT, {'company': item['data'], 'research': {k: v for k, v in research.items() if k != 'facts'}, 'verified_facts': facts,
-                                         'pages': contexts, 'instagram': instagram,
+                                         'pages': contexts, 'instagram': instagram, 'booking_routes': routes,
                                          'argument': next((a for a in capabilities() if a['id'] == research.get('argument_id')), None)},
                                   h.id+'-'+lid+'-audit', receipts.setdefault('audit', {}))
                     report = assess(lead, research, facts, audit, pages)
-                    report.update(dropped=dropped, source_errors=errors, instagram=instagram,
+                    report.update(dropped=dropped, source_errors=errors, instagram=instagram, booking_routes=routes,
                                   usage={step: {k: v for k, v in receipt.items() if k != 'raw_response'} for step, receipt in receipts.items()},
                                   elapsed_seconds=round(time.monotonic()-started, 2), cost=None)
                     h.step(None, 'Görüşme gerekçesi kaydediliyor')
