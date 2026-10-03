@@ -184,6 +184,7 @@ import uuid
 from pablo_task_guard import TaskGuard, allowed_ip, is_approval_required, GUI_ACTIONS
 
 _task_guard = None
+_task_guard_init_lock = threading.Lock()
 
 def desktop_ready():
     """Read-only desktop check. Unknown/locked sessions fail closed."""
@@ -806,9 +807,10 @@ class PabloWorkcopyTaskGuard(TaskGuard):
 
 def task_guard():
     global _task_guard
-    if _task_guard is None:
-        _task_guard = PabloWorkcopyTaskGuard(NODE_DIR / 'task-journal.sqlite3', ACTIONS,
-                                             CONFIG.get('telegram_default_chat_id'), desktop_ready)
+    with _task_guard_init_lock:
+        if _task_guard is None:
+            _task_guard = PabloWorkcopyTaskGuard(NODE_DIR / 'task-journal.sqlite3', ACTIONS,
+                                                 CONFIG.get('telegram_default_chat_id'), desktop_ready)
     return _task_guard
 
 def execute_request(action, params, request_id=None):
@@ -2244,50 +2246,8 @@ def action_marketing_playbook(params: dict) -> dict:
 
 
 def action_antigravity(params: dict) -> dict:
-    """
-    Antigravity IDE & AI motoru ile otonom islem yurutur.
-    params:
-      prompt: str (Antigravity'ye verilecek gorev, prompt veya soru)
-      task_type: str ("general", "instagram_post", "frontend_design", "web_browser_test")
-    """
-    prompt = params.get("prompt", "")
-    task_type = params.get("task_type", "general")
-    if not prompt:
-        return {"ok": False, "error": "Bos prompt verilemez"}
-
-    import subprocess
-    is_ig_post = task_type == "instagram_post" or any(w in prompt.lower() for w in ["post", "instagram", "slayt", "carousel"])
-
-    if is_ig_post:
-        designer_script = r"C:\Users\lenovo\.gemini\antigravity-ide\scratch\cybergene-post-designer\cg_post.py"
-        arg = "--next" if any(w in prompt.lower() for w in ["siradaki", "sıradaki", "next", "plan"]) else prompt
-        cmd = ["python", designer_script, arg]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, encoding="utf-8")
-            return {
-                "ok": res.returncode == 0,
-                "result": {
-                    "task_type": "instagram_post",
-                    "stdout": res.stdout,
-                    "stderr": res.stderr
-                }
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-    else:
-        cmd = ["agy", "-p", prompt]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180, encoding="utf-8")
-            return {
-                "ok": res.returncode == 0,
-                "result": {
-                    "task_type": "antigravity_general",
-                    "stdout": res.stdout,
-                    "stderr": res.stderr
-                }
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+    from pablo_antigravity import execute
+    return execute(params)
 
 
 ACTIONS = {

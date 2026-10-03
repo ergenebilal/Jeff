@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from pablo_antigravity import ALIASES as ANTIGRAVITY_ALIASES, prepare as prepare_antigravity
 
 
 def fingerprint(action, params):
@@ -31,6 +32,7 @@ READ_ACTIONS = {
 GUI_ACTIONS = {'window_focus', 'gui_click', 'gui_drag', 'gui_scroll', 'gui_type', 'screenshot',
                'vision_grounding', 'browser_open', 'browser_read', 'browser_act', 'browser_session',
                'pilot_run_session', 'youtube_play', 'whatsapp_send', 'whatsapp_draft'}
+GUI_ACTIONS.update(ANTIGRAVITY_ALIASES)
 
 DESTRUCTIVE_COMMAND_PATTERNS = [
     "rmdir /s", "rd /s",
@@ -163,6 +165,8 @@ def is_approval_required(action: str, params: dict) -> tuple:
     """
     if not isinstance(params, dict):
         params = {}
+    if action in ANTIGRAVITY_ALIASES:
+        return True, 'OPAQUE_EXECUTION: Antigravity script/tool side effects require an input-bound owner decision.'
 
     # Açık onay zorlama bayrağı
     if params.get("require_approval") or params.get("force_approval"):
@@ -286,6 +290,12 @@ class TaskGuard:
         if not isinstance(rid, str) or not rid or len(rid) > 128 or not isinstance(params, dict):
             return self.response(str(rid)[:128], 'ERROR', error='Invalid request')
         params = json.loads(json.dumps(params))
+        if action in ANTIGRAVITY_ALIASES:
+            action='antigravity'
+            try:
+                params=prepare_antigravity(params)
+            except Exception as exc:
+                return self.response(rid,'BLOCKED',error=type(exc).__name__)
         digest = fingerprint(action, params)
         with self.lock, self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -342,7 +352,8 @@ class TaskGuard:
                         raw = dict(ok=False, error='Invalid action response')
                     inner = raw.get('result') if isinstance(raw.get('result'), dict) else {}
                     ok = raw.get('ok') is True and inner.get('ok', True) is not False and inner.get('exit_code', 0) == 0
-                    result = self.response(rid, 'SUCCESS' if ok else 'ERROR', result=raw.get('result'),
+                    status=raw.get('status') if action=='antigravity' else None
+                    result = self.response(rid, status or ('SUCCESS' if ok else 'ERROR'), result=raw.get('result'),
                                            error=None if ok else raw.get('error', 'Action failed'))
             except Exception as exc:
                 result = self.response(rid, 'ERROR', error=type(exc).__name__)
