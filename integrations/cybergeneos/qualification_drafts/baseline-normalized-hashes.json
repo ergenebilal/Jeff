@@ -1,0 +1,9 @@
+{
+  "server/marketing.py": "e8d550acd55d633ecca4926c4800ea8e6e1d3d93a7bb69407debcba7adb0935e",
+  "server/jobs.py": "c97eedc36189f7499f66c5de9b333c7a068213c40cc00134d0b65a1cb909a8c3",
+  "server/app.py": "644479288343e2de65aef5f2e22de10b74c18770be15f3a93344bc39c144fef6",
+  "server/briefing.py": "6e1d346f886f22be7c56876c885e0cfc83cf016ff6220585f8913881253dadb1",
+  "server/contact.py": "a2b8a3f56abc8eb75eb12a15d3249b085b114cdcf37eb84eb35466ca2baf0d58",
+  "server/qualification.py": "a3ce36f90b389bcb0d23a053c2d234fc6f6ac86b410fe96a575ed8cd8ced469b",
+  "app.js": "e0486ee26f350493ee19012734f0a235c79ee1bf434d10d80a5c8538f37a8ca0"
+}

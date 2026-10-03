@@ -1,0 +1,11 @@
+{
+  "server/marketing.py": "b320aecd668678e9cbd5b99350d63013ba9c3d3081585610fd2ea360e8795bba",
+  "server/jobs.py": "26f31a64e4c5bd9a696f6b0bb87a9200c5eddf613090709ad8468fcc81ed1447",
+  "server/app.py": "17029c11ff98746d3ba2ac953c122e73b650048eda3d1c7c0c0cd1e8422b1cb6",
+  "server/briefing.py": "1af2664975273f7dc66c02adc2ed208124f5ceeb49601a3e95e73d5e08b409da",
+  "server/contact.py": "96335ec38c72541fed1ac4fab46c725a51056ea708321948948bcc25588eb162",
+  "server/qualification.py": "031e7e08179851b5f339218f18ef0de09705884ee90506d939d2da36d7c831aa",
+  "app.js": "2dcbec85a2dea6a1a257794711cc36f075cbcf3d7d2e6ebb205c887149145b27",
+  "server/qualified_draft.py": "3f545b2670e345103f471472a7fe1f73cd58174afc58ef45481669492656ed19",
+  "tests/test_qualified_draft.py": "dd483b42963527c359773ae6d0b41370e941bd5455ec777cfca4fde41936df5c"
+}

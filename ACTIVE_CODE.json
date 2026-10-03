@@ -45,7 +45,10 @@
     "jeff_cognitive/routing.py",
     "jeff_cognitive/runtime_bridge.py",
     "jeff_cognitive/state.py",
-    "scripts/task_draft.py"
+    "scripts/task_draft.py",
+    "integrations/cybergeneos/qualification_drafts/install.py",
+    "integrations/cybergeneos/qualification_drafts/server/marketing.py",
+    "integrations/cybergeneos/qualification_drafts/server/qualified_draft.py"
   ],
   "active_tests": [
     "jeff2/bridge/test_bridge_security.py",
@@ -92,7 +95,9 @@
     "jeff_cognitive/tests/test_replan.py",
     "jeff_cognitive/tests/test_routing.py",
     "jeff_cognitive/tests/test_runtime_hook.py",
-    "jeff_cognitive/tests/test_state.py"
+    "jeff_cognitive/tests/test_state.py",
+    "integrations/cybergeneos/test_qualified_draft_storage.py",
+    "integrations/cybergeneos/qualification_drafts/tests/test_qualified_draft.py"
   ],
   "service_files": [
     "jeff2/bridge/jeff-bridge.service"
