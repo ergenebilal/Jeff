@@ -50,6 +50,9 @@ class QualifiedDraftTests(unittest.TestCase):
                       'known_counter':'Mevcut ekip ve sistem aynı işleri yeterli karşılıyor olabilir.',
                       'open_question':'Bu talepleri ve iptal sonrası haberleşmeyi hangi araçla yürütüyorsunuz?'}
         self.audit = {'approved':True,'supported_fact_ids':[0,1],'unsupported_claims':[],
+                      'question_check':{'already_answered':False,'reason':'Kaynak iki akışı söylüyor, kullanılan iç aracı açıklamıyor.'},
+                      'context_check':{'channel_scope_preserved':True,'existing_solution_respected':True,
+                                       'reason':'İki akışın mevcut olduğu korunuyor, kanallar arası süre genellenmiyor.'},
                       'claim_audit':[{'claim':'talepleri formdan alıp uygun saati ekibinizin onayladığını','fact_ids':[0],'supported':True},
                                      {'claim':'iptal sonrası bekleme listesindeki müşterilere haber verdiğinizi','fact_ids':[1],'supported':True}],
                       'reason':'İki farklı somut akış ve koşullu teklif var, mevcut çözüm yok sayılmıyor.',
@@ -96,6 +99,24 @@ class QualifiedDraftTests(unittest.TestCase):
         self.send.assert_not_called()
         self.record.assert_not_called()
         self.assertEqual(marketing.start(self.s,self.lid,'qualified-draft-request',source='qualification'),(jid,False))
+
+    def test_negative_or_missing_context_review_never_publishes(self):
+        for change in ({'question_check':{'already_answered':True,'reason':'Soru kaynakta ortak takvim açıklamasıyla zaten yanıtlanmış.'}},
+                       {'context_check':{'channel_scope_preserved':False,'existing_solution_respected':True,'reason':'Form süresi WhatsApp kanalına genişletilmiş ve kapsam bozulmuş.'}},
+                       {'context_check':{'channel_scope_preserved':True,'existing_solution_respected':False,'reason':'Mevcut ortak takvim düzeni teklif tarafından yok sayılmış.'}},
+                       {'question_check':None}):
+            with self.subTest(change=change), self.assertRaises(marketing.Conflict):
+                d.validate(self.draft,{**self.audit,**change},d.payload(self.s.lead(self.lid),d.binding(self.s,self.s.lead(self.lid)))['verified_facts'],self.s.lead(self.lid)['name'])
+        self.assertIsNone(self.s.lead(self.lid)['drafts'])
+
+    def test_older_review_protocol_revokes_ready_status_and_owner_approval(self):
+        jid,_ = self.finish()
+        row=self.s.one('SELECT input_json FROM marketing_runs WHERE job_id=?',(jid,))
+        data=json.loads(row['input_json']);data['qualification_binding']['version']=1
+        self.s.x('UPDATE marketing_runs SET input_json=? WHERE job_id=?',(json.dumps(data),jid))
+        self.assertFalse(marketing.views(self.s)[self.lid]['current'])
+        with self.assertRaises(marketing.Conflict):
+            marketing.review(self.s,self.lid,marketing.content_digest(self.s.lead(self.lid)),'accepted')
 
     def test_legacy_gate_stays_required_and_idempotency_cannot_switch_source_or_note(self):
         with self.assertRaises(marketing.Conflict):

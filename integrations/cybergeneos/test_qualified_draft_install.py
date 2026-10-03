@@ -37,3 +37,16 @@ def test_install_creates_new_target_parent_and_reinstall_is_noop():
             module.install(live, apply=True)
             assert first == {name: (panel / name).stat().st_mtime_ns for name in files}
         assert all((panel / name).read_text() == text for name, text in files.items())
+        previous = {name: sha(text) for name, text in files.items()}
+        (bundle / 'previous-target-hashes.json').write_text(json.dumps(previous))
+        files['server/qualified_draft.py'] = 'qualified-v2\n'
+        (bundle / 'server/qualified_draft.py').write_text(files['server/qualified_draft.py'])
+        (bundle / 'target-hashes.json').write_text(json.dumps({name: sha(text) for name, text in files.items()}))
+        with patch.object(module, '__file__', str(bundle / 'install.py')):
+            module.install(live, apply=True)
+            assert (panel / 'server/qualified_draft.py').read_text() == 'qualified-v2\n'
+            (panel / 'app.js').write_text('user edit\n')
+            import pytest
+            with pytest.raises(RuntimeError):
+                module.install(live, apply=True)
+            assert (panel / 'app.js').read_text() == 'user edit\n'
