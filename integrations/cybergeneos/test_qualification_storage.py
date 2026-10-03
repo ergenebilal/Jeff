@@ -99,7 +99,10 @@ class QualificationBoundaryTests(unittest.TestCase):
             {'kind': 'operations', 'signal': 'rescheduling_waitlist', 'quote': 'Official cancellation waiting list requires callbacks.', 'url': 'https://fixture.example'}]}
         self.audit = {'supported_ids': [0, 1], 'distinct_operations': [0, 1], 'explicit_need_ids': [], 'trigger_ids': [],
                       'blocking_counter_ids': [], 'fit': True, 'unresolved': True, 'hypothesis': 'Potential administrative coordination workload.',
-                      'discovery_question': 'How do you manage these two workflows?', 'unknowns': [], 'reason': 'Two workflows need investigation.'}
+                      'discovery_question': 'How do you manage these two workflows?', 'unknowns': [], 'reason': 'Two workflows need investigation.',
+                      'adversarial': {'alternative_explanation': 'Existing staff and software may already meet the workload.',
+                                      'evidence_limit': 'Public pages do not establish an internal bottleneck.',
+                                      'disconfirming_observation': 'An existing adequate automated workflow would disprove the proposal.'}}
         self.handle = types.SimpleNamespace(id=self.jid, step=lambda *a, **k: None)
 
     def run_job(self):

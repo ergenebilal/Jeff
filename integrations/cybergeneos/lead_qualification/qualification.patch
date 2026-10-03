@@ -258,7 +258,7 @@
        </li>`).join('')}</ol>
        <p class="help">Göndermeden önce bulguya bir kez kendiniz bakın: kliniğe yanlış bir şey söylemek ilk izlenimi bozar.</p>`
        : `<p class="empty-note">${esc(a.gerekce || (a.karar === 'gerek_yok' ? 'Jeff nokta atışı bir bulgu görmedi. Kural gereği bu işletmeye yazılmaz.' : 'Rapor tamamlanamadı.'))}</p>`;
-@@ -1309,7 +1325,19 @@
+@@ -1309,7 +1325,21 @@
      const seconds = Object.values(m.steps || {}).reduce((sum, x) => sum + (x.elapsed_seconds || 0), 0);
      body += `<p class="help" aria-live="polite">${esc(m.note || 'İnceleme ve taslak görevi')}${seconds ? ` · ${Math.round(seconds)} saniye` : ''}. Kaynakta bulunan alıntı denetlenir; firmanın ihtiyacı varsayımdır.</p>`;
    }
@@ -274,12 +274,14 @@
 +    <p class="help">Öncelik puanı ${q.score}/90 · ${Object.entries(q.dimensions || {}).map(([k, v]) => esc(labels[k] || k) + ': ' + v).join(' · ')}. Bu bir başarı olasılığı değildir.</p>
 +    <p><b>İhtiyaç hipotezi:</b> ${esc(q.hypothesis || 'Yeterli gerekçe yok.')}</p><p>${esc(q.reason)}</p>
 +    <p><b>Neden şimdi?</b> ${esc(q.why_now)}</p><p><b>Görüşmede sor:</b> ${esc(q.discovery_question)}</p>
++    ${q.adversarial ? `<div class="reviewbox"><h4>Karşıt karar kontrolü · ${q.adversarial.status === 'completed' ? 'Tamamlandı' : 'Eksik'}</h4><p><b>Alternatif açıklama:</b> ${esc(q.adversarial.alternative_explanation)}</p><p><b>Kanıtın sınırı:</b> ${esc(q.adversarial.evidence_limit)}</p><p><b>Tekliften ne zaman vazgeçeriz?</b> ${esc(q.adversarial.disconfirming_observation)}</p><p class="help">${esc(q.adversarial.scope)}</p></div>` : '<p class="help">Önceki ayrı eleştirel okuma mevcut; genişletilmiş karşıt karar kontrolü için yeniden inceleme gerekli.</p>'}
++    <details class="mini"><summary>Instagram incelemesi</summary>${(q.instagram || []).length ? q.instagram.map(ig => `<p><a href="${esc(ig.profile)}" target="_blank" rel="noopener noreferrer">${esc(ig.profile)}</a> · ${ig.status === 'readable' ? 'Herkese açık profil metni okundu' : 'İçerik okunamadı; akış bilinmiyor'}</p><p class="help">Hesap işletmenin sitesinden bağlandı. ${esc(ig.limitation || 'Profil içeriği, iç mesaj trafiğini ve yanıt süresini kanıtlamaz.')}</p>`).join('') : '<p class="help">Okunan resmî sayfalarda doğrulanabilir Instagram profil bağlantısı bulunamadı. Bu, hesabın olmadığı anlamına gelmez.</p>'}</details>
 +    ${q.contact ? `<p><b>İşletmenin yayımladığı kanal:</b> ${esc(q.contact.value)}. Karar vericiye ulaşım ve kanalın çalışması teyit edilmedi.</p>` : '<p class="help">Güncel resmî işletme kanalı doğrulanamadı.</p>'}
 +    <details class="mini"><summary>Kaynaklar, karşı kanıt ve bilinmeyenler</summary><ol class="evidence">${(q.facts || []).map(f => `<li><p>${esc(f.quote)}</p>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Resmî kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · ${q.supported_ids?.includes(f.id) ? 'Jeff ayrı okumada dayanak olarak değerlendirdi' : 'Öncelik kararına dayanak yapılmadı'}</p></li>`).join('')}</ol><ul>${(q.unknowns || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>${action}</div>`;
  }
  function messageCol(l){
    const a = l.analysis, d = l.drafts, sent = l.contacts || [];
-@@ -1396,6 +1424,12 @@
+@@ -1396,6 +1426,12 @@
      if (a === 'edit') return editLead(D.leads.find(x => x.id === id));
      if (a === 'evidence') return showEvidence(id);
      const txt = () => ($('#c-text')?.value || '').trim();

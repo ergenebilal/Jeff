@@ -31,7 +31,10 @@ class QualificationTests(unittest.TestCase):
         self.audit = {'supported_ids': [0, 1], 'distinct_operations': [0, 1], 'explicit_need_ids': [], 'trigger_ids': [],
                       'blocking_counter_ids': [], 'fit': True, 'unresolved': True,
                       'hypothesis': 'Yabancı hasta ve iptal sonrası taleplerin koordinasyonu için olası ihtiyaç.',
-                      'discovery_question': 'Bu iki akışta ekibiniz hangi manuel işleri yapıyor?', 'reason': 'İki somut iş akışı, işletme kanalı ve ürün uyumu var.', 'unknowns': ['İç çözüm bilinmiyor.']}
+                      'discovery_question': 'Bu iki akışta ekibiniz hangi manuel işleri yapıyor?', 'reason': 'İki somut iş akışı, işletme kanalı ve ürün uyumu var.', 'unknowns': ['İç çözüm bilinmiyor.'],
+                      'adversarial': {'alternative_explanation': 'Mevcut ekip ve yazılım bu akışları sorunsuz yönetiyor olabilir.',
+                                      'evidence_limit': 'Kamusal kaynak iç talep hacmini veya kayıp randevuyu göstermiyor.',
+                                      'disconfirming_observation': 'Bu iki akışın mevcut araçla otomatik ve yeterli karşılanması teklifi çürütür.'}}
 
     def tearDown(self):
         self.s.db.close()
@@ -49,6 +52,88 @@ class QualificationTests(unittest.TestCase):
         self.assertIsNone(r['meeting_probability'])
         self.assertFalse(r['delivered'])
         self.assertFalse(r['human_accepted'])
+        self.assertEqual(r['adversarial']['status'], 'completed')
+
+    def test_missing_adversarial_reasoning_cannot_admit_candidate(self):
+        for critique in (None, [], {}, {'alternative_explanation': 'Kısa'}):
+            self.assertEqual(self.assess({**self.audit, 'adversarial': critique})['decision'], 'arastirma_gerekli')
+
+    def test_instagram_profile_requires_exact_host_and_official_website_link(self):
+        self.assertEqual(q.instagram_profile('https://instagram.com/ornek_clinic/?hl=tr'), 'https://www.instagram.com/ornek_clinic/')
+        for url in ('https://instagram.com.evil.test/ornek/', 'https://www.instagram.com/accounts/login/',
+                    'https://www.instagram.com/p/ABC/', 'https://user@instagram.com/ornek/', 'http://instagram.com/ornek/'):
+            self.assertIsNone(q.instagram_profile(url))
+        linked = [{**self.pages[0], 'links': [('https://instagram.com/ornek_clinic/', 'Instagram')]}]
+        html = '<meta property="og:url" content="https://www.instagram.com/ornek_clinic/"><meta property="og:title" content="Örnek (@ornek_clinic)"><meta property="og:description" content="İptal olan randevular için WhatsApp hattımıza yazın.">'
+        with patch.object(q.sitecheck, 'robots_allows', return_value=True), patch.object(q.sitecheck, 'fetch', return_value=('https://www.instagram.com/ornek_clinic/', html, {})):
+            pages, accounts = q.collect_instagram(self.lead, linked)
+        self.assertEqual(accounts[0]['status'], 'readable')
+        facts = {'facts': [{'kind': 'operations', 'signal': 'rescheduling_waitlist', 'url': pages[0]['url'], 'quote': 'İptal olan randevular için WhatsApp hattımıza yazın.'}]}
+        self.assertEqual(len(q.verified_facts(self.lead, facts, pages)[0]), 1)
+        pages[0]['identity_source'] = 'https://other.com'
+        self.assertEqual(len(q.verified_facts(self.lead, facts, pages)[0]), 0)
+
+    def test_unreadable_instagram_is_unknown_not_missing_feature_or_contact_proof(self):
+        linked = [{**self.pages[0], 'links': [('https://instagram.com/ornek_clinic/', 'Instagram')]}]
+        with patch.object(q.sitecheck, 'robots_allows', return_value=False), patch.object(q.sitecheck, 'fetch') as fetch:
+            pages, accounts = q.collect_instagram(self.lead, linked)
+        fetch.assert_not_called()
+        self.assertEqual(pages, [])
+        self.assertEqual(accounts[0]['status'], 'unreadable')
+        social = {'url': 'https://www.instagram.com/ornek_clinic/', 'text': 'info@ornek.com', 'links': [('tel:+902241234567', '')]}
+        self.assertEqual(self.assess(pages=[social])['dimensions']['reachability'], 0)
+
+    def test_browser_snapshot_needs_current_official_account_link_and_fresh_publisher(self):
+        profile = 'https://www.instagram.com/ornek_clinic/'
+        post = profile+'p/ABCDE123/'
+        record = {'collector': 'codex_public_browser', 'url': profile, 'title': 'Örnek (@ornek_clinic)',
+                  'observed_at': now(), 'text': 'Randevu oluşturmak için WhatsApp hattımıza ulaşın.', 'links': [[post, 'Paylaşım']],
+                  'posts': [{'url': post, 'author': 'ornek_clinic', 'text': 'İptal randevularınız için WhatsApp hattımıza yazın.', 'observed_at': now()}]}
+        path = Path(self.tmp.name)/'ornek_clinic.json'
+        def saved(data):
+            path.write_text(json.dumps(data), encoding='utf-8')
+        linked = [{**self.pages[0], 'links': [(profile, 'Instagram')]}]
+        with patch.dict('os.environ', {'CGOS_INSTAGRAM_EVIDENCE_DIR': self.tmp.name}):
+            saved(record)
+            pages, accounts = q.collect_instagram(self.lead, linked)
+            self.assertEqual(len(pages), 2)
+            self.assertEqual(accounts[0]['collection_method'], 'public_browser_snapshot')
+            self.assertEqual(q.collect_instagram(self.lead, self.pages), ([], []))
+            forged = copy.deepcopy(record);forged['posts'][0]['author'] = 'other'
+            saved(forged)
+            self.assertEqual(len(q.browser_instagram_evidence(profile, 'https://ornek.com')), 1)
+            stale = {**record, 'observed_at': now()-86401};saved(stale)
+            self.assertEqual(q.browser_instagram_evidence(profile, 'https://ornek.com'), [])
+            with patch.object(q.sitecheck, 'robots_allows', return_value=False):
+                self.assertEqual(q.collect_instagram(self.lead, linked)[1][0]['status'], 'unreadable')
+
+    def test_career_details_two_links_deep_and_long_source_quotes_survive(self):
+        root = '<a href="/hekimler">Hekimler</a><a href="/insan-kaynaklari">İnsan Kaynakları</a>'
+        career = '<a href="/kariyer/planlama">Planlama koordinatörü</a>'
+        quote = 'Uçuş ve randevu değişikliklerinde planı hızla güncellemek'
+        detail = '<p>'+'Menü bilgisi '*1600+'</p><p>'+quote+'</p>'
+        html = {'https://ornek.com': root, 'https://ornek.com/insan-kaynaklari': career,
+                'https://ornek.com/kariyer/planlama': detail, 'https://ornek.com/hekimler': '<p>Hekimler</p>'}
+        with patch.object(q.sitecheck, 'robots_allows', return_value=True), patch.object(q.sitecheck, 'fetch', side_effect=lambda url: (url, html[url], {})):
+            pages, errors = q.collect(self.lead)
+        self.assertEqual(errors, [])
+        self.assertEqual(pages[1]['url'], 'https://ornek.com/insan-kaynaklari')
+        page = next(p for p in pages if '/kariyer/' in p['url'])
+        self.assertIn(quote, q.research_text(page['text']))
+        self.assertLessEqual(len(q.research_text(page['text'])), 10000)
+        research = {'facts': [{'kind': 'operations', 'signal': 'rescheduling_waitlist', 'url': page['url'], 'quote': quote}]}
+        with patch.object(q.sitecheck, 'fetch') as fetch:
+            facts, dropped, _ = q.verified_facts(self.lead, research, pages)
+        fetch.assert_not_called()
+        self.assertEqual((len(facts), dropped), (1, []))
+
+    def test_source_collection_stays_bounded_and_ignores_external_career_links(self):
+        html = '<a href="https://other.com/kariyer">Dış ilan</a>' + ''.join(f'<a href="/kariyer/{i}">Kariyer</a>' for i in range(30))
+        with patch.object(q.sitecheck, 'robots_allows', return_value=True), patch.object(q.sitecheck, 'fetch', side_effect=lambda url: (url, html, {})) as fetch:
+            pages, _ = q.collect(self.lead)
+        self.assertEqual(len(pages), 8)
+        self.assertEqual(fetch.call_count, 8)
+        self.assertTrue(all('ornek.com' in call.args[0] for call in fetch.call_args_list))
 
     def test_generic_appointment_page_and_single_workflow_do_not_qualify(self):
         a = {**self.audit, 'distinct_operations': [0]}
