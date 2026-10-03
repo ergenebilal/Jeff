@@ -57,6 +57,7 @@ def install(repo_root, apply=False):
                     os.chmod(saved, 0o600)
             for name in target:
                 old, new = panel / name, stage / 'docs/cybergeneos' / name
+                old.parent.mkdir(parents=True, exist_ok=True)
                 temp_path = old.with_suffix(old.suffix + '.qualified-draft-temp')
                 shutil.copy2(new, temp_path)
                 os.replace(temp_path, old)
