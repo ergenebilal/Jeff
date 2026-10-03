@@ -16,6 +16,10 @@ The critic links literal message fragments to verified fact IDs, explains the
 strongest alternative, states the evidence limit and records a condition that
 would disprove the proposal. A refused or malformed critique cannot publish a
 ready draft. This is a second model reading, not independent field validation.
+The critic separately checks channel-specific deadlines, the existing shared
+workflow, and whether the source already answers the proposed discovery question.
+A negative or missing context check blocks publication. A review-protocol version
+change revokes earlier ready drafts; the first live pilot exposed these gaps.
 The official-source statements, actual workload, need and purchase intent
 remain separate. Neither a message volume nor a missed appointment is inferred.
 
@@ -49,7 +53,8 @@ python install.py --repo-root /path/to/cybergene-web
 ```
 
 The default stages and verifies all nine target files. An already installed
-version is a no-op. Other versions must be reconciled, not forced. `--apply`
+version is a no-op. The exact previous nine-file fingerprint can be upgraded;
+partially edited or other versions must be reconciled, not forced. `--apply`
 backs up the selected original sources outside the checkout. It does not
 restart a service or alter a database. On startup the source-invalidation table
 is additive. Back up SQLite online and wait for active jobs before deploying.

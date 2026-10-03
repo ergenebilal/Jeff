@@ -65,6 +65,9 @@ class QualifiedStorageTests(unittest.TestCase):
                           'known_counter':'The current team and tools may already handle both tasks.',
                           'open_question':'Which tools do you use to manage them?'}
         self.audit = {'approved':True,'supported_fact_ids':[0,1],'unsupported_claims':[],
+                      'question_check':{'already_answered':False,'reason':'The source does not name the internal tools used.'},
+                      'context_check':{'channel_scope_preserved':True,'existing_solution_respected':True,
+                                       'reason':'Existing operations remain explicit; no channel deadline is generalized.'},
                       'claim_audit':[{'claim':'requests are reviewed before confirmation','fact_ids':[0],'supported':True},
                                      {'claim':'cancelled appointments go to your waiting list','fact_ids':[1],'supported':True}],
                       'reason':'Two distinct tasks, matching sources and a conditional proposition.',

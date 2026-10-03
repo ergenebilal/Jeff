@@ -14,12 +14,16 @@ def install(repo_root, apply=False):
     panel = repo_root.resolve() / 'docs/cybergeneos'
     baseline = json.loads((bundle / 'baseline-normalized-hashes.json').read_text())
     target = json.loads((bundle / 'target-hashes.json').read_text())
+    previous_path = bundle / 'previous-target-hashes.json'
+    previous = json.loads(previous_path.read_text()) if previous_path.exists() else {}
     def normalized_hash(path):
         return hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest() if path.exists() else None
     if all(normalized_hash(panel / name) == expected for name, expected in target.items()):
         print('Qualified draft integration already matches all target fingerprints. No files changed.')
         return
-    for name in target:
+    upgrading = bool(previous and set(previous) == set(target)
+                     and all(normalized_hash(panel / name) == expected for name, expected in previous.items()))
+    for name in (() if upgrading else target):
         path = panel / name
         if name in baseline:
             actual = normalized_hash(path)
@@ -34,10 +38,11 @@ def install(repo_root, apply=False):
             new.parent.mkdir(parents=True, exist_ok=True)
             if old.exists():
                 new.write_bytes(old.read_bytes().replace(b'\r\n', b'\n'))
-        result = subprocess.run(['git', 'apply', '--ignore-space-change', str(bundle / 'qualified-draft.patch')],
-                                cwd=stage, capture_output=True)
-        if result.returncode:
-            raise RuntimeError('Panel patch could not be staged')
+        if not upgrading:
+            result = subprocess.run(['git', 'apply', '--ignore-space-change', str(bundle / 'qualified-draft.patch')],
+                                    cwd=stage, capture_output=True)
+            if result.returncode:
+                raise RuntimeError('Panel patch could not be staged')
         for name in ('server/marketing.py', 'server/qualified_draft.py', 'tests/test_qualified_draft.py'):
             shutil.copy2(bundle / name, stage / 'docs/cybergeneos' / name)
         for name, expected in target.items():
