@@ -43,7 +43,7 @@ finally:
     subprocess.run(['sudo','-n','systemctl','start','jeff-bridge','cybergeneos','hermes-gateway'],check=True)
 for _ in range(40):
     try:
-        with urlopen('http://127.0.0.1:7700/health',timeout=2) as response:health=json.load(response)
+        with urlopen('http://100.80.122.74:7700/health',timeout=2) as response:health=json.load(response)
         expected=hashlib.sha256((repo/'jeff2/bridge/approval_ledger.py').read_bytes()).hexdigest()
         if health.get('loaded_source_sha256',{}).get('approval_ledger.py')==expected:break
     except Exception:pass
