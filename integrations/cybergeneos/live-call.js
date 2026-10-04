@@ -12,15 +12,14 @@
       if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)
         throw new Error('Mikrofon için güvenli panel adresini açın.');
       this.active=true; const generation=++this.generation;
+      this.connectionTiming={startedAt:performance.now(),tokenAt:null,socketAt:null,microphoneAt:null,readyAt:null};
       const current=()=>this.active && this.generation===generation;
       this.state('connecting','Görüşme bağlanıyor');
       this.ctx=new (window.AudioContext||window.webkitAudioContext)();
       await this.ctx.resume(); // Executed from the owner's click, including on mobile.
       try{
-        const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
-        if(!current()){stream.getTracks().forEach(t=>t.stop());return;}
-        this.stream=stream;this.muted=false;
         this.session=await this.post('session',{voice:this.voice()});
+        this.connectionTiming.tokenAt=performance.now();
         if(!current())return;
         const session=this.session;this.fastDialogue=new Set(session.fast_dialogue_phrases||[]);
         if(session.answer_authority!=='real_jeff')throw new Error('Gerçek Jeff bağlantısı doğrulanamadı.');
@@ -48,6 +47,12 @@
           };
         });
         if(!current())return;
+        this.connectionTiming.socketAt=performance.now();
+        // Capture starts after the connection is ready, so speech during a slow
+        // token/handshake is never silently discarded by an unattached worklet.
+        const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+        if(!current()){stream.getTracks().forEach(t=>t.stop());return;}
+        this.stream=stream;this.muted=false;this.connectionTiming.microphoneAt=performance.now();
         await this.ctx.audioWorklet.addModule(this.worklet);
         if(!current())return;
         const node=this.capture=new AudioWorkletNode(this.ctx,'jeff-microphone');
@@ -68,7 +73,7 @@
           ws.send(JSON.stringify({realtimeInput:{audio:{data:btoa(binary),mimeType:'audio/pcm;rate=16000'}}}));
           this.stats.inputFrames++;
         };
-        this.state('listening','Dinliyorum');
+        this.connectionTiming.readyAt=performance.now();this.state('listening','Dinliyorum');
         this.expiry=setTimeout(()=>this.fail('Görüşme süresi doldu. Yeni görüşme açabilirsiniz.'),Math.max(0,session.expires_at*1000-Date.now()));
       }catch(e){if(current()){this.stop();throw e;}}
     }

@@ -80,3 +80,32 @@ test('greeting followed by an action loses permission before tool result',()=>{
  call.receive({serverContent:{inputTranscription:{text:' görevi tamamla'}}},call.generation);
  assert.equal(call.audioAllowed,false);
 });
+test('microphone capture starts only after the voice connection accepts setup',async()=>{
+ const saved={window:global.window,WebSocket:global.WebSocket,AudioWorkletNode:global.AudioWorkletNode,navigator:Object.getOwnPropertyDescriptor(global,'navigator')};
+ let socket,mics=0;
+ const node=()=>({connect:()=>{},disconnect:()=>{}});
+ class Context{
+  constructor(){this.audioWorklet={addModule:async()=>{}};this.destination={};}
+  async resume(){} async close(){} createMediaStreamSource(){return node();}
+  createGain(){return {...node(),gain:{value:1}};}
+ }
+ class Socket{
+  static OPEN=1;
+  constructor(){socket=this;this.readyState=1;}
+  send(){} close(){}
+ }
+ const call=fixture();
+ try{
+  global.window={isSecureContext:true,AudioContext:Context};global.WebSocket=Socket;
+  global.AudioWorkletNode=class{constructor(){Object.assign(this,node());this.port={};}};
+  Object.defineProperty(global,'navigator',{configurable:true,value:{mediaDevices:{getUserMedia:async()=>{mics++;return {getTracks:()=>[{stop:()=>{}}]};}}}});
+  call.post=async()=>({answer_authority:'real_jeff',websocket:'wss://fixture',token:'fixture',session:'fixture',setup:{},expires_at:Date.now()/1000+60});
+  const started=call.start();
+  await new Promise(r=>setImmediate(r));assert.equal(mics,0);assert.ok(socket);
+  socket.onopen();socket.onmessage({data:JSON.stringify({setupComplete:{}})});
+  await started;assert.equal(mics,1);assert.ok(call.connectionTiming.readyAt);call.stop();
+ }finally{
+  call.stop();global.window=saved.window;global.WebSocket=saved.WebSocket;global.AudioWorkletNode=saved.AudioWorkletNode;
+  if(saved.navigator)Object.defineProperty(global,'navigator',saved.navigator);else delete global.navigator;
+ }
+});
