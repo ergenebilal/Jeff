@@ -78,9 +78,10 @@ def record_verified(base, root, layout, proof, validate):
         raise ValueError('No actual remote recovery proof')
     base = safe_path(base, root)
     image = base if layout == 'local' else base/'snapshot'
-    receipt = {key: proof[key] for key in ('archive_bytes', 'archive_sha256', 'source_release', 'verified_at')}
+    receipt = {key: proof[key] for key in ('archive_bytes', 'archive_sha256', 'source_release')}
     receipt.update(version=1, managed_by='pablo_recovery_monitor', name=base.name, layout=layout,
-                   remote_manifest_verified=True, manifest_sha256=digest(image/'manifest.json'))
+                   remote_manifest_verified=True, verified_at=time.time(), remote_verified_at=proof['verified_at'],
+                   manifest_sha256=digest(image/'manifest.json'))
     validate_capsule(base, root, receipt, validate, allow_missing_receipt=True)
     target = base/RECEIPT
     if target.exists():

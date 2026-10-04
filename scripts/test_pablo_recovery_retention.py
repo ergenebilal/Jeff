@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 from pablo.pablo_recovery import CORE, snapshot, validate
 from scripts.pablo_recovery_retention import record_verified, prune, safe_path, RECEIPT
 
@@ -99,3 +100,10 @@ class RecoveryRetentionTests(unittest.TestCase):
             with self.assertRaises(ValueError): prune(self.storage,image.name,validate,keep=limit)
         with self.assertRaises(ValueError): prune(self.storage,image.name,validate)
         self.assertTrue(image.is_dir())
+
+    def test_local_acceptance_time_is_from_actual_local_check_not_other_clock(self):
+        image = self.capsule(1); old = json.loads((image/RECEIPT).read_text()); (image/RECEIPT).unlink()
+        proof = old|{'ok':True,'verified_at':2000}
+        with patch('scripts.pablo_recovery_retention.time.time',return_value=1000):
+            receipt = record_verified(image,self.storage,'local',proof,validate)
+        self.assertEqual(receipt['verified_at'],1000); self.assertEqual(receipt['remote_verified_at'],2000)
