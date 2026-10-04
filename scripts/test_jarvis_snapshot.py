@@ -37,6 +37,7 @@ def test_panel_state_chat_and_voice_share_same_reader_without_model_call():
     assert app.build_state()=={'business':'unchanged','jarvis':sample}
     assert json.dumps(sample) in app.briefing.jeff_context(None)
     assert list(app.jeff.stream_reply('/durum','context'))==['same canonical status'] and len(calls)==3
+    assert app._jarvis_panel_context(None)=='business context' and len(calls)==3
     install(app,reader,lambda data:'changed');assert app.jeff.VOICE_RULES.count('known false')==1
 
 

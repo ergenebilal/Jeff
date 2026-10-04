@@ -132,19 +132,21 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(h.route(['api','jobs'],{})[0],299)
     def test_voice_punctuation_keeps_status_on_shared_truth_reader(self):
         from unittest.mock import patch
-        seen=[];contexts=[]
+        seen=[];contexts=[];received=[]
         class H:
             _json=lambda *a: None
             def route(self,p,b):return 404,{}
         app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
-            jeff=SimpleNamespace(stream_reply=lambda text,context:seen.append(text) or iter(['fixture'])),
-            briefing=SimpleNamespace(jeff_context=lambda *a: self.fail('Voice must not build unrelated business context')),
+            jeff=SimpleNamespace(stream_reply=lambda text,context:seen.append(text) or received.append(context) or iter(['fixture'])),
+            briefing=SimpleNamespace(jeff_context=lambda *a:contexts.append('panel') or 'Recorded panel background; not completion evidence.'),
             _jarvis_snapshot=lambda:contexts.append('read') or {'read_only':True},store=None)
         with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service:
             install(app);reply=service.call_args.args[2]
             list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))
         self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
-        self.assertEqual(contexts,['read'])
+        self.assertEqual(contexts,['read','panel'])
+        self.assertEqual(received[0],'')
+        self.assertIn('Recorded panel background',json.loads(received[1])['panel_recorded_context'])
 
     def test_common_record_question_reads_current_source_without_agent_wait(self):
         from unittest.mock import patch

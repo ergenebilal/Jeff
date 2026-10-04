@@ -367,11 +367,17 @@ def install(app):
         # Ordinary conversation is already native. A grounded consultation can
         # wait for current records while truthful progress is spoken in parallel.
         current=app._jarvis_snapshot()
+        # The real Jeff needs the same recorded panel background as a typed
+        # conversation. Read it only for an actual consultation, not every utterance.
+        panel_reader=getattr(app,'_jarvis_panel_context',app.briefing.jeff_context)
+        panel_context=panel_reader(app.store)
         from scripts.jarvis_snapshot import render
         pieces=app.jeff.stream_reply(text, json.dumps({'live_voice': True,
             'jarvis_snapshot':current,
+            'panel_recorded_context':panel_context,
+            'owner_context':owner_briefing(app.DATA),
             'voice_dialogue': dialogue or [],
-            'rule': 'Bu güncel kayıtla çelişme. Açık iş veya kanıtsız sonuç varken işleri boş veya sistemi sağlıklı sayma. Genel sağlık kanıtı bu mesajda yok.'},ensure_ascii=False))
+            'rule': 'Bu güncel kayıtla çelişme. Panel arka planı kayıtlı veri; done/yapıldı yazması bağımsız sonuç kanıtı değildir. Açık iş veya kanıtsız sonuç varken işleri boş veya sistemi sağlıklı sayma. Genel sağlık kanıtı bu mesajda yok.'},ensure_ascii=False))
         return guarded_reply(pieces,current,render)
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply, context_reply=reply,
                       briefing_reader=lambda:owner_briefing(app.DATA),records_reply=records)
