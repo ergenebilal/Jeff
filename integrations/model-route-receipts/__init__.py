@@ -1,4 +1,5 @@
 """Observe existing Hermes hooks. No route, prompt, retry or tool changes."""
+from contextlib import closing
 import json
 import logging
 from pathlib import Path
@@ -16,14 +17,18 @@ class ReceiptStore:
 
     def connect(self):
         db=sqlite3.connect(str(self.path),timeout=2)
-        db.row_factory=sqlite3.Row
-        db.execute('''CREATE TABLE IF NOT EXISTS model_route_receipts (
-            receipt_id TEXT PRIMARY KEY, call_id TEXT NOT NULL, session_id TEXT NOT NULL,
-            turn_id TEXT NOT NULL, task_id TEXT, attempt INTEGER NOT NULL,
-            requested_route TEXT NOT NULL, actual_route TEXT NOT NULL, model TEXT,
-            endpoint_host TEXT, status TEXT NOT NULL, fallback_used INTEGER NOT NULL,
-            fallback_reason TEXT, error_type TEXT, started_at REAL NOT NULL, ended_at REAL,
-            UNIQUE(session_id,turn_id,call_id,attempt))''')
+        try:
+            db.row_factory=sqlite3.Row
+            db.execute('''CREATE TABLE IF NOT EXISTS model_route_receipts (
+                receipt_id TEXT PRIMARY KEY, call_id TEXT NOT NULL, session_id TEXT NOT NULL,
+                turn_id TEXT NOT NULL, task_id TEXT, attempt INTEGER NOT NULL,
+                requested_route TEXT NOT NULL, actual_route TEXT NOT NULL, model TEXT,
+                endpoint_host TEXT, status TEXT NOT NULL, fallback_used INTEGER NOT NULL,
+                fallback_reason TEXT, error_type TEXT, started_at REAL NOT NULL, ended_at REAL,
+                UNIQUE(session_id,turn_id,call_id,attempt))''')
+        except Exception:
+            db.close()
+            raise
         return db
 
     def pre(self, data):
@@ -31,7 +36,7 @@ class ReceiptStore:
         if not all(identity):
             raise ValueError('Model receipt requires session, turn and request identity')
         actual=str(data.get('provider') or 'unknown')
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             previous=db.execute('SELECT * FROM model_route_receipts WHERE session_id=? AND turn_id=? AND call_id=? ORDER BY attempt DESC LIMIT 1',identity).fetchone()
             first=db.execute('SELECT actual_route FROM model_route_receipts WHERE session_id=? AND turn_id=? ORDER BY rowid LIMIT 1',identity[:2]).fetchone()
@@ -47,11 +52,10 @@ class ReceiptStore:
                         previous['attempt']+1 if previous else 1,requested,actual,str(data.get('model') or ''),
                         urlsplit(str(data.get('base_url') or '')).hostname,'running',int(fallback),reason,None,self.clock(),None))
             db.commit()
-        db.close()
 
     def finish(self,data,status):
         identity=tuple(str(data.get(k) or '') for k in ('session_id','turn_id','api_request_id'))
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             row=db.execute('SELECT * FROM model_route_receipts WHERE session_id=? AND turn_id=? AND call_id=? ORDER BY attempt DESC LIMIT 1',identity).fetchone()
             if row is None or row['actual_route']!=str(data.get('provider') or 'unknown'):
@@ -62,7 +66,6 @@ class ReceiptStore:
             db.execute('UPDATE model_route_receipts SET status=?,error_type=?,ended_at=? WHERE receipt_id=?',
                        (status,category,self.clock(),row['receipt_id']))
             db.commit()
-        db.close()
 
 def _store():
     from hermes_constants import get_hermes_home
