@@ -11,6 +11,7 @@ the file named by --env-file (KEY=VALUE lines). Nothing secret is written to log
 """
 import argparse
 import json
+import math
 import os
 import shutil
 import socket
@@ -71,8 +72,11 @@ def chat_answers(url='http://127.0.0.1:8774/api/chat/message', memo='/home/herme
     def probe():
         try:
             last = json.loads(Path(memo).read_text(encoding='utf-8'))
-            if now() - last['ts'] < every:
-                return bool(last['ok']), last['detail']
+            timestamp=last.get('ts')
+            if (type(timestamp) in (int,float) and math.isfinite(timestamp) and timestamp >= 0 and
+                    0 <= now()-timestamp < every and type(last.get('ok')) is bool and
+                    isinstance(last.get('detail'),str)):
+                return last['ok'], last['detail']
         except Exception:
             pass
         started = now()
@@ -101,11 +105,13 @@ def any_answer(status):
 
 def backup_fresh(directory, max_age_hours=BACKUP_MAX_AGE_HOURS, now=time.time):
     def probe():
-        files = sorted(Path(directory).glob('jeff-backup-*.tar.gz'), key=lambda p: p.stat().st_mtime) \
+        files = sorted((p for p in Path(directory).glob('jeff-backup-*.tar.gz') if p.is_file()), key=lambda p: p.stat().st_mtime) \
             if Path(directory).is_dir() else []
         if not files:
             return False, 'hic yedek yok'
         age_h = (now() - files[-1].stat().st_mtime) / 3600
+        if not math.isfinite(age_h) or age_h < 0:
+            return False, 'yedek zamani bilinmiyor (gelecekte veya gecersiz)'
         return age_h <= max_age_hours, f'son yedek {age_h:.0f} saat once'
     return probe
 
@@ -114,9 +120,11 @@ def marker_fresh(path, max_age_days=9, now=time.time):
     """The PC touches this marker after every verified off-server copy of the backup."""
     def probe():
         marker = Path(path)
-        if not marker.exists():
+        if not marker.is_file():
             return False, 'bilgisayara hic kopya alinmamis'
         age_days = (now() - marker.stat().st_mtime) / 86400
+        if not math.isfinite(age_days) or age_days < 0:
+            return False, 'bilgisayar kopyasinin zamani bilinmiyor (gelecekte veya gecersiz)'
         return age_days <= max_age_days, f'son bilgisayar kopyasi {age_days:.0f} gun once'
     return probe
 
@@ -136,7 +144,9 @@ def telegram_not_fighting(unit='hermes-gateway.service', limit=3, runner=subproc
             out = runner(['journalctl', '-u', unit, '--since', '-10min', '--no-pager'],
                          capture_output=True, text=True, timeout=15)
         except Exception as exc:
-            return True, f'gunluk okunamadi ({type(exc).__name__})'  # do not cry wolf on a read failure
+            return False, f'cakisma durumu bilinmiyor; gunluk okunamadi ({type(exc).__name__})'
+        if getattr(out,'returncode',0) != 0:
+            return False, 'cakisma durumu bilinmiyor; gunluk okunamadi'
         n = (out.stdout or '').lower().count('polling conflict')
         return n < limit, f'{n} cakisma (son 10 dk)'
     return probe
@@ -196,6 +206,8 @@ def evaluate(checks, state, now):
     for chk in checks:
         try:
             ok, detail = chk.run()
+            if type(ok) is not bool:
+                ok, detail = False, 'kontrol sonucu bilinmiyor'
         except Exception as exc:  # a broken probe must not silence the others
             ok, detail = False, f'kontrol hatasi ({type(exc).__name__})'
         prev = state.get(chk.key, {'ok': True})

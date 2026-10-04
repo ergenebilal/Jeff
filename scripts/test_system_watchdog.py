@@ -197,10 +197,12 @@ class ProbeTests(unittest.TestCase):
         self.assertFalse(wd.telegram_not_fighting(runner=many)()[0])
         self.assertTrue(wd.telegram_not_fighting(runner=few)()[0])
 
-    def test_unreadable_journal_does_not_cry_wolf(self):
+    def test_unreadable_journal_is_not_certified_healthy(self):
         def boom(*a, **k):
             raise OSError('x')
-        self.assertTrue(wd.telegram_not_fighting(runner=boom)()[0])
+        ok,detail=wd.telegram_not_fighting(runner=boom)()
+        self.assertFalse(ok)
+        self.assertIn('bilinmiyor',detail)
 
 
 class IoTests(unittest.TestCase):
