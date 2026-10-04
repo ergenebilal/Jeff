@@ -4,6 +4,7 @@ const mic = $('#mic');
 let lastReply = '';
 const muteButton=document.createElement('button');
 muteButton.type='button';muteButton.className='mic';muteButton.hidden=true;
+muteButton.style.display='none';
 muteButton.id='mic-mute';muteButton.setAttribute('aria-label','Mikrofonu kapat');
 muteButton.innerHTML='<i class="ph ph-microphone-slash" aria-hidden="true"></i>';
 mic.after(muteButton);
@@ -16,6 +17,7 @@ const liveCall=new JeffLiveCall({
     mic.setAttribute('aria-label',on?'Görüşmeyi bitir':'Canlı görüşmeyi başlat');
     mic.innerHTML=`<i class="ph ${on?'ph-phone-disconnect':'ph-phone-call'}" aria-hidden="true"></i>`;
     muteButton.hidden=!on;
+    muteButton.style.display=on?'grid':'none';
   },notice:toast,
   transcript:(who,text,final)=>{
     if(!liveBubble[who])liveBubble[who]=msg(who==='user'?'u':'j','<span class="t"></span>',who==='jeff'?jeffMeta():'Sesli');

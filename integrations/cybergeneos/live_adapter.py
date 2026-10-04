@@ -171,8 +171,14 @@ def patch_app(source):
 def install(app):
     if getattr(app, '_live_installed', False):
         return
-    calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key,
-                      lambda text: app.jeff.stream_reply(text, app.briefing.jeff_context(app.store)))
+    def reply(text):
+        from .jarvis_adapter import STATUS_REQUESTS
+        # Voice punctuation does not change an exact infrastructure status request.
+        clean=text.strip().rstrip('.!?').casefold()
+        if clean in STATUS_REQUESTS:
+            text=clean
+        return app.jeff.stream_reply(text, app.briefing.jeff_context(app.store))
+    calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply)
     original = app.H.route
     def route(handler, parts, body):
         if parts[:2] != ['api','voice']:

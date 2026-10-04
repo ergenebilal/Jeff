@@ -80,6 +80,18 @@ class LiveTests(unittest.TestCase):
         h.by='bilal';h._authed=lambda:True;h.headers={'Origin':'https://evil.example','Cookie':'cgos=owner'}
         self.assertEqual(h.route(['api','voice','consult'],{})[0],403)
         self.assertEqual(h.route(['api','jobs'],{})[0],299)
+    def test_voice_punctuation_keeps_status_on_shared_truth_reader(self):
+        from unittest.mock import patch
+        seen=[]
+        class H:
+            def route(self,p,b):return 404,{}
+        app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
+            jeff=SimpleNamespace(stream_reply=lambda text,context:seen.append(text) or iter(['fixture'])),
+            briefing=SimpleNamespace(jeff_context=lambda *a:'fixture'),store=None)
+        with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service:
+            install(app);reply=service.call_args.args[2]
+            list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))
+        self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
 
 
 if __name__=='__main__':unittest.main()
