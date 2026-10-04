@@ -23,6 +23,7 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(setup()['realtimeInputConfig']['activityHandling'],'START_OF_ACTIVITY_INTERRUPTS')
         self.assertIn('consult_jeff',json.dumps(token))
         self.assertNotIn('fixture-key',json.dumps(self.session))
+        self.assertIn('ölçmediğin kalite',json.dumps(token,ensure_ascii=False))
     def test_duplicate_uses_actual_answer_without_second_call(self):
         first=self.service.consult('owner',self.body);second=self.service.consult('owner',self.body)
         self.assertEqual(first['answer'],'Kanıt yok. İş tamamlanmadı.')
