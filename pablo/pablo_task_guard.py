@@ -241,10 +241,11 @@ def is_approval_required(action: str, params: dict) -> tuple:
 
 
 class TaskGuard:
-    def __init__(self, path, actions, owner, desktop_ready, clock=time.time, ttl=300, approvals=None):
+    def __init__(self, path, actions, owner, desktop_ready, clock=time.time, ttl=300, approvals=None, capability_policy=None):
         self.path, self.actions, self.owner = str(path), actions, str(owner or '')
         self.desktop_ready, self.clock, self.ttl = desktop_ready, clock, ttl
         self.approvals=approvals
+        self.capability_policy=capability_policy
         self.local_drafts = LocalDraftStore(Path(self.path).parent / 'verified-drafts')
         self.lock = threading.RLock()
         with self.connect() as db:
@@ -500,6 +501,15 @@ class TaskGuard:
         rid = request_id or str(uuid.uuid4())
         if not isinstance(rid, str) or not rid or len(rid) > 128 or not isinstance(params, dict):
             return self.response(str(rid)[:128], 'ERROR', error='Invalid request')
+        if self.capability_policy is not None:
+            try:
+                decision=self.capability_policy(action)
+                admitted=isinstance(decision,dict) and decision.get('admitted') is True
+            except Exception:
+                decision={'admitted':False,'reason':'policy_unavailable'};admitted=False
+            if not admitted:
+                return self.response(rid,'CAPABILITY_NOT_ADMITTED',outcome_verified=False,
+                                     capability_admission=decision,error='No accepted capability contract; no execution')
         params = json.loads(json.dumps(params))
         if action == 'local_draft':
             try:
@@ -580,6 +590,12 @@ class TaskGuard:
             if consumed or status != 'APPROVAL_REQUIRED':
                 return self.response(rid, 'REJECTED', error='Approval already consumed')
             params = json.loads(raw)
+            if self.capability_policy is not None and not reject:
+                try:admitted=self.capability_policy(action).get('admitted') is True
+                except Exception:admitted=False
+                if not admitted:
+                    return self.response(rid,'CAPABILITY_NOT_ADMITTED',outcome_verified=False,
+                                         error='Stored request has no accepted capability contract; no decision consumed')
             if self.clock() >= expires or fingerprint(action, params) != digest:
                 db.execute('UPDATE requests SET consumed=1 WHERE id=?', (rid,))
                 return self.store(db, rid, self.response(rid, 'REJECTED', error='Expired, changed or rejected approval'))
@@ -647,6 +663,13 @@ class TaskGuard:
                 return self.store(db, rid, result)
 
     def _run(self, rid, action, params):
+        if self.capability_policy is not None:
+            try:admitted=self.capability_policy(action).get('admitted') is True
+            except Exception:admitted=False
+            if not admitted:
+                with self.connect() as db:
+                    return self.store(db,rid,self.response(rid,'CAPABILITY_NOT_ADMITTED',outcome_verified=False,
+                                                           error='No accepted capability contract; no execution'))
         if action == 'local_draft_plan':
             from pablo_work_plans import WorkPlans
             return WorkPlans(self).advance(rid)
@@ -666,6 +689,9 @@ class TaskGuard:
                     status=raw.get('status') if action=='antigravity' else None
                     result = self.response(rid, status or ('SUCCESS' if ok else 'ERROR'), result=raw.get('result'),
                                            error=None if ok else raw.get('error', 'Action failed'))
+                    if self.capability_policy is not None:
+                        result.update(capability_admission={'admitted':True,'class':'execution_only_no_observer'},outcome_verified=False,
+                                      completion_authority=False,worker_action_succeeded=ok)
             except Exception as exc:
                 result = self.response(rid, 'ERROR', error=type(exc).__name__)
             with self.connect() as db:

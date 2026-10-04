@@ -302,10 +302,8 @@ class PabloBrain:
 
             is_ok = bool(exec_res.get("ok", False))
             status_val = str(exec_res.get("status") or ("SUCCESS" if is_ok else "FAILED"))
-            has_outcome_proof = bool(
-                exec_res.get("outcome_verified") or
-                (isinstance(exec_res.get("result"), dict) and exec_res.get("result", {}).get("outcome_verified"))
-            )
+            has_outcome_proof = (exec_res.get("outcome_verified") is True
+                                 and exec_res.get("completion_authority") is not False)
             err_msg = (
                 exec_res.get("error") or
                 (exec_res.get("result", {}).get("error") if isinstance(exec_res.get("result"), dict) else None) or

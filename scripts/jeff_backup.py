@@ -37,6 +37,7 @@ CORE_SOURCE_PATHS = (
     'jeff_repo/jeff2/bridge/jeff_bridge_api.py', 'jeff_repo/jeff2/bridge/approval_ledger.py',
     'jeff_repo/pablo/hermes_node.py', 'jeff_repo/pablo/pablo_task_guard.py',
     'jeff_repo/pablo/pablo_work_plans.py', 'jeff-v0.21.5/src/run_agent.py',
+    'jeff_repo/pablo/pablo_capability_policy.py',
     'jeff-v0.21.5/site/openai/__init__.py',
     'jeff-beyin/.beyin-runtime.json', 'jeff-beyin/.claude/scripts/beyin_v3.py',
     '.venv/lib/python3.12/site-packages/aiosqlite/__init__.py',

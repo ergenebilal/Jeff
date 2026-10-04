@@ -45,6 +45,17 @@ def test_snapshot_missing_live_database_cannot_pass(tmp_path):
     assert not (tmp_path/'snapshot').exists()
 
 
+def test_new_runtime_policy_required_but_previous_runtime_restorable(tmp_path):
+    live=fixture(tmp_path)
+    snapshot(live,tmp_path/'previous',collect_packages=False)
+    assert restore(tmp_path/'previous',tmp_path/'previous-root')['verified']
+    (live/'hermes_node.py').write_text('from pablo_capability_policy import admission')
+    with pytest.raises(ValueError):snapshot(live,tmp_path/'missing-policy',collect_packages=False)
+    (live/'pablo_capability_policy.py').write_text('def admission(name): return {}')
+    snapshot(live,tmp_path/'current',collect_packages=False)
+    assert restore(tmp_path/'current',tmp_path/'current-root')['verified']
+
+
 @pytest.mark.skipif(os.name=='nt',reason='POSIX permission boundary')
 def test_nested_private_directories_and_restored_files(tmp_path):
     live=fixture(tmp_path);draft=live/'verified-drafts'/'child'

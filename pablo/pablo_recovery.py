@@ -3,6 +3,7 @@
 Does not start workers, consume approvals, replay tasks or overwrite live state.
 """
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -121,6 +122,12 @@ def validate(snapshot_dir):
         elif entry['kind']!='file':raise ValueError('Invalid recovery kind')
         seen.add(name)
     if not {'files/'+name for name in CORE}<=seen:raise ValueError('Required recovery file missing')
+    tree=ast.parse(checked_file(base,'files/hermes_node.py').read_text(encoding='utf-8'))
+    needs_policy=any((isinstance(n,ast.ImportFrom) and n.module=='pablo_capability_policy') or
+                     (isinstance(n,ast.Import) and any(a.name=='pablo_capability_policy' for a in n.names))
+                     for n in ast.walk(tree))
+    if needs_policy and 'files/pablo_capability_policy.py' not in seen:
+        raise ValueError('Runtime capability policy missing')
     return manifest
 
 

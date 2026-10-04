@@ -12,7 +12,7 @@ import fnmatch
 
 LOADED=('hermes_node.py','pablo_brain.py','pablo_task_guard.py','pablo_antigravity.py',
         'pablo_approval_client.py','pablo_approval_maintenance.py','pablo_notification_policy.py',
-        'pablo_local_drafts.py','pablo_work_plans.py')
+        'pablo_local_drafts.py','pablo_work_plans.py','pablo_capability_policy.py')
 REMOTE_CODE="""
 import json,hashlib,subprocess,sys
 from pathlib import Path
