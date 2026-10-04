@@ -38,6 +38,12 @@ class Fixture:
         (h / 'debug.log').write_text('noise')
         (self.home / 'jeff_cognitive').mkdir()
         (self.home / 'jeff_cognitive' / 'core.py').write_text('print(1)')
+        for name in jb.CORE_SOURCE_PATHS:
+            path = self.home / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('fixture core source ' + name)
+        for name in jb.CORE_DATABASE_PATHS:
+            make_db(self.home / name)
 
     def run(self, **kw):
         logs = []
@@ -225,7 +231,7 @@ class RestoreDrillTests(BackupTests):
         self.fx.run()
         code, logs = self.drill()
         self.assertEqual(code, 0)
-        self.assertIn('2 databases restored and checked', ' '.join(logs))
+        self.assertIn('4 databases restored and checked', ' '.join(logs))
 
     def test_no_backup_fails(self):
         self.fx.dest.mkdir(parents=True)

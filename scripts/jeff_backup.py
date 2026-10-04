@@ -23,13 +23,24 @@ import io
 import subprocess
 import tarfile
 import time
-from pathlib import Path
+import hashlib
+from pathlib import Path, PurePosixPath
 
 REQUIRED = [
     'home/hermes/.hermes/config.yaml',
     'home/hermes/.hermes/gateway.env',
     'db/home__hermes__.hermes__state.db',
 ]
+CORE_SOURCE_PATHS = (
+    '.hermes/skills/system/jeff-beyin/SKILL.md',
+    'jeff_repo/scripts/jeff_memory_context.py', 'jeff_repo/scripts/jeff_status.py',
+    'jeff_repo/jeff2/bridge/jeff_bridge_api.py', 'jeff_repo/jeff2/bridge/approval_ledger.py',
+    'jeff_repo/pablo/hermes_node.py', 'jeff_repo/pablo/pablo_task_guard.py',
+    'jeff_repo/pablo/pablo_work_plans.py', 'jeff-v0.21.5/src/run_agent.py',
+    'jeff-v0.21.5/site/openai/__init__.py',
+    'jeff-beyin/.beyin-runtime.json', 'jeff-beyin/.claude/scripts/beyin_v3.py',
+)
+CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
 # Directory names that are skipped anywhere inside a backed-up tree.
 SKIP_DIRS = {'node_modules', '__pycache__', '.git', 'venv', '.venv', '.cache', 'cache', 'logs', 'backups',
              '.playwright-mcp', 'lsp', 'node', 'hermes-agent', 'tests', 'site', 'checkpoints', 'dist-packages'}
@@ -37,14 +48,16 @@ SKIP_FILE_PATTERNS = ['*.pyc', '*.log', '*.db-wal', '*.db-shm', '*.sqlite-wal', 
 DB_SUFFIXES = ('.db', '.sqlite', '.sqlite3')
 
 
-OPT_TREES = (Path('/opt/hermes'),)
+OPT_TREES = (Path('/opt/hermes'), Path('/usr/lib/python3/dist-packages'))
 
 
 def trees(home, opt_trees=OPT_TREES):
     h = Path(home)
     return [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
             h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos', h / 'jeff-artifacts',
-            h / '.alert.env', h / '.config', *opt_trees]
+            h / '.alert.env', h / '.config', h / 'jeff_repo',
+            h / 'jeff-v0.21.5' / 'live_ext', h / 'jeff-v0.21.5' / 'site',
+            h / '.local/share/beyin-v3', *opt_trees]
 
 
 ETC_PATTERNS = [
@@ -223,6 +236,27 @@ def verify_archive(archive, required):
     return [r for r in required if r not in names]
 
 
+def core_sources(home):
+    """Hashes of current required infrastructure; no config/credential content in this manifest."""
+    return {rel(Path(home) / name): hashlib.sha256((Path(home) / name).read_bytes()).hexdigest()
+            for name in CORE_SOURCE_PATHS}
+
+
+def verify_core_sources(archive):
+    try:
+        with tarfile.open(archive, 'r:gz') as tar:
+            manifest = json.load(tar.extractfile('etc/CORE-SOURCES.json'))
+            if not isinstance(manifest, dict) or not manifest:
+                return ['invalid core source manifest']
+            for name, expected in manifest.items():
+                member = tar.getmember(name)
+                if not member.isfile() or hashlib.sha256(tar.extractfile(member).read()).hexdigest() != expected:
+                    return ['core source hash mismatch: ' + name]
+    except (KeyError, TypeError, ValueError, OSError, tarfile.TarError):
+        return ['unreadable core source manifest']
+    return []
+
+
 def prune(dest, keep):
     archives = sorted(Path(dest).glob('jeff-backup-*.tar.gz'), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in archives[keep:]:
@@ -240,10 +274,19 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
     work = dest / f'.work-{stamp}'
     work.mkdir(mode=0o700)
     try:
+        try:
+            core = core_sources(home)
+        except OSError as exc:
+            log('ERROR: required core source missing or unreadable (' + type(exc).__name__ + ')')
+            return 1
         dbs = find_databases(home, opt_trees)
         copied, errors = snapshot_databases(dbs, work, log)
         with tarfile.open(partial, 'w:gz') as tar:
             tar.add(work / 'db', arcname='db')
+            data = json.dumps(core, indent=1).encode('utf-8')
+            info = tarfile.TarInfo('etc/CORE-SOURCES.json')
+            info.size, info.mtime, info.mode = len(data), int(now()), 0o600
+            tar.addfile(info, io.BytesIO(data))
             etc_manifest = {}
             for extra in extra_files:
                 if not Path(extra).is_file():
@@ -264,7 +307,7 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
                 log(f'package inventory: {name} ({len(text.splitlines())} lines)')
             files = sum(add_tree(tar, root, {str(p) for p in dbs}, log) for root in trees(home, opt_trees))
         log(f'files packed: {files}')
-        missing = verify_archive(partial, REQUIRED_FOR(home))
+        missing = verify_archive(partial, REQUIRED_FOR(home)) + verify_core_sources(partial)
         if missing:
             partial.unlink(missing_ok=True)
             log('ERROR: archive is missing required items: ' + ', '.join(missing))
@@ -297,14 +340,17 @@ def verify_latest(dest, home='/home/hermes', log=print, max_age_hours=30, now=ti
     except (tarfile.TarError, OSError, EOFError) as exc:
         log(f'ERROR: archive unreadable ({type(exc).__name__})')
         return 1
-    problems += [f'missing {m}' for m in missing]
+    problems += [f'missing {m}' for m in missing] + verify_core_sources(newest)
     checked = 0
     import tempfile
     with tempfile.TemporaryDirectory() as tmp, tarfile.open(newest, 'r:gz') as tar:
         members = [m for m in tar.getmembers() if m.isfile() and m.name.startswith('db/') and not m.name.endswith('MANIFEST.json')]
         for member in members:
-            tar.extract(member, tmp)
-            conn = sqlite3.connect(Path(tmp) / member.name)
+            # Do not trust archive paths, links or extraction filters of older Python versions.
+            target = Path(tmp) / Path(member.name).name
+            with tar.extractfile(member) as source, target.open('wb') as dest:
+                shutil.copyfileobj(source, dest)
+            conn = sqlite3.connect(target)
             try:
                 verdict = conn.execute('PRAGMA integrity_check').fetchone()[0]
                 conn.execute('SELECT count(*) FROM sqlite_master').fetchone()
@@ -331,8 +377,31 @@ def restore(staging, root='/', apply=False, log=print):
         if not manifest.is_file():
             log(f'ERROR: {manifest} is missing (was the archive unpacked into {staging}?)')
             return 1
-        for name, original in json.loads(manifest.read_text(encoding='utf-8')).items():
-            plan.append((staging / area / name, root / rel(original)))   # rel(): never let an absolute/drive path escape the root
+        try:
+            entries = json.loads(manifest.read_text(encoding='utf-8'))
+            if not isinstance(entries, dict):
+                raise ValueError('invalid manifest')
+            for name, original in entries.items():
+                if not isinstance(name, str) or not isinstance(original, str):
+                    raise ValueError('invalid manifest entry')
+                if '/' in name or '\\' in name or name in ('', '.', '..') or ':' in name:
+                    raise ValueError('unsafe source name')
+                relative = original.replace('\\', '/')
+                if '..' in PurePosixPath(relative).parts:
+                    raise ValueError('unsafe target path')
+                source, target = staging / area / name, root / rel(relative)
+                if source.is_symlink() or not source.resolve().is_relative_to((staging / area).resolve()):
+                    raise ValueError('unsafe source link')
+                if not target.resolve().is_relative_to(root.resolve()):
+                    raise ValueError('unsafe target link')
+                plan.append((source, target))
+        except (ValueError, TypeError, OSError):
+            log('ERROR: invalid or unsafe restore manifest')
+            return 1
+    # Validate every source before writing any part of a restore.
+    if any(not source.is_file() for source, _ in plan):
+        log('ERROR: a manifest source is missing')
+        return 1
     copied = skipped = 0
     for source, target in plan:
         if not source.is_file():
@@ -362,7 +431,8 @@ def REQUIRED_FOR(home):
             out.append(item.replace('home__hermes', prefix.replace('/', '__'), 1))
         else:
             out.append(item)
-    return out
+    return out + [prefix + '/' + name for name in CORE_SOURCE_PATHS] + [
+        'db/' + flat_name(Path(home) / name) for name in CORE_DATABASE_PATHS] + ['etc/CORE-SOURCES.json']
 
 
 def main(argv=None):
