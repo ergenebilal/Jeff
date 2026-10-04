@@ -4,6 +4,7 @@ Does not start workers, consume approvals, replay tasks or overwrite live state.
 """
 import argparse
 import ast
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -88,7 +89,7 @@ def snapshot(live,destination,collect_packages=True):
             conn=sqlite3.connect(source.as_uri()+'?mode=ro',uri=True);copy=sqlite3.connect(target)
             try:conn.backup(copy)
             finally:copy.close();conn.close()
-            with sqlite3.connect(target) as db:
+            with closing(sqlite3.connect(target)) as db:
                 if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('Corrupt database snapshot')
             kind='sqlite'
         else:shutil.copy2(source,target);kind='file'
@@ -117,7 +118,7 @@ def validate(snapshot_dir):
         source=checked_file(base,name)
         if source.stat().st_size!=entry['bytes'] or digest(source)!=entry['sha256']:raise ValueError('Recovery file mismatch')
         if entry['kind']=='sqlite':
-            with sqlite3.connect(source.as_uri()+'?mode=ro&immutable=1',uri=True) as db:
+            with closing(sqlite3.connect(source.as_uri()+'?mode=ro&immutable=1',uri=True)) as db:
                 if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('Recovery database mismatch')
         elif entry['kind']!='file':raise ValueError('Invalid recovery kind')
         seen.add(name)

@@ -14,6 +14,7 @@ import uuid
 import zipfile
 
 from scripts.pablo_drift_monitor import LOADED
+from scripts.pablo_recovery_retention import record_verified,prune
 
 REMOTE_ROOT='/home/hermes/jeff-artifacts/pablo-recovery'
 REMOTE_REPORT='/home/hermes/jeff-artifacts/pablo-recovery-status.json'
@@ -38,6 +39,8 @@ def report_ok(data,now,expected):
     if data.get('version')!=1 or data.get('ok') is not True or data.get('remote_manifest_verified') is not True:return False
     ts=data.get('verified_at')
     if type(ts) not in (int,float) or not math.isfinite(ts) or not 0<=now-ts<=30*3600:return False
+    for key in ('local_retention','remote_retention'):
+        if key in data and (data[key].get('ok') is False or data[key].get('current_image_preserved') is not True):return False
     return data.get('loaded_source_sha256')==expected and set(expected)==set(LOADED)
 
 
@@ -77,6 +80,12 @@ manifest=validate(target)
 assert manifest['source_release']==REPORT['source_release']
 assert all(p.stat().st_mode&0o077==0 for p in [base]+list(base.rglob('*')))
 REPORT.update(remote_manifest_verified=True,verified_at=time.time(),remote_files=len(manifest['entries']),ok=True)
+sys.path.insert(0,'/home/hermes/jeff_repo')
+from scripts.pablo_recovery_retention import record_verified,prune
+root=Path('/home/hermes/jeff-artifacts/pablo-recovery')
+record_verified(base,root,'remote',REPORT,validate)
+try:REPORT['remote_retention']=prune(root,base.name,validate)
+except Exception as exc:REPORT['remote_retention']={'ok':False,'failure_class':type(exc).__name__}
 status=Path('/home/hermes/jeff-artifacts/pablo-recovery-status.json')
 pending=status.with_name(status.name+'.'+base.name);pending.write_text(json.dumps(REPORT,indent=2));pending.chmod(0o600);os.replace(pending,status)
 print(json.dumps(REPORT))
@@ -114,6 +123,9 @@ def run(live,storage,report):
         code='BASE='+repr(base)+'\nEXPECTED='+repr(public['archive_sha256'])+'\nREPORT='+repr(public)+'\n'+VERIFY_REMOTE
         public=remote(code)
         if public.get('ok') is not True:raise RuntimeError('No verification receipt')
+        record_verified(dest,storage,'local',public,validate)
+        try:public['local_retention']=prune(storage,name,validate)
+        except Exception as exc:public['local_retention']={'ok':False,'failure_class':type(exc).__name__}
     except Exception as exc:
         public.update(ok=False,failure_class=type(exc).__name__)
         # Report failure without secrets. Preserve all prior valid archives.

@@ -15,6 +15,10 @@ class RecoveryMonitorTests(unittest.TestCase):
                        {'verified_at':float('nan')},{'loaded_source_sha256':{}},{'version':2}):
             self.assertFalse(report_ok(report|change,100,expected))
         self.assertFalse(report_ok(report,100,expected|{LOADED[0]:'b'*64}))
+        for key in ('local_retention','remote_retention'):
+            self.assertFalse(report_ok(report|{key:{'ok':False}},100,expected))
+            self.assertFalse(report_ok(report|{key:{'current_image_preserved':False}},100,expected))
+            self.assertTrue(report_ok(report|{key:{'current_image_preserved':True}},100,expected))
 
     def test_runtime_release_and_coverage_cannot_be_assumed(self):
         manifest={'source_release':'a'*40};ping={'ok':True,'result':'pong','source_commit':'a'*40,'loaded_source_sha256':{n:'b'*64 for n in LOADED}}

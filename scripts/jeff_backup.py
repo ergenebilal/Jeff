@@ -47,6 +47,7 @@ CORE_SOURCE_PATHS = (
     '.hermes/plugins/model-route-receipts/__init__.py',
     'jeff_repo/scripts/jarvis_snapshot.py', 'jeff_repo/scripts/jarvis_load_observer.py',
     'jeff_repo/scripts/pablo_drift_monitor.py', 'jeff_repo/scripts/pablo_recovery_monitor.py',
+    'jeff_repo/scripts/pablo_recovery_retention.py',
     'jeff_repo/scripts/attention_policy.py', 'jeff_repo/integrations/evey/reflect/__init__.py',
     '.hermes/plugins/evey/reflect/__init__.py',
     'jeff_repo/scripts/model_health.py', 'jeff_repo/scripts/system_watchdog.py',
