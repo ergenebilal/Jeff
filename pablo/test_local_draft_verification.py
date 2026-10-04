@@ -1,13 +1,16 @@
 """Real temporary files and durable guard results; no desktop or external sender."""
 import ast
 import hashlib
+import io
+import json
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
 from pablo_local_drafts import LocalDraftStore, expectation
-from pablo_task_guard import TaskGuard
+from pablo_task_guard import TaskGuard, allowed_ip
 
 
 class LocalDraftTests(unittest.TestCase):
@@ -162,6 +165,31 @@ class LocalDraftTests(unittest.TestCase):
         self.assertFalse(result['ok'])
         self.assertFalse(result['outcome_verified'])
         self.assertEqual(result['status'], 'VERIFICATION_UNAVAILABLE')
+
+    def test_actual_rest_entry_preserves_the_strict_draft_contract(self):
+        source = Path(__file__).with_name('hermes_node.py').read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        selected = [n for n in tree.body if
+                    isinstance(n, ast.FunctionDef) and n.name in ('normalize_tool_params', 'execute_request')
+                    or isinstance(n, ast.ClassDef) and n.name == 'PabloRequestHandler']
+        telegram = mock.Mock()
+        namespace = {'json': json, 'ast': ast, 'BaseHTTPRequestHandler': BaseHTTPRequestHandler,
+                     'allowed_ip': allowed_ip, 'CONFIG': {'auth_token': 'fixture', 'allowed_ips': ['127.0.0.1']},
+                     'task_guard': lambda: self.guard, 'send_telegram_approval_request': telegram}
+        exec(compile(ast.Module(body=selected, type_ignores=[]), 'actual-http-entry', 'exec'), namespace)
+        handler = namespace['PabloRequestHandler'].__new__(namespace['PabloRequestHandler'])
+        handler.path = '/execute'
+        handler.client_address = ('127.0.0.1', 12345)
+        body = json.dumps({'action': 'local_draft', 'params': self.params, 'request_id': 'rest-fixture'}).encode()
+        handler.headers = {'X-Pablo-Token': 'fixture', 'Content-Length': str(len(body))}
+        handler.rfile, handler.wfile = io.BytesIO(body), io.BytesIO()
+        handler.send_response, handler.send_header, handler.end_headers = mock.Mock(), mock.Mock(), mock.Mock()
+        handler.do_POST()
+        result = json.loads(handler.wfile.getvalue())
+        self.assertEqual(result['status'], 'SUCCESS')
+        self.assertTrue(result['outcome_verified'])
+        self.assertEqual(Path(result['result']['path']).read_bytes(), self.params['content'].encode())
+        telegram.assert_not_called()
 
 
 if __name__ == '__main__':

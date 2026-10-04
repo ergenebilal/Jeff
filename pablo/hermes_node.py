@@ -783,7 +783,9 @@ def task_guard():
     return _task_guard
 
 def execute_request(action, params, request_id=None):
-    normalized = normalize_tool_params(params)
+    # The bounded draft has a strict schema; general text aliases would add
+    # unsupported fields and change its immutable input contract.
+    normalized = dict(params) if action == 'local_draft' and isinstance(params, dict) else normalize_tool_params(params)
     if request_id:
         normalized["request_id"] = request_id
     result = task_guard().execute(action, normalized, request_id)
@@ -2404,7 +2406,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
 
             action_name = data.get("action")
             raw_params = data.get("params", {})
-            params = normalize_tool_params(raw_params)
+            params = raw_params if action_name == 'local_draft' else normalize_tool_params(raw_params)
 
             res = execute_request(action_name, params, data.get('request_id'))
 
