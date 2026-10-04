@@ -178,7 +178,9 @@ def install(app):
         if clean in STATUS_REQUESTS:
             # The shared deterministic reader ignores panel business context entirely.
             return app.jeff.stream_reply(clean, '')
-        return app.jeff.stream_reply(text, app.briefing.jeff_context(app.store))
+        # Voice starts with current infrastructure truth. Jeff can consult his existing
+        # tools for other subjects; no business query or workflow is modified here.
+        return app.jeff.stream_reply(text, json.dumps({'jarvis_snapshot':app._jarvis_snapshot()},ensure_ascii=False))
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply)
     original = app.H.route
     def route(handler, parts, body):

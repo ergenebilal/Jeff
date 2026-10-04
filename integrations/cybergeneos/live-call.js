@@ -152,7 +152,7 @@
       const when=Math.max(this.ctx.currentTime+.025,this.next||0);
       this.next=when+buffer.duration;this.sources.add(src);
       src.onended=()=>{this.sources.delete(src);if(!this.sources.size&&!this.pending.size&&this.active)this.state('listening',this.muted?'Mikrofon kapalı':'Dinliyorum');};
-      src.start(when);this.stats.outputChunks++;this.state('speaking','Konuşuyor · sizi dinliyorum');
+      src.start(when);this.stats.outputChunks++;this.state('speaking',this.muted?'Konuşuyor · mikrofon kapalı':'Konuşuyor · sizi dinliyorum');
     }
     afterPlayback(){if(!this.sources.size&&this.active)this.state('listening',this.muted?'Mikrofon kapalı':'Dinliyorum');}
     flushAudio(){

@@ -18,6 +18,10 @@ const liveCall=new JeffLiveCall({
     mic.innerHTML=`<i class="ph ${on?'ph-phone-disconnect':'ph-phone-call'}" aria-hidden="true"></i>`;
     muteButton.hidden=!on;
     muteButton.style.display=on?'grid':'none';
+    $('#composer').style.gridTemplateColumns=on?'minmax(0,1fr) auto auto auto':'';
+    $('#voice-out').disabled=on;$('#voice-pick').disabled=on;
+    muteButton.setAttribute('aria-pressed',String(liveCall.muted===true));
+    muteButton.setAttribute('aria-label',liveCall.muted?'Mikrofonu aç':'Mikrofonu kapat');
   },notice:toast,
   transcript:(who,text,final)=>{
     if(!liveBubble[who])liveBubble[who]=msg(who==='user'?'u':'j','<span class="t"></span>',who==='jeff'?jeffMeta():'Sesli');
@@ -49,6 +53,10 @@ def patch_front(source):
     if source.count('function stopAudio(){')!=1:
         raise ValueError('Panel audio stop anchor changed')
     source=source.replace('function stopAudio(){',"function stopAudio(){\n  if ('speechSynthesis' in window) speechSynthesis.cancel();")
+    label="D.jeff === 'hermes' ? 'Jeff bağlantısı ayarlı'"
+    if source.count(label)!=1:
+        raise ValueError('Panel status anchor changed')
+    source=source.replace(label,"D.jeff === undefined ? 'Jeff durumu yükleniyor' : "+label)
     start=source.index('/* Microphone. What you say goes straight to Jeff:')
     end=source.index("$('#voice-out').addEventListener",start)
     return source[:start]+MIC+source[end:]

@@ -87,7 +87,8 @@ class LiveTests(unittest.TestCase):
             def route(self,p,b):return 404,{}
         app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
             jeff=SimpleNamespace(stream_reply=lambda text,context:seen.append(text) or iter(['fixture'])),
-            briefing=SimpleNamespace(jeff_context=lambda *a:contexts.append('read') or 'fixture'),store=None)
+            briefing=SimpleNamespace(jeff_context=lambda *a: self.fail('Voice must not build unrelated business context')),
+            _jarvis_snapshot=lambda:contexts.append('read') or {'read_only':True},store=None)
         with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service:
             install(app);reply=service.call_args.args[2]
             list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))

@@ -49,5 +49,6 @@ def install(app,reader=None,renderer=None):
             yield renderer(reader())
         else:yield from reply_original(text,context)
     app.build_state=state;app.briefing.jeff_context=context;app.jeff.stream_reply=reply
+    app._jarvis_snapshot=reader
     app.jeff.VOICE_RULES+=TRUTH_RULES;app.jeff.FALLBACK_SYSTEM+=TRUTH_RULES
     app._jarvis_installed=True
