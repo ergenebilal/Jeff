@@ -381,7 +381,8 @@ class TaskGuard:
             events = [dict(seq=r[0], phase=r[1], status=r[2], observed_at=r[3]) for r in
                       db.execute('SELECT seq,phase,status,observed_at FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 20', (rid,))]
             history = db.execute('SELECT archived_at,reason FROM work_history WHERE request_id=?', (rid,)).fetchone()
-        legacy_worker_history=created is None and status=='EXECUTION_SUCCEEDED'
+        legacy_worker_history=(recorded_status=='SUCCESS' and action not in ('local_draft','local_draft_plan')
+                               and status=='EXECUTION_SUCCEEDED')
         return dict(request_id=rid, action=action, status=status, phase=phase, open=status not in CLOSED_WORK_STATUSES,
                     outcome_verified=outcome_verified, completion_authority=outcome_verified,
                     next_step=next_step, waiting_for=waiting_for, created_at=created, updated_at=updated,

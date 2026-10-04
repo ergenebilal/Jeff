@@ -30,8 +30,8 @@ class OutcomeTruthTests(unittest.TestCase):
                 with guard.connect() as db:
                     db.execute('INSERT INTO requests(id,action,status,response,created_at) VALUES(?,?,?,?,?)',(rid,'shell','SUCCESS',raw,created))
             with guard.connect() as db:before=db.execute('SELECT * FROM requests ORDER BY id').fetchall()
-            self.assertEqual(guard.work_snapshot()['open_count'],1)
-            self.assertEqual(guard.work_snapshot()['history_open_count'],1)
+            self.assertEqual(guard.work_snapshot()['open_count'],0)
+            self.assertEqual(guard.work_snapshot()['history_open_count'],2)
             self.assertEqual(guard.work_snapshot(include_history=True)['open_count'],2)
             view=guard.work_status('undated');self.assertFalse(view['outcome_verified']);self.assertTrue(view['history_only'])
             self.assertEqual(view['recorded_status'],'SUCCESS');self.assertNotIn('result',view)
