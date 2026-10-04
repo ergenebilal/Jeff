@@ -1,6 +1,7 @@
 """Real files and interrupted processes; time jumps are explicit fixture clocks."""
 import ast
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler
 import io
 import json
@@ -37,7 +38,9 @@ original_store=guard.store
 def store(db,rid,result):
     if mode=='before_final' and rid=='plan' and result['status']=='SUCCESS':os._exit(91)
     value=original_store(db,rid,result)
-    if mode=='after_first' and rid==step_id('plan','first') and result['status']=='SUCCESS':os._exit(91)
+    if mode=='after_first' and rid==step_id('plan','first') and result['status']=='SUCCESS':
+        db.commit()
+        os._exit(91)
     return value
 guard.store=store
 write=guard.local_drafts.write
@@ -66,6 +69,9 @@ class WorkPlanTests(unittest.TestCase):
         result=subprocess.run([sys.executable,'-c',CHILD,str(self.root),mode,json.dumps(self.plan)],env=env,capture_output=True,timeout=15)
         self.assertEqual(result.returncode,91,result.stderr.decode())
         self.assertEqual(Path(json.loads((self.root/'child-source.json').read_text())['guard']).resolve(),(source_root/'pablo_task_guard.py').resolve())
+        if mode=='after_first':
+            with closing(sqlite3.connect(self.root/'journal.db')) as db:
+                self.assertEqual(db.execute('SELECT status FROM requests WHERE id=?',(step_id('plan','first'),)).fetchone()[0],'SUCCESS')
 
     def test_real_crash_after_first_checkpoint_resumes_only_unclaimed_second(self):
         self.crash('after_first');first=self.path('first');mtime=first.stat().st_mtime_ns
