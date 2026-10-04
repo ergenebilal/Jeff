@@ -7,6 +7,7 @@ Meant to be run by the Telegram command /durum (a Hermes quick command) or from 
 Every line is measured now; a source that cannot be read says "veri alinamadi" instead of guessing.
 """
 import json
+import math
 import re
 import subprocess
 import sqlite3
@@ -54,15 +55,39 @@ def model_route_line(db_path=HOME / '.hermes/state.db', now_ts=None):
     """Only actual call receipts establish a used route; probes never do."""
     now_ts=time.time() if now_ts is None else now_ts
     try:
-        db=sqlite3.connect(Path(db_path).resolve().as_uri()+'?mode=ro',uri=True)
+        path=Path(db_path).resolve()
+        db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
         try:
-            row=db.execute('SELECT requested_route,actual_route,status,fallback_used,fallback_reason,ended_at '
+            row=db.execute('SELECT requested_route,actual_route,status,fallback_used,fallback_reason,started_at,ended_at '
                            'FROM model_route_receipts ORDER BY rowid DESC LIMIT 1').fetchone()
         finally:
             db.close()
         if row is None:
             return 'Son model çağrısı: bilinmiyor (makbuz yok)'
-        requested,actual,status,fallback,reason,ended=row
+        requested,actual,status,fallback,reason,started,ended=row
+        def valid_time(value):
+            return (type(value) in (int,float) and math.isfinite(value) and
+                    0 <= value <= now_ts+5)
+        if (not valid_time(started) or status not in ('running','succeeded','failed','unknown') or
+                (ended is not None and (not valid_time(ended) or ended < started)) or
+                (status != 'running' and ended is None) or
+                (status == 'running' and ended is not None)):
+            return 'Son model çağrısı: bilinmiyor (makbuz tutarsız)'
+        # A failed write makes a cached result historical until a later completed
+        # call is recorded. Keep the marker as history; never print its contents.
+        marker=path.parent/'model-route-receipt-error.json'
+        try:
+            error=json.loads(marker.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            pass
+        except (OSError,ValueError):
+            return 'Son model çağrısı: bilinmiyor (kayıt güvenilirliği doğrulanamadı)'
+        else:
+            if (not isinstance(error,dict) or error.get('status') != 'unknown' or
+                    not valid_time(error.get('observed_at'))):
+                return 'Son model çağrısı: bilinmiyor (kayıt güvenilirliği doğrulanamadı)'
+            if ended is None or ended <= error['observed_at']:
+                return 'Son model çağrısı: bilinmiyor (makbuz kaydı başarısız; önceki sonuç geçmişte kaldı)'
         text=f'Son model çağrısı: {actual}; sonuç: {status}; tercih: {requested}'
         if fallback:
             text+=f'; fallback nedeni: {reason or "bilinmiyor"}'
