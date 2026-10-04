@@ -59,11 +59,11 @@ class WatchdogEvidenceIntegrityTests(unittest.TestCase):
                 self.assertFalse(measured);self.assertEqual(len(calls),1)
                 self.assertNotEqual(detail,'cached success')
 
-    def test_valid_evidence_still_passes_and_cache_limits_calls(self):
+    def test_timestamp_only_backup_fails_but_marker_and_chat_cache_pass(self):
         backup=self.root/'jeff-backup-real.tar.gz';backup.write_bytes(b'fixture')
         marker=self.root/'.offsite-copy-ok';marker.write_text('fixture')
         now=max(backup.stat().st_mtime,marker.stat().st_mtime)+1
-        self.assertTrue(watchdog.backup_fresh(self.root,now=lambda:now)()[0])
+        self.assertFalse(watchdog.backup_fresh(self.root,now=lambda:now)()[0])
         self.assertTrue(watchdog.marker_fresh(marker,now=lambda:now)()[0])
         self.assertTrue(watchdog.telegram_not_fighting(runner=lambda *a,**k:SimpleNamespace(returncode=0,stdout='no conflicts'))()[0])
         memo=self.root/'chat.json';memo.write_text(json.dumps({'ts':1000,'ok':True,'detail':'measured answer'}))

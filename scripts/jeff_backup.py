@@ -24,6 +24,7 @@ import subprocess
 import tarfile
 import time
 import hashlib
+import math
 from pathlib import Path, PurePosixPath
 
 REQUIRED = [
@@ -38,6 +39,19 @@ CORE_SOURCE_PATHS = (
     'jeff_repo/pablo/hermes_node.py', 'jeff_repo/pablo/pablo_task_guard.py',
     'jeff_repo/pablo/pablo_work_plans.py', 'jeff-v0.21.5/src/run_agent.py',
     'jeff_repo/pablo/pablo_capability_policy.py',
+    'jeff_repo/pablo/pablo_brain.py', 'jeff_repo/pablo/pablo_recovery.py',
+    'jeff_repo/pablo/pablo_local_drafts.py', 'jeff_repo/pablo/pablo_antigravity.py',
+    'jeff_repo/pablo/pablo_approval_client.py', 'jeff_repo/pablo/pablo_approval_maintenance.py',
+    'jeff_repo/pablo/pablo_notification_policy.py', 'jeff_repo/scripts/jeff_backup.py',
+    'jeff_repo/integrations/model-route-receipts/__init__.py',
+    '.hermes/plugins/model-route-receipts/__init__.py',
+    'jeff_repo/scripts/jarvis_snapshot.py', 'jeff_repo/scripts/jarvis_load_observer.py',
+    'jeff_repo/scripts/pablo_drift_monitor.py', 'jeff_repo/scripts/pablo_recovery_monitor.py',
+    'jeff_repo/scripts/attention_policy.py', 'jeff_repo/integrations/evey/reflect/__init__.py',
+    '.hermes/plugins/evey/reflect/__init__.py',
+    'jeff_repo/scripts/model_health.py', 'jeff_repo/scripts/system_watchdog.py',
+    'cybergeneos/docs/cybergeneos/server/jarvis_adapter.py',
+    'cybergeneos/docs/cybergeneos/server/approval_adapter.py',
     'jeff-v0.21.5/site/openai/__init__.py',
     'jeff-beyin/.beyin-runtime.json', 'jeff-beyin/.claude/scripts/beyin_v3.py',
     '.venv/lib/python3.12/site-packages/aiosqlite/__init__.py',
@@ -270,6 +284,41 @@ def prune(dest, keep):
     return min(len(archives), keep)
 
 
+def verification_receipt(archive, core, ok, method, now=time.time):
+    """Bind last actual verification to an archive and current core sources."""
+    archive=Path(archive)
+    with archive.open('rb') as handle:digest=hashlib.file_digest(handle,'sha256').hexdigest()
+    stat=archive.stat()
+    data={'version':1,'ok':ok is True,'verified_at':now(),'archive':archive.name,
+          'archive_bytes':stat.st_size,'archive_mtime_ns':stat.st_mtime_ns,'archive_sha256':digest,
+          'core_sources':core,'method':method,'full_host_takeover_tested':False}
+    pending=archive.parent/'.verified-backup.pending';target=archive.parent/'.verified-backup.json'
+    pending.write_text(json.dumps(data,indent=2));pending.chmod(0o600);os.replace(pending,target)
+    return data
+
+
+def read_verification_receipt(directory,home='/home/hermes',now=None,max_age_hours=30):
+    """Cheap status of last verification; does not pretend to rehash each poll."""
+    try:
+        directory=Path(directory);data=json.loads((directory/'.verified-backup.json').read_text())
+        if data.get('version')!=1 or data.get('ok') is not True:raise ValueError()
+        if data.get('method') not in ('archive_core_crc_and_consistent_database_snapshots','restored_database_integrity_and_archive_core'):raise ValueError()
+        timestamp=data.get('verified_at');current=time.time() if now is None else now
+        if type(timestamp) not in (int,float) or not math.isfinite(timestamp) or not 0<=current-timestamp<=max_age_hours*3600:raise ValueError()
+        name=data.get('archive','')
+        if not re.fullmatch(r'jeff-backup-\d{8}-\d{6}\.tar\.gz',name):raise ValueError()
+        archives=sorted((p for p in directory.glob('jeff-backup-*.tar.gz') if p.is_file()),key=lambda p:p.stat().st_mtime)
+        path=directory/name
+        if not archives or archives[-1]!=path or path.is_symlink():raise ValueError()
+        stat=path.stat()
+        if stat.st_size!=data.get('archive_bytes') or stat.st_mtime_ns!=data.get('archive_mtime_ns'):raise ValueError()
+        if data.get('core_sources')!=core_sources(home):raise ValueError()
+        digest=data.get('archive_sha256')
+        if not isinstance(digest,str) or not re.fullmatch('[a-f0-9]{64}',digest):raise ValueError()
+        return True,'son yedegin icerigi dogrulandi ve guncel cekirdekle uyumlu'
+    except Exception:return False,'yedegin guncel icerik dogrulamasi yok veya kaynak degisti'
+
+
 def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(), log=print, now=time.time,
         opt_trees=OPT_TREES):
     dest = Path(dest)
@@ -320,6 +369,8 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
             return 1
         os.chmod(partial, 0o600)
         partial.rename(archive)
+        verification_receipt(archive,core,not errors and core_sources(home)==core,
+                             'archive_core_crc_and_consistent_database_snapshots',now)
         log(f'OK {archive.name} {archive.stat().st_size / 1e6:.0f} MB; archives kept: {prune(dest, keep)}')
         return 0 if not errors else 3   # 3 = archive is good but some database could not be copied
     finally:
@@ -339,7 +390,7 @@ def verify_latest(dest, home='/home/hermes', log=print, max_age_hours=30, now=ti
     newest = archives[-1]
     age_h = (now() - newest.stat().st_mtime) / 3600
     problems = []
-    if age_h > max_age_hours:
+    if not math.isfinite(age_h) or age_h<0 or age_h > max_age_hours:
         problems.append(f'newest backup is {age_h:.0f} hours old')
     try:
         missing = verify_archive(newest, REQUIRED_FOR(home))
@@ -370,6 +421,12 @@ def verify_latest(dest, home='/home/hermes', log=print, max_age_hours=30, now=ti
     log(f'{newest.name}: {checked} databases restored and checked, {age_h:.0f} hours old')
     for problem in problems:
         log('PROBLEM: ' + problem)
+    try:
+        with tarfile.open(newest,'r:gz') as tar:core=json.load(tar.extractfile('etc/CORE-SOURCES.json'))
+        if core_sources(home)!=core:problems.append('current core changed since archive')
+    except (OSError,ValueError,TypeError,KeyError,tarfile.TarError):
+        core={};problems.append('core source verification unavailable')
+    verification_receipt(newest,core,not problems,'restored_database_integrity_and_archive_core',now)
     return 1 if problems else 0
 
 

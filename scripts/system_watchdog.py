@@ -103,7 +103,7 @@ def any_answer(status):
     return status < 500
 
 
-def backup_fresh(directory, max_age_hours=BACKUP_MAX_AGE_HOURS, now=time.time):
+def backup_fresh(directory, max_age_hours=BACKUP_MAX_AGE_HOURS, now=time.time, home='/home/hermes'):
     def probe():
         files = sorted((p for p in Path(directory).glob('jeff-backup-*.tar.gz') if p.is_file()), key=lambda p: p.stat().st_mtime) \
             if Path(directory).is_dir() else []
@@ -112,7 +112,9 @@ def backup_fresh(directory, max_age_hours=BACKUP_MAX_AGE_HOURS, now=time.time):
         age_h = (now() - files[-1].stat().st_mtime) / 3600
         if not math.isfinite(age_h) or age_h < 0:
             return False, 'yedek zamani bilinmiyor (gelecekte veya gecersiz)'
-        return age_h <= max_age_hours, f'son yedek {age_h:.0f} saat once'
+        if age_h>max_age_hours:return False,f'son yedek {age_h:.0f} saat once'
+        from scripts.jeff_backup import read_verification_receipt
+        return read_verification_receipt(directory,home,now=now(),max_age_hours=max_age_hours)
     return probe
 
 

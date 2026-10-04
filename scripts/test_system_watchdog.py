@@ -138,7 +138,7 @@ class ProbeTests(unittest.TestCase):
             f = Path(d) / 'jeff-backup-1.tar.gz'
             f.write_bytes(b'x')
             mtime = f.stat().st_mtime
-            self.assertTrue(wd.backup_fresh(d, now=lambda: mtime + 3600)()[0])
+            self.assertFalse(wd.backup_fresh(d, now=lambda: mtime + 3600)()[0], 'Fresh filename has no content receipt')
             self.assertFalse(wd.backup_fresh(d, now=lambda: mtime + 40 * 3600)()[0])
 
     def test_offsite_marker_freshness(self):
