@@ -152,6 +152,16 @@ test('context saves serialize and ending waits for them without retaining microp
  finish();await new Promise(r=>setImmediate(r));
  assert.equal(sent[1].action,'end');assert.equal(call.contextQueue.revision,1);
 });
+test('record tool keeps its operation and interruption response name',async()=>{
+ global.WebSocket={OPEN:1};const call=fixture();call.active=true;call.session={session:'fixture'};
+ let body,finish,sent=[];call.ws={readyState:1,send:data=>sent.push(JSON.parse(data))};
+ call.postConsult=data=>{body=data;return new Promise(r=>finish=r);};
+ const pending=call.consult({id:'record',name:'read_jarvis_records',args:{text:'Hangi işler bekliyor?'}},call.generation);
+ assert.equal(body.operation,'records');assert.equal(body.text,'Hangi işler bekliyor?');
+ call.onInputActivity();
+ assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_jarvis_records');
+ finish({authority:'real_jeff',answer:'Geç yanıt'});await pending;assert.equal(sent.length,1);
+});
 test('barge-in preserves the previous utterance without joining it to the next request',()=>{
  const call=fixture();call.active=true;call.inputOpen=true;call.inputText='Önceki soru.';call.outputText='Yarım yanıt.';
  call.sources.add({stop:()=>{}});call.onInputActivity();

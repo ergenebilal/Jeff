@@ -152,7 +152,7 @@
       this.stats.interruptions++;this.stats.localInterruptions++;this.flushAudio();this.audioAllowed=false;
       const cancelled=[];
       for(const [id,ac] of this.pending){
-        ac.abort();cancelled.push({id,name:'consult_jeff',willContinue:false,scheduling:'SILENT',response:{cancelled:true,
+        ac.abort();cancelled.push({id,name:ac.toolName||'consult_jeff',willContinue:false,scheduling:'SILENT',response:{cancelled:true,
           answer:'Kullanıcı araya girdi. Bu cevabı seslendirme; yeni isteği dinle.'}});
       }
       this.pending.clear();
@@ -163,7 +163,7 @@
       this.state('listening','Dinliyorum');
     }
     async consult(call,generation){
-      if(call.name!=='consult_jeff'||typeof call.args?.text!=='string'||!call.id){
+      if(!['consult_jeff','read_jarvis_records'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
         this.fail('Sesli istek doğrulanamadı.');return;
       }
       if(this.lastCall===call.id || this.pending.has(call.id))return;
@@ -173,12 +173,13 @@
       this.timings.push(timing);this.voiceTurn=timing;
       const dialogue=this.dialogue.map(m=>({...m}));
       if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
-      const ac=new AbortController();this.pending.set(call.id,ac);
+      const ac=new AbortController();ac.toolName=call.name;this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
       let progressTimer=null;
       try{
         let streamed=false;
-        const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue},ac.signal,event=>{
+        const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue,
+          operation:call.name==='read_jarvis_records'?'records':'consult'},ac.signal,event=>{
           if(!this.active||generation!==this.generation||ac.signal.aborted)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();

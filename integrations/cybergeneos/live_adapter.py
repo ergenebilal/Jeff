@@ -41,12 +41,15 @@ VOICE_RULES = (
     "her cümleyi başka modele danışıp kullanıcıyı bekletme. Varsayımını gerçek diye sunma. "
     "Verilen kullanıcı hedeflerini ve yakın konuşmayı kullan; 'bu', 'o', 'buna göre' önceki konuşmaya gönderme yapabilir. "
     "Genel bir fikir veya öneri istendiğinde düşün ve somut bir sonraki adım öner; eksik güncel kayıt tüm konuya 'bilmiyorum' deme nedeni değildir. "
+    "Verilen hedef/tercih için yeniden danışma gerekmiyor. Önce somut önerini söyle; gerekli olmayan seçimleri kullanıcıya geri atma. "
     "Bilinenleri, önerini ve gerçekten eksik bilgiyi ayır. İki zamanın kayıtlarını karşılaştırmadan 'yeni bir şey yok' deme. "
     "ÖNEMLİ: Ses/bağlantı denemesinde bile 'deneme başarılı', 'her şey yolunda', 'ses net', "
     "'sistem çalışıyor' gibi ölçmediğin kalite veya başarı iddiaları üretme. "
     "Bir ses denemesinde yalnız 'Bu bir ses denemesi. Söylediklerinizi aldım. "
     "Cihazınızdaki ses kalitesini buradan doğrulayamam.' diyebilirsin. "
-    "Kullanıcının kişisel hafızası, güncel panel/iş/onay/para durumu, haber veya bir işlemin yapılması "
+    "Güncel açık iş ve onay kayıtlarını soran farklı ifadeler için read_jarvis_records aracını kullan; bu hızlı ve salt okunur. "
+    "Bu araç takvim, bütün sistem sağlığı veya iki zaman arasında değişiklik kanıtı sağlamaz. "
+    "Verilmemiş kişisel hafıza, ayrıntılı panel/para durumu, haber veya bir işlemin yapılması "
     "gerekiyorsa MUTLAKA consult_jeff çağır. Verilmeyen geçmişi veya mevcut durumu uydurma. "
     "Yalnız gerçek araç sonucuna dayanarak iş, onay veya başarı hakkında konuş. "
     "consult_jeff içindeki text tam kullanıcının isteği olsun, "
@@ -73,7 +76,9 @@ def setup(voice='Charon', owner_context=None):
                    'description': 'Güncel kayıt, kişisel hafıza veya işlem gereken isteği gerçek Jeff ile değerlendir; sıradan sohbet için kullanma.',
                    'behavior': 'NON_BLOCKING',
                    'parameters': {'type': 'OBJECT', 'properties': {'text': {'type': 'STRING'}},
-                                  'required': ['text']}}]}],
+                                  'required': ['text']}},
+                 {'name':'read_jarvis_records','description':'Açık iş/onay sayısı ve doğrulanmamış sonuçları gerçek ortak kayıttan hızlı oku. İfadeye bağımlı değil. İş çalıştırmaz; takvim veya genel sağlık kanıtlamaz.',
+                  'behavior':'NON_BLOCKING','parameters':{'type':'OBJECT','properties':{'text':{'type':'STRING'}},'required':['text']}}]}],
         'inputAudioTranscription': {}, 'outputAudioTranscription': {},
         'realtimeInputConfig': {'activityHandling': 'START_OF_ACTIVITY_INTERRUPTS',
                                'automaticActivityDetection': {'silenceDurationMs': 350,
@@ -141,12 +146,13 @@ def owner_briefing(data):
 
 
 class LiveCalls:
-    def __init__(self, path, key_reader, reply, clock=time.time, token_request=None, context_reply=None, briefing_reader=None):
+    def __init__(self, path, key_reader, reply, clock=time.time, token_request=None, context_reply=None, briefing_reader=None, records_reply=None):
         self.path = Path(path)
         self.key_reader, self.reply, self.clock = key_reader, reply, clock
         self.token_request = token_request or self._token
         self.context_reply = context_reply
         self.briefing_reader = briefing_reader
+        self.records_reply = records_reply
         self.lock = threading.Lock()
         with self.db() as db:
             db.executescript('''
@@ -217,6 +223,8 @@ class LiveCalls:
                 or not 1 <= len(text.strip()) <= 1200):
             raise Refused(400, 'gecersiz_konusma')
         text = text.strip()
+        operation=body.get('operation','consult')
+        if not isinstance(operation,str) or operation not in {'consult','records'}:raise Refused(400,'gecersiz_ses_araci')
         dialogue = body.get('dialogue', [])
         if (not isinstance(dialogue,list) or len(dialogue)>12 or
                 any(not isinstance(m,dict) or m.get('role') not in {'user','assistant'} or
@@ -226,6 +234,8 @@ class LiveCalls:
         dialogue=[{'role':m['role'],'content':m['content']} for m in dialogue]
         sid = hashlib.sha256(nonce.encode()).hexdigest()
         bound=json.dumps({'text':text,'dialogue':dialogue},sort_keys=True,ensure_ascii=False) if 'dialogue' in body else text
+        if 'operation' in body:
+            bound=json.dumps({'request':bound,'operation':operation},sort_keys=True,ensure_ascii=False)
         binding = hashlib.sha256(bound.encode()).hexdigest()
         with self.db() as db:
             row = db.execute('SELECT owner,expires FROM voice_sessions WHERE id=?', (sid,)).fetchone()
@@ -255,7 +265,10 @@ class LiveCalls:
                 pieces = []
                 pending = ''
                 first = None
-                replies=self.context_reply(text,dialogue) if self.context_reply else self.reply(text)
+                if operation=='records':
+                    if not self.records_reply:raise Refused(503,'kayit_okuyucu_yok')
+                    replies=self.records_reply(text)
+                else:replies=self.context_reply(text,dialogue) if self.context_reply else self.reply(text)
                 for piece in replies:
                     if not isinstance(piece, str):
                         raise RuntimeError('invalid_reply')
@@ -332,10 +345,14 @@ def patch_app(source):
 def install(app):
     if getattr(app, '_live_installed', False):
         return
+    def records(text):
+        from scripts.jarvis_snapshot import render
+        return iter(['İş ve onay kayıtlarında: '+render(app._jarvis_snapshot())+
+            ' Bu kayıt takvim, genel sistem sağlığı veya önceki zamana göre değişiklik kanıtı değildir.'])
     def reply(text,dialogue=None):
         from .jarvis_adapter import STATUS_REQUESTS
         # Voice punctuation does not change an exact infrastructure status request.
-        clean=text.strip().rstrip('.!?').casefold()
+        clean=text.strip().rstrip('.!?').replace('İ','i').casefold()
         if clean in STATUS_REQUESTS:
             # The shared deterministic reader ignores panel business context entirely.
             return app.jeff.stream_reply(clean, '')
@@ -357,7 +374,7 @@ def install(app):
             'rule': 'Bu güncel kayıtla çelişme. Açık iş veya kanıtsız sonuç varken işleri boş veya sistemi sağlıklı sayma. Genel sağlık kanıtı bu mesajda yok.'},ensure_ascii=False))
         return guarded_reply(pieces,current,render)
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply, context_reply=reply,
-                      briefing_reader=lambda:owner_briefing(app.DATA))
+                      briefing_reader=lambda:owner_briefing(app.DATA),records_reply=records)
     original = app.H.route
     json_original = app.H._json
     class VoiceStream:

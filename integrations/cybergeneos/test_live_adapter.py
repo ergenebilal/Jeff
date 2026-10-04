@@ -193,4 +193,17 @@ class LiveTests(unittest.TestCase):
         path.chmod(0o644)
         self.assertEqual(owner_briefing(self.tmp.name)['status'],'owner_context_unavailable')
 
+    def test_typed_record_tool_reads_without_agent_and_cannot_change_operation(self):
+        reads=[]
+        self.service.records_reply=lambda text:reads.append(text) or iter(['16 açık iş; 10 sonuç doğrulanmadı.'])
+        body=dict(self.body,text='Hangi işler hâlâ beklemede?',operation='records')
+        answer=self.service.consult('owner',body)
+        self.assertIn('16',answer['answer']);self.assertEqual(self.calls,[])
+        self.service.consult('owner',body);self.assertEqual(len(reads),1)
+        with self.assertRaises(Refused):self.service.consult('owner',dict(body,operation='consult'))
+        for invalid in ['execute',[],None]:
+            with self.subTest(operation=invalid):
+                with self.assertRaises(Refused):self.service.consult('owner',dict(body,call_id='new',operation=invalid))
+        self.assertIn('read_jarvis_records',json.dumps(setup()))
+
 if __name__=='__main__':unittest.main()
