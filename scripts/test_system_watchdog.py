@@ -145,8 +145,12 @@ class ProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             marker = Path(d) / '.offsite-copy-ok'
             self.assertFalse(wd.marker_fresh(marker)()[0])              # never copied
-            marker.write_text('x')
-            mtime = marker.stat().st_mtime
+            archive=Path(d)/'jeff-backup-20261004-170000.tar.gz';archive.write_bytes(b'fixture')
+            mtime=archive.stat().st_mtime
+            marker.write_text(json.dumps({'version':1,'client_hash_verified':True,'archive':archive.name,
+                'archive_sha256':'a'*64,'archive_bytes':7,'server_mtime_seconds':int(mtime),'verified_at':mtime}))
+            (Path(d)/'.verified-backup.json').write_text(json.dumps({'version':1,'ok':True,'archive':archive.name,
+                'archive_sha256':'a'*64,'archive_bytes':7,'archive_mtime_ns':archive.stat().st_mtime_ns}))
             self.assertTrue(wd.marker_fresh(marker, now=lambda: mtime + 2 * 86400)()[0])
             ok, detail = wd.marker_fresh(marker, now=lambda: mtime + 12 * 86400)()
             self.assertFalse(ok)

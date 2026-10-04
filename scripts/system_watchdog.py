@@ -1,4 +1,4 @@
-"""Jeff system watchdog: tells Bilal on Telegram when something breaks, and when it recovers.
+"""Observe routine infrastructure quietly; notify for evidenced money/critical decisions.
 
 Run from cron every 5 minutes on the server. It only *observes and notifies*; it never
 restarts anything. State lives in a small JSON file so a problem is announced once, repeated
@@ -12,6 +12,7 @@ the file named by --env-file (KEY=VALUE lines). Nothing secret is written to log
 import argparse
 import json
 import math
+import re
 import os
 import shutil
 import socket
@@ -119,15 +120,31 @@ def backup_fresh(directory, max_age_hours=BACKUP_MAX_AGE_HOURS, now=time.time, h
 
 
 def marker_fresh(path, max_age_days=9, now=time.time):
-    """The PC touches this marker after every verified off-server copy of the backup."""
+    """Last actual off-server hash check, bound to a retained archive; no rehash claim."""
     def probe():
         marker = Path(path)
         if not marker.is_file():
             return False, 'bilgisayara hic kopya alinmamis'
-        age_days = (now() - marker.stat().st_mtime) / 86400
+        try:
+            data=json.loads(marker.read_text())
+            if data.get('version')!=1 or data.get('client_hash_verified') is not True:raise ValueError()
+            name=data.get('archive','');digest=data.get('archive_sha256','')
+            if not re.fullmatch(r'jeff-backup-\d{8}-\d{6}\.tar\.gz',name) or not re.fullmatch('[a-f0-9]{64}',digest):raise ValueError()
+            archive=marker.parent/name
+            if not archive.is_file() or archive.is_symlink():raise ValueError()
+            if type(data.get('archive_bytes')) is not int or archive.stat().st_size!=data['archive_bytes']:raise ValueError()
+            if int(archive.stat().st_mtime)!=data.get('server_mtime_seconds'):raise ValueError()
+            source=json.loads((marker.parent/'.verified-backup.json').read_text())
+            if source.get('version')!=1 or source.get('ok') is not True:raise ValueError()
+            if source.get('archive')!=name or source.get('archive_sha256')!=digest or source.get('archive_bytes')!=data['archive_bytes']:raise ValueError()
+            if source.get('archive_mtime_ns')!=archive.stat().st_mtime_ns:raise ValueError()
+            timestamp=data.get('verified_at')
+            if type(timestamp) not in (int,float):raise ValueError()
+            age_days=(now()-timestamp)/86400
+        except Exception:return False,'bilgisayar kopyasinin icerik dogrulamasi yok veya arşiv degisti'
         if not math.isfinite(age_days) or age_days < 0:
             return False, 'bilgisayar kopyasinin zamani bilinmiyor (gelecekte veya gecersiz)'
-        return age_days <= max_age_days, f'son bilgisayar kopyasi {age_days:.0f} gun once'
+        return age_days <= max_age_days, f'son icerik dogrulanmis bilgisayar kopyasi {age_days:.0f} gun once'
     return probe
 
 
