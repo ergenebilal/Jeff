@@ -4,6 +4,7 @@ The Windows node publishes counts in its authenticated heartbeat. Missing or
 stale sources are named explicitly; they must not be interpreted as zero.
 """
 import json
+import math
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -43,10 +44,21 @@ def collect(bridge_db, now=None, stale_hours=48, panel_db=None):
         if 'alfred_heartbeat' in tables:
             row = (db.execute('SELECT observed_at,payload FROM node_approval_snapshots WHERE node_id=?', ('pablo',)).fetchone()
                    if 'node_approval_snapshots' in tables else None)
-            if row is None or now.timestamp() - row[0] > 180:
+            if (row is None or type(row[0]) not in (int,float) or not math.isfinite(row[0]) or
+                    not 0 <= now.timestamp()-row[0] <= 180):
                 totals['unavailable'].append('Pablo ve pazarlama onayları')
             else:
                 snapshot = json.loads(row[1])
+                if not isinstance(snapshot,dict):
+                    raise ValueError('Invalid snapshot')
+                for flag in ('journal_complete','marketing_complete'):
+                    if type(snapshot.get(flag,False)) is not bool:
+                        raise ValueError('Invalid source coverage')
+                for counter in ('journal_waiting','journal_expired','marketing_waiting','marketing_old',
+                                'journal_legacy_expired','marketing_legacy_expired','notification_delivery_unknown'):
+                    value=snapshot.get(counter,0)
+                    if type(value) is not int or value < 0:
+                        raise ValueError('Invalid source count')
                 legacy_expired+=int(snapshot.get('journal_legacy_expired',0))+int(snapshot.get('marketing_legacy_expired',0))
                 if snapshot.get('notification_delivery_unknown',0):
                     totals['unavailable'].append('Pablo karar bildirimi: teslim doğrulanamadı')
