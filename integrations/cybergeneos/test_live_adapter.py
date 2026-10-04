@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install
+from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply
 
 
 class LiveTests(unittest.TestCase):
@@ -89,6 +89,16 @@ class LiveTests(unittest.TestCase):
         with self.service.db() as db:
             self.assertEqual(db.execute('SELECT state FROM voice_calls').fetchone()[0],'RUNNING')
         stream.close()
+    def test_unproved_health_or_empty_work_sentence_never_reaches_voice(self):
+        current={'work':{'known':True,'open':16},'approvals':{'known':True,'pending':0}}
+        for text in ['Sistem sağlıklı. ','Bekleyen görev yok. ','Hepsi zamanında çalıştı. ']:
+            with self.subTest(text=text):
+                answer=''.join(guarded_reply(iter([text]),current,lambda _: '16 açık iş var.'))
+                self.assertNotIn(text.strip(),answer);self.assertIn('doğrulanmadı',answer);self.assertIn('16',answer)
+    def test_true_zero_approvals_is_allowed_but_unknown_work_is_not_zero(self):
+        data={'work':{'known':False},'approvals':{'known':True,'pending':0}}
+        self.assertEqual(''.join(guarded_reply(iter(['Onay yok. ']),data,lambda _:'Okunamadı.')),'Onay yok. ')
+        self.assertIn('Okunamadı',''.join(guarded_reply(iter(['Bekleyen iş yok. ']),data,lambda _:'Okunamadı.')))
     def test_running_call_cannot_be_replayed(self):
         entered=threading.Event();leave=threading.Event()
         def blocked(text):self.calls.append(text);entered.set();leave.wait(2);return iter(['Gerçek cevap'])
@@ -134,7 +144,7 @@ class LiveTests(unittest.TestCase):
             install(app);reply=service.call_args.args[2]
             list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))
         self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
-        self.assertEqual(contexts,[])
+        self.assertEqual(contexts,['read'])
 
 
 if __name__=='__main__':unittest.main()

@@ -76,6 +76,39 @@ class Refused(Exception):
         self.status, self.reason = status, reason
 
 
+def guarded_reply(pieces, current, renderer):
+    """No overall-health evidence is supplied by this transport. Block observed
+    unsupported health/empty-work claims before their sentence reaches audio.
+    This is a limited guard, not a universal semantic proof of every answer.
+    """
+    def unsupported(sentence):
+        text=sentence.casefold()
+        if re.search(r'(sistem\s+sağlıklı|her\s+şey\s+yolunda|hepsi\s+zamanında|acil\s+iş\s+yok)',text):return True
+        work=current.get('work',{})
+        if re.search(r'bekleyen\s+(?:görev|iş)(?:\s+veya\s+acil\s+iş)?\s+yok',text):
+            return not work.get('known') or work.get('open',0)>0
+        approvals=current.get('approvals',{})
+        if re.search(r'(?:bekleyen\s+)?onay\s+yok',text):
+            return not approvals.get('known') or approvals.get('pending',0)>0
+        return False
+    pending=''
+    try:
+        for piece in pieces:
+            pending+=piece
+            while (match:=re.search(r'[.!?]\s+',pending)):
+                sentence,pending=pending[:match.end()],pending[match.end():]
+                if unsupported(sentence):
+                    yield 'Bu yanıtın genel sağlık veya boş iş iddiası doğrulanmadı. '+renderer(current)
+                    return
+                yield sentence
+        if pending:
+            if unsupported(pending):yield 'Bu yanıtın genel sağlık veya boş iş iddiası doğrulanmadı. '+renderer(current)
+            else:yield pending
+    finally:
+        close=getattr(pieces,'close',None)
+        if close:close()
+
+
 class LiveCalls:
     def __init__(self, path, key_reader, reply, clock=time.time, token_request=None, context_reply=None):
         self.path = Path(path)
@@ -246,12 +279,15 @@ def install(app):
             return app.jeff.stream_reply(clean, '')
         # Voice starts with current infrastructure truth. Jeff can consult his existing
         # tools for other subjects; no business query or workflow is modified here.
-        # Avoid a Windows round trip before every conversational turn. No stale
-        # status is injected: Jeff must consult existing tools when facts are needed.
-        return app.jeff.stream_reply(text, json.dumps({'live_voice': True,
-            'status_not_prefetched': True,
+        # Ordinary conversation is already native. A grounded consultation can
+        # wait for current records while truthful progress is spoken in parallel.
+        current=app._jarvis_snapshot()
+        from scripts.jarvis_snapshot import render
+        pieces=app.jeff.stream_reply(text, json.dumps({'live_voice': True,
+            'jarvis_snapshot':current,
             'voice_dialogue': dialogue or [],
-            'rule': 'Güncel durum bu mesajda okunmadı. Durum gerekiyorsa mevcut araçlarla doğrula; tahmin etme.'},ensure_ascii=False))
+            'rule': 'Bu güncel kayıtla çelişme. Açık iş veya kanıtsız sonuç varken işleri boş veya sistemi sağlıklı sayma. Genel sağlık kanıtı bu mesajda yok.'},ensure_ascii=False))
+        return guarded_reply(pieces,current,render)
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply, context_reply=reply)
     original = app.H.route
     json_original = app.H._json
