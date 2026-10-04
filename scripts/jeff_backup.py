@@ -263,16 +263,25 @@ def core_sources(home):
 
 
 def verify_core_sources(archive):
+    """One forward pass; gzip seeking would repeatedly inflate large archives."""
     try:
-        with tarfile.open(archive, 'r:gz') as tar:
-            manifest = json.load(tar.extractfile('etc/CORE-SOURCES.json'))
-            if not isinstance(manifest, dict) or not manifest:
-                return ['invalid core source manifest']
-            for name, expected in manifest.items():
-                member = tar.getmember(name)
-                if not member.isfile() or hashlib.sha256(tar.extractfile(member).read()).hexdigest() != expected:
-                    return ['core source hash mismatch: ' + name]
-    except (KeyError, TypeError, ValueError, OSError, tarfile.TarError):
+        manifest=None;checked=set()
+        with tarfile.open(archive, 'r|gz') as tar:
+            for member in tar:
+                if member.name=='etc/CORE-SOURCES.json':
+                    if manifest is not None or not member.isfile():return ['invalid core source manifest']
+                    manifest=json.load(tar.extractfile(member))
+                    if (not isinstance(manifest,dict) or not manifest or
+                            any(not isinstance(n,str) or not isinstance(d,str) or not re.fullmatch('[a-f0-9]{64}',d) for n,d in manifest.items())):
+                        return ['invalid core source manifest']
+                elif manifest is not None and member.name in manifest:
+                    if member.name in checked or not member.isfile():return ['invalid or duplicate core source: '+member.name]
+                    with tar.extractfile(member) as source:actual=hashlib.file_digest(source,'sha256').hexdigest()
+                    if actual!=manifest[member.name]:return ['core source hash mismatch: '+member.name]
+                    checked.add(member.name)
+        if manifest is None:return ['missing core source manifest']
+        if checked!=set(manifest):return ['missing core source member']
+    except (KeyError, TypeError, ValueError, OSError, EOFError, tarfile.TarError):
         return ['unreadable core source manifest']
     return []
 
