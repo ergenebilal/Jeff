@@ -26,13 +26,19 @@ FAST_DIALOGUE = (
     'orada mısın', 'jeff orada mısın', 'teşekkürler', 'teşekkür ederim',
     'tamam', 'peki', 'bir fikrim var', 'birlikte düşünelim', 'çok yoruldum',
     'konuşalım', 'dur beni dinle')
+PROOF_REQUIRED = (r'(?i)(onay|görev|pablo|durum|bitir|bitti|tamamla|tamamlandı|yaptın|yapıldı|'
+    r'başlat|çalıştır|gönder|kaydet|arşiv|iptal|hatır|hafıza|müşteri|lead|radar|'
+    r'para|fiyat|hesap|ödeme|bakiye|sermaye|bugün|şimdi|güncel|haber|hava|'
+    r'takvim|randevu|sil(?:me|in|indi)?\b|dosya|sunucu|\biş(?:ler|leri|im|in)?\b)')
 VOICE_RULES = (
-    "Sen gerçek Jeff'in canlı ses arayüzüsün. Türkçe, doğal, kısa konuş. "
-    "Yalnız şu kısa konuşma ifadelerine doğrudan cevap verebilirsin: " + ', '.join(FAST_DIALOGUE) + '. '
-    "Bunlarda en fazla bir kısa cümleyle selam ver, dinlediğini söyle veya empati kur. "
-    "Hiçbir güncel durum, kişisel hafıza, iş sonucu, eylem veya onay iddiası ekleme. "
-    "Diğer her kullanıcı ifadesi için önce consult_jeff çağır; text tam kullanıcının isteği olsun, "
-    "isteğine eylem, onay veya bilgi ekleme. Araç yanıtı gelmeden ses üretme. "
+    "Sen Bilal'in Jeff adlı asistanının canlı konuşma katmanısın. Türkçe, doğal, kısa konuş. "
+    "Sıradan sohbeti, genel açıklamaları, fikirleri birlikte düşünmeyi ve empatiyi DOĞRUDAN canlı yanıtla; "
+    "her cümleyi başka modele danışıp kullanıcıyı bekletme. Varsayımını gerçek diye sunma. "
+    "Kullanıcının kişisel hafızası, güncel panel/iş/onay/para durumu, haber veya bir işlemin yapılması "
+    "gerekiyorsa MUTLAKA consult_jeff çağır. Verilmeyen geçmişi veya mevcut durumu uydurma. "
+    "Yalnız gerçek araç sonucuna dayanarak iş, onay veya başarı hakkında konuş. "
+    "consult_jeff içindeki text tam kullanıcının isteği olsun, "
+    "isteğine eylem, onay veya bilgi ekleme. Kayıt/iş cevabı için araç yanıtını bekle. "
     "Araç cevap parçaları gönderir. Her yeni answer parçasını yalnız bir kez aynen seslendir; "
     "eski parçayı tekrarlama. Sayıları, belirsizliği ve olumsuzlukları değiştirme. "
     "Kendinden hafıza, tamamlanma, durum, yetki veya başarı ekleme. "
@@ -50,7 +56,7 @@ def setup(voice='Charon'):
                              'speechConfig': {'voiceConfig': {'prebuiltVoiceConfig': {'voiceName': voice}}}},
         'systemInstruction': {'parts': [{'text': VOICE_RULES}]},
         'tools': [{'functionDeclarations': [{'name': 'consult_jeff',
-                   'description': 'Kullanıcının isteğini gerçek Jeff ile değerlendir; cevabını parçalar halinde al.',
+                   'description': 'Güncel kayıt, kişisel hafıza veya işlem gereken isteği gerçek Jeff ile değerlendir; sıradan sohbet için kullanma.',
                    'behavior': 'NON_BLOCKING',
                    'parameters': {'type': 'OBJECT', 'properties': {'text': {'type': 'STRING'}},
                                   'required': ['text']}}]}],
@@ -67,10 +73,11 @@ class Refused(Exception):
 
 
 class LiveCalls:
-    def __init__(self, path, key_reader, reply, clock=time.time, token_request=None):
+    def __init__(self, path, key_reader, reply, clock=time.time, token_request=None, context_reply=None):
         self.path = Path(path)
         self.key_reader, self.reply, self.clock = key_reader, reply, clock
         self.token_request = token_request or self._token
+        self.context_reply = context_reply
         self.lock = threading.Lock()
         with self.db() as db:
             db.executescript('''
@@ -116,7 +123,8 @@ class LiveCalls:
             db.execute('INSERT INTO voice_sessions VALUES(?,?,?)', (sid, owner, now + 1200))
         return {'token': token, 'session': nonce, 'setup': config, 'websocket': WS_URL,
                 'expires_at': now + 1200, 'answer_authority': 'real_jeff',
-                'fast_dialogue_phrases': list(FAST_DIALOGUE), 'conversation_engine': 'native_live'}
+                'fast_dialogue_phrases': list(FAST_DIALOGUE), 'conversation_engine': 'native_live',
+                'native_conversation': True, 'proof_required_pattern': PROOF_REQUIRED[4:]}
 
     def consult(self, owner, body):
         result = None
@@ -134,8 +142,16 @@ class LiveCalls:
                 or not 1 <= len(text.strip()) <= 1200):
             raise Refused(400, 'gecersiz_konusma')
         text = text.strip()
+        dialogue = body.get('dialogue', [])
+        if (not isinstance(dialogue,list) or len(dialogue)>12 or
+                any(not isinstance(m,dict) or m.get('role') not in {'user','assistant'} or
+                    not isinstance(m.get('content'),str) or len(m['content'])>1200 for m in dialogue) or
+                sum(len(m['content']) for m in dialogue)>6000):
+            raise Refused(400,'gecersiz_konusma_baglami')
+        dialogue=[{'role':m['role'],'content':m['content']} for m in dialogue]
         sid = hashlib.sha256(nonce.encode()).hexdigest()
-        binding = hashlib.sha256(text.encode()).hexdigest()
+        bound=json.dumps({'text':text,'dialogue':dialogue},sort_keys=True,ensure_ascii=False) if 'dialogue' in body else text
+        binding = hashlib.sha256(bound.encode()).hexdigest()
         with self.db() as db:
             row = db.execute('SELECT owner,expires FROM voice_sessions WHERE id=?', (sid,)).fetchone()
             if not row or row[0] != owner or row[1] <= self.clock():
@@ -159,11 +175,13 @@ class LiveCalls:
                     raise Refused(409, 'onceki_konusmanin_sonucu_bilinmiyor')
                 db.execute('INSERT INTO voice_calls VALUES(?,?,?, ?,NULL)', (sid,cid,binding,'RUNNING'))
             try:
-                yield {'t': 'accepted', 'authority': 'real_jeff', 'completion_verified': False}
+                yield {'t': 'accepted', 'authority': 'real_jeff', 'completion_verified': False,
+                       'progress': 'Kontrol ediyorum.'}
                 pieces = []
                 pending = ''
                 first = None
-                for piece in self.reply(text):
+                replies=self.context_reply(text,dialogue) if self.context_reply else self.reply(text)
+                for piece in replies:
                     if not isinstance(piece, str):
                         raise RuntimeError('invalid_reply')
                     pieces.append(piece)
@@ -215,7 +233,7 @@ def patch_app(source):
 def install(app):
     if getattr(app, '_live_installed', False):
         return
-    def reply(text):
+    def reply(text,dialogue=None):
         from .jarvis_adapter import STATUS_REQUESTS
         # Voice punctuation does not change an exact infrastructure status request.
         clean=text.strip().rstrip('.!?').casefold()
@@ -228,8 +246,9 @@ def install(app):
         # status is injected: Jeff must consult existing tools when facts are needed.
         return app.jeff.stream_reply(text, json.dumps({'live_voice': True,
             'status_not_prefetched': True,
+            'voice_dialogue': dialogue or [],
             'rule': 'Güncel durum bu mesajda okunmadı. Durum gerekiyorsa mevcut araçlarla doğrula; tahmin etme.'},ensure_ascii=False))
-    calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply)
+    calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply, context_reply=reply)
     original = app.H.route
     json_original = app.H._json
     class VoiceStream:

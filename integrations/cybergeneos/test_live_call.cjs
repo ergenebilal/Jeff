@@ -109,3 +109,26 @@ test('microphone capture starts only after the voice connection accepts setup',a
   if(saved.navigator)Object.defineProperty(global,'navigator',saved.navigator);else delete global.navigator;
  }
 });
+test('ordinary conversation speaks directly but current records need Jeff',()=>{
+ const call=fixture();call.active=true;call.nativeConversation=true;call.proofRequired=/onay|pablo|durum|görev|hatır|bugün/i;
+ call.receive({serverContent:{inputTranscription:{text:'Neden insanlar kararsız kalır?'}}},call.generation);
+ assert.equal(call.audioAllowed,true);assert.equal(call.voiceTurn.kind,'native_conversation');
+ call.inputOpen=false;call.receive({serverContent:{inputTranscription:{text:'Bugün ne var?'}}},call.generation);
+ assert.equal(call.audioAllowed,false);
+});
+test('slow admitted consultation speaks progress without claiming completion',async()=>{
+ const call=fixture();call.active=true;let done,piece,sends=[];
+ call.session={session:'fixture'};call.ws={send:text=>sends.push(JSON.parse(text))};
+ call.postConsult=(_,__,onPiece,onAccepted)=>{piece=onPiece;onAccepted({authority:'real_jeff',progress:'Kontrol ediyorum.'});return new Promise(r=>done=r);};
+ const task=call.consult({id:'slow',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
+ await new Promise(r=>setTimeout(r,550));
+ assert.equal(sends.length,1);assert.equal(sends[0].toolResponse.functionResponses[0].response.completion_verified,false);
+ assert.equal(call.timings[0].firstPieceAt,null);assert.ok(call.timings[0].progressSentAt);
+ piece({authority:'real_jeff',answer:'Sonuç doğrulanmadı.'});done({authority:'real_jeff',answer:'Sonuç doğrulanmadı.'});await task;
+ assert.equal(sends.length,3);assert.equal(sends[1].toolResponse.functionResponses[0].response.answer,'Sonuç doğrulanmadı.');
+});
+test('recent dialogue stays bounded and never supplies a system role',()=>{
+ const call=fixture();for(let i=0;i<30;i++)call.remember('user','x'.repeat(1500));
+ assert.ok(call.dialogue.length<=12);assert.ok(call.dialogue.reduce((n,m)=>n+m.content.length,0)<=6000);
+ assert.ok(call.dialogue.every(m=>m.role==='user'&&m.content.length<=1200));
+});

@@ -6,6 +6,7 @@
       this.active=false; this.generation=0; this.sources=new Set(); this.pending=new Map();
       this.stats={inputFrames:0,outputChunks:0,interruptions:0,localInterruptions:0,unconsultedAudioDropped:0};
       this.timings=[];this.speechEndedAt=null;this.voiceTurn=null;
+      this.dialogue=[];
     }
     async start(){
       if(this.active)return;
@@ -22,6 +23,8 @@
         this.connectionTiming.tokenAt=performance.now();
         if(!current())return;
         const session=this.session;this.fastDialogue=new Set(session.fast_dialogue_phrases||[]);
+        this.nativeConversation=session.native_conversation===true;
+        this.proofRequired=session.proof_required_pattern?new RegExp(session.proof_required_pattern,'i'):null;
         if(session.answer_authority!=='real_jeff')throw new Error('Gerçek Jeff bağlantısı doğrulanamadı.');
         const ws=this.ws=new WebSocket(session.websocket+'?access_token='+encodeURIComponent(session.token));
         delete session.token; // Only the active connection needs the short-lived credential.
@@ -64,7 +67,7 @@
           if(e.data?.activity==='start'){this.onInputActivity();return;}
           if(e.data?.activity==='end'){
             this.speechEndedAt=performance.now();
-            if(this.voiceTurn?.kind==='quick_dialogue'&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.speechEndedAt=this.speechEndedAt;
+            if(['quick_dialogue','native_conversation'].includes(this.voiceTurn?.kind)&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.speechEndedAt=this.speechEndedAt;
             return;
           }
           if(ws.bufferedAmount>64000){this.fail('Ses bağlantısı yetişemedi. Görüşme kapatıldı.');return;}
@@ -99,11 +102,12 @@
         this.inputText+=heard;this.transcript('user',this.inputText,false);
         const phrase=this.inputText.normalize('NFC').toLocaleLowerCase('tr-TR').replace(/[.!?,]+$/g,'').trim().replace(/\s+/g,' ');
         if(!this.pending.size&&!this.consultedAnswer){
-          const allowed=this.fastDialogue?.has(phrase)===true;
+          const allowed=this.fastDialogue?.has(phrase)===true||
+            (this.nativeConversation===true&&phrase.length>0&&!!this.proofRequired&&!this.proofRequired.test(phrase));
           if(this.audioAllowed&&!allowed)this.flushAudio();
           this.audioAllowed=allowed;
-          if(allowed&&this.voiceTurn?.kind!=='quick_dialogue'){
-            this.voiceTurn={kind:'quick_dialogue',speechEndedAt:this.speechEndedAt,firstAudioAt:null};
+          if(allowed&&!['quick_dialogue','native_conversation'].includes(this.voiceTurn?.kind)){
+            this.voiceTurn={kind:this.nativeConversation?'native_conversation':'quick_dialogue',speechEndedAt:this.speechEndedAt,firstAudioAt:null};
             this.timings.push(this.voiceTurn);
           }
         }
@@ -119,6 +123,8 @@
       if(content.turnComplete){
         // Tool-request boundaries also emit turnComplete; they are not answer completion.
         if(!this.pending.size && this.outputText){
+          if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
+          this.remember('assistant',this.outputText);
           // A non-blocking response can have more than one spoken turn. All
           // pieces have already come from Jeff; the next microphone activity
           // removes permission before any new answer can be heard.
@@ -139,7 +145,9 @@
         ac.abort();cancelled.push({id,name:'consult_jeff',willContinue:false,scheduling:'SILENT',response:{cancelled:true,
           answer:'Kullanıcı araya girdi. Bu cevabı seslendirme; yeni isteği dinle.'}});
       }
-      this.pending.clear();this.outputText='';
+      this.pending.clear();
+      if(this.outputText)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
+      this.outputText='';
       if(cancelled.length&&this.ws?.readyState===WebSocket.OPEN)
         this.ws.send(JSON.stringify({toolResponse:{functionResponses:cancelled}}));
       this.state('listening','Dinliyorum');
@@ -151,14 +159,16 @@
       if(this.lastCall===call.id || this.pending.has(call.id))return;
       this.lastCall=call.id;this.audioAllowed=false;this.outputText='';
       const timing={consultStartedAt:performance.now(),speechEndedAt:this.speechEndedAt,
-        firstPieceAt:null,firstAudioAt:null,answerEndedAt:null};
+        firstPieceAt:null,firstAudioAt:null,answerEndedAt:null,progressSentAt:null};
       this.timings.push(timing);this.voiceTurn=timing;
-      if(this.inputText){this.transcript('user',this.inputText,true);this.inputText='';}
+      const dialogue=this.dialogue.map(m=>({...m}));
+      if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
       const ac=new AbortController();this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
+      let progressTimer=null;
       try{
         let streamed=false;
-        const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text},ac.signal,event=>{
+        const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue},ac.signal,event=>{
           if(!this.active||generation!==this.generation||ac.signal.aborted)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();
@@ -166,6 +176,15 @@
           this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
             response:{answer:event.answer},willContinue:true,scheduling:streamed?'WHEN_IDLE':'INTERRUPT'}]}}));
           streamed=true;
+        },event=>{
+          if(event.authority!=='real_jeff'||typeof event.progress!=='string')return;
+          progressTimer=setTimeout(()=>{
+            if(!this.active||generation!==this.generation||ac.signal.aborted||timing.firstPieceAt!==null)return;
+            timing.progressSentAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;
+            this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
+              response:{answer:event.progress,progress_only:true,completion_verified:false},willContinue:true,scheduling:'INTERRUPT'}]}}));
+            streamed=true;
+          },500);
         });
         if(!this.active||generation!==this.generation||ac.signal.aborted)return;
         if(result.authority!=='real_jeff'||!result.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
@@ -175,7 +194,7 @@
       }catch(e){
         if(e.name!=='AbortError'&&this.active&&generation===this.generation)
           this.fail(e.message||'Jeff yanıtı alınamadı.');
-      }finally{if(this.pending.get(call.id)===ac)this.pending.delete(call.id);}
+      }finally{clearTimeout(progressTimer);if(this.pending.get(call.id)===ac)this.pending.delete(call.id);}
     }
     play(inline){
       if(this.voiceTurn&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.firstAudioAt=performance.now();
@@ -220,7 +239,12 @@
       }
       return result;
     }
-    async postConsult(body,signal,onPiece){
+    remember(role,content){
+      if(!content?.trim())return;
+      this.dialogue.push({role,content:content.slice(0,1200)});
+      while(this.dialogue.length>12||this.dialogue.reduce((n,m)=>n+m.content.length,0)>6000)this.dialogue.shift();
+    }
+    async postConsult(body,signal,onPiece,onAccepted){
       const r=await fetch('/api/voice/consult',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({...body,stream:true}),signal});
       if(!r.ok){
@@ -237,6 +261,7 @@
           while((end=buffer.indexOf('\n'))>=0){
             const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;
             const event=JSON.parse(line);
+            if(event.t==='accepted')onAccepted?.(event);
             if(event.t==='err')throw new Error('Jeff cevabı tamamlanamadı. Sonuç doğrulanmadı.');
             if(event.t==='piece')onPiece(event);
             if(event.t==='end')result=event;
