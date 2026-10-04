@@ -132,3 +132,11 @@ test('recent dialogue stays bounded and never supplies a system role',()=>{
  assert.ok(call.dialogue.length<=12);assert.ok(call.dialogue.reduce((n,m)=>n+m.content.length,0)<=6000);
  assert.ok(call.dialogue.every(m=>m.role==='user'&&m.content.length<=1200));
 });
+test('barge-in preserves the previous utterance without joining it to the next request',()=>{
+ const call=fixture();call.active=true;call.inputOpen=true;call.inputText='Önceki soru.';call.outputText='Yarım yanıt.';
+ call.sources.add({stop:()=>{}});call.onInputActivity();
+ call.receive({serverContent:{inputTranscription:{text:'Dur, beni dinle.'}}},call.generation);
+ assert.equal(call.inputText,'Dur, beni dinle.');
+ assert.deepEqual(call.dialogue.map(m=>m.role),['user','assistant']);
+ assert.equal(call.dialogue[0].content,'Önceki soru.');assert.match(call.dialogue[1].content,/Sözü kesilen/);
+});

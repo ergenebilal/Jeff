@@ -91,6 +91,9 @@
       }
       const content=event.serverContent||{};
       if(content.interrupted){
+        if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
+        if(this.outputText)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
+        this.inputOpen=false;
         this.stats.interruptions++;this.flushAudio();this.audioAllowed=false;
         for(const ac of this.pending.values())ac.abort();this.pending.clear();
         this.outputText='';this.state('listening','Dinliyorum');
@@ -139,6 +142,8 @@
       this.audioAllowed=false;
       this.consultedAnswer=false;this.voiceTurn=null;this.speechEndedAt=null;
       if(!this.pending.size&&!this.sources.size)return;
+      if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
+      this.inputOpen=false;
       this.stats.interruptions++;this.stats.localInterruptions++;this.flushAudio();this.audioAllowed=false;
       const cancelled=[];
       for(const [id,ac] of this.pending){
