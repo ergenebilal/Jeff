@@ -170,6 +170,7 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
         from scripts.pablo_drift_monitor import read_report
     def unit(u, label, impact, grace=0):
         return Check(f'unit:{u}', label, impact, unit_active(u), grace)
+    from scripts.pablo_recovery_monitor import read_report as recovery_report
     return [
         unit('hermes-gateway', 'Jeff (Telegram)', 'Jeff Telegram mesajlarina cevap vermez'),
         unit('jeff-bridge', 'Gorev panosu', 'Jeff ile Pablo arasinda is devri durur'),
@@ -194,6 +195,8 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
               http_reachable('http://100.89.26.86:7788/ping', any_answer), 3600),
         Check('source:pablo', 'Pablo kaynak uyumu', 'Calisan bilgisayar kaynagi onayli sunucu kaynagindan sapmis veya kontrol eski',
               lambda:read_report('/home/hermes/jeff-artifacts/pablo-drift.json'), 0),
+        Check('recovery:pablo', 'Pablo ozel kurtarma kopyasi', 'Bilgisayarin guncel ayar ve is kaydi dogrulanmis kurtarma kopyasinda yok',
+              lambda:recovery_report('/home/hermes/jeff-artifacts/pablo-recovery-status.json'), 0),
         Check('model', "Jeff'in dusunme yolu", 'Jeff cevap uretemez ya da yedek yolla calisiyor', _model_probe(model_report), 600),
         Check('telegram', 'Telegram baglantisi', 'Jeff iki yerde birden dinliyor olabilir, mesajlar kacabilir',
               telegram_not_fighting(), 0),
