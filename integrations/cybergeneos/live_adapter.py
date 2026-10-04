@@ -176,7 +176,8 @@ def install(app):
         # Voice punctuation does not change an exact infrastructure status request.
         clean=text.strip().rstrip('.!?').casefold()
         if clean in STATUS_REQUESTS:
-            text=clean
+            # The shared deterministic reader ignores panel business context entirely.
+            return app.jeff.stream_reply(clean, '')
         return app.jeff.stream_reply(text, app.briefing.jeff_context(app.store))
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply)
     original = app.H.route

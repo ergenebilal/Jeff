@@ -4,7 +4,7 @@
     constructor({state,transcript,notice,voice,worklet}){
       Object.assign(this,{state,transcript,notice,voice,worklet});
       this.active=false; this.generation=0; this.sources=new Set(); this.pending=new Map();
-      this.stats={inputFrames:0,outputChunks:0,interruptions:0,unconsultedAudioDropped:0};
+      this.stats={inputFrames:0,outputChunks:0,interruptions:0,localInterruptions:0,unconsultedAudioDropped:0};
     }
     async start(){
       if(this.active)return;
@@ -55,6 +55,7 @@
         this.input.connect(node);node.connect(silent);silent.connect(this.ctx.destination);
         node.port.onmessage=e=>{
           if(!current()||this.muted||ws.readyState!==WebSocket.OPEN)return;
+          if(e.data?.activity==='start'){this.onInputActivity();return;}
           if(ws.bufferedAmount>64000){this.fail('Ses bağlantısı yetişemedi. Görüşme kapatıldı.');return;}
           const bytes=new Uint8Array(e.data);let binary='';
           for(let i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
@@ -102,6 +103,19 @@
         this.inputOpen=false;
         if(!this.pending.size)this.afterPlayback();
       }
+    }
+    onInputActivity(){
+      if(!this.active||this.muted||(!this.pending.size&&!this.sources.size))return;
+      this.stats.interruptions++;this.stats.localInterruptions++;this.flushAudio();this.audioAllowed=false;
+      const cancelled=[];
+      for(const [id,ac] of this.pending){
+        ac.abort();cancelled.push({id,name:'consult_jeff',response:{cancelled:true,
+          answer:'Kullanıcı araya girdi. Bu cevabı seslendirme; yeni isteği dinle.'}});
+      }
+      this.pending.clear();this.outputText='';
+      if(cancelled.length&&this.ws?.readyState===WebSocket.OPEN)
+        this.ws.send(JSON.stringify({toolResponse:{functionResponses:cancelled}}));
+      this.state('listening','Dinliyorum');
     }
     async consult(call,generation){
       if(call.name!=='consult_jeff'||typeof call.args?.text!=='string'||!call.id){

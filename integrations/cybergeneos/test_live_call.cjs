@@ -32,10 +32,20 @@ test('end call releases microphone and queued sound',()=>{
 test('real capture rates produce 20ms frames at 16kHz',()=>{
  for(const rate of [44100,48000]){
   const frames=[];let Processor;
-  const context={AudioWorkletProcessor:class{constructor(){this.port={postMessage:b=>frames.push(b.byteLength)}}},
-    sampleRate:rate,Int16Array,registerProcessor:(_,p)=>Processor=p};
+  const context={AudioWorkletProcessor:class{constructor(){this.port={postMessage:b=>{if(b instanceof ArrayBuffer)frames.push(b.byteLength);}}}},
+    sampleRate:rate,Int16Array,ArrayBuffer,registerProcessor:(_,p)=>Processor=p};
   vm.runInNewContext(fs.readFileSync(__dirname+'/mic-capture.js','utf8'),context);
   const p=new Processor();for(let pos=0;pos<rate;pos+=128)p.process([[new Float32Array(Math.min(128,rate-pos)).fill(.1)]]);
   assert.equal(frames.length,50);assert.ok(frames.every(n=>n===640));
  }
+});
+test('local speech start cancels thinking without stopping microphone or replaying',async()=>{
+ global.WebSocket={OPEN:1};const call=fixture();call.active=true;let done,sends=[];
+ call.session={session:'fixture'};call.ws={readyState:1,send:text=>sends.push(JSON.parse(text))};
+ call.post=()=>new Promise(r=>done=r);
+ const task=call.consult({id:'waiting',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
+ call.onInputActivity();done({authority:'real_jeff',answer:'Geç kalan cevap'});await task;
+ assert.equal(call.active,true);assert.equal(call.pending.size,0);assert.equal(call.audioAllowed,false);
+ assert.equal(call.stats.localInterruptions,1);assert.equal(sends.length,1);
+ assert.equal(sends[0].toolResponse.functionResponses[0].response.cancelled,true);
 });
