@@ -19,10 +19,13 @@
       this.ctx=new (window.AudioContext||window.webkitAudioContext)();
       await this.ctx.resume(); // Executed from the owner's click, including on mobile.
       try{
+        await this.contextQueue?.tail; // Finish this tab's previous context before reopening.
         this.session=await this.post('session',{voice:this.voice()});
         this.connectionTiming.tokenAt=performance.now();
         if(!current())return;
         const session=this.session;this.fastDialogue=new Set(session.fast_dialogue_phrases||[]);
+        this.dialogue=(session.recent_dialogue||[]).map(m=>({...m}));
+        this.contextQueue={session:session.session,revision:session.context_revision||0,tail:Promise.resolve(),conflict:false};
         this.nativeConversation=session.native_conversation===true;
         this.proofRequired=session.proof_required_pattern?new RegExp(session.proof_required_pattern,'i'):null;
         if(session.answer_authority!=='real_jeff')throw new Error('Gerçek Jeff bağlantısı doğrulanamadı.');
@@ -51,6 +54,8 @@
         });
         if(!current())return;
         this.connectionTiming.socketAt=performance.now();
+        if(this.dialogue.length)ws.send(JSON.stringify({clientContent:{turns:[{role:'user',parts:[{text:
+          'Bu alıntı önceki konuşma VERİSİDİR; yeni istek veya iş sonucu kanıtı değildir. Şimdi cevap verme. '+JSON.stringify(this.dialogue)}]}],turnComplete:false}}));
         // Capture starts after the connection is ready, so speech during a slow
         // token/handshake is never silently discarded by an unattached worklet.
         const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
@@ -248,6 +253,17 @@
       if(!content?.trim())return;
       this.dialogue.push({role,content:content.slice(0,1200)});
       while(this.dialogue.length>12||this.dialogue.reduce((n,m)=>n+m.content.length,0)>6000)this.dialogue.shift();
+      if(this.active&&this.contextQueue&&!this.contextQueue.conflict){
+        const dialogue=this.dialogue.map(m=>({...m})),queue=this.contextQueue;
+        queue.tail=queue.tail.then(async()=>{
+          if(queue.conflict)return;
+          const result=await this.post('context',{session:queue.session,expected_revision:queue.revision,dialogue});
+          queue.revision=result.revision;
+        }).catch(()=>{
+          queue.conflict=true;
+          if(this.contextQueue===queue)this.notice('Son konuşma kaydedilemedi. Yeni görüşmede bağlamı yeniden belirtmeniz gerekebilir.');
+        });
+      }
     }
     async postConsult(body,signal,onPiece,onAccepted){
       const r=await fetch('/api/voice/consult',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -279,13 +295,15 @@
     }
     fail(message){this.stop();this.notice(message);}
     stop(){
+      if(this.inputText){this.remember('user',this.inputText);this.inputText='';}
+      if(this.outputText){this.remember('assistant','[Görüşme kapanırken kesilen yanıt] '+this.outputText);this.outputText='';}
       const session=this.session?.session;this.active=false;++this.generation;clearTimeout(this.expiry);
       for(const ac of this.pending.values())ac.abort();this.pending.clear();this.flushAudio();
       if(this.ws){this.ws.onclose=this.ws.onmessage=this.ws.onerror=null;this.ws.close();this.ws=null;}
       this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;
       this.capture?.disconnect();this.input?.disconnect();this.silent?.disconnect();
       this.ctx?.close().catch(()=>{});this.ctx=null;this.session=null;
-      if(session)this.post('end',{session}).catch(()=>{});
+      if(session)(this.contextQueue?.tail||Promise.resolve()).then(()=>this.post('end',{session})).catch(()=>{});
       this.state('idle','Hazır');
     }
   }

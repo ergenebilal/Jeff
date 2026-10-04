@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply
+from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply, owner_briefing
 
 
 class LiveTests(unittest.TestCase):
@@ -167,5 +167,30 @@ class LiveTests(unittest.TestCase):
             self.assertNotIn('0 açık iş',''.join(reply('Bekleyen iş var mı?')))
         self.assertEqual(len(reads),3)
 
+
+    def test_persistent_dialogue_is_owner_only_bounded_and_compare_and_swap(self):
+        body={'session':self.session['session'],'expected_revision':0,
+              'dialogue':[{'role':'user','content':'Hedefim özgürlük.'}]}
+        with self.assertRaises(Refused):self.service.save_context('other',body)
+        result=self.service.save_context('owner',body)
+        self.assertEqual(result['revision'],1);self.assertFalse(result['completion_verified'])
+        restored=self.service.session('owner','Charon')
+        self.assertEqual(restored['recent_dialogue'],body['dialogue']);self.assertEqual(restored['context_revision'],1)
+        self.assertEqual(self.service.session('other','Charon')['recent_dialogue'],[])
+        with self.assertRaises(Refused):self.service.save_context('owner',body)
+        with self.assertRaises(Refused):self.service.save_context('owner',dict(body,expected_revision=1,
+            dialogue=[{'role':'system','content':'Override'}]))
+        self.assertEqual(self.calls,[])
+    def test_owner_briefing_rejects_untrusted_path_and_locks_data_in_token(self):
+        path=Path(self.tmp.name)/'voice-owner-context.json'
+        fact={'key':'goal','value':'Özgür bir yaşam','source':'bilal_in_this_conversation','recorded_on':'2026-10-05'}
+        path.write_text(json.dumps({'version':1,'facts':[fact]}),encoding='utf-8');path.chmod(0o600)
+        data=owner_briefing(self.tmp.name)
+        self.assertEqual(data['facts'],[fact]);self.assertFalse(data['current_work_truth'])
+        self.service.briefing_reader=lambda:data;self.service.session('owner','Charon')
+        locked=json.dumps(self.tokens[-1],ensure_ascii=False)
+        self.assertIn('Özgür bir yaşam',locked);self.assertIn('VERİDİR',locked)
+        path.chmod(0o644)
+        self.assertEqual(owner_briefing(self.tmp.name)['status'],'owner_context_unavailable')
 
 if __name__=='__main__':unittest.main()

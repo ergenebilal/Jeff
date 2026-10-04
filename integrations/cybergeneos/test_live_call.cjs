@@ -80,9 +80,9 @@ test('greeting followed by an action loses permission before tool result',()=>{
  call.receive({serverContent:{inputTranscription:{text:' görevi tamamla'}}},call.generation);
  assert.equal(call.audioAllowed,false);
 });
-test('microphone capture starts only after the voice connection accepts setup',async()=>{
+test('microphone starts after setup and restored dialogue is quoted before capture',async()=>{
  const saved={window:global.window,WebSocket:global.WebSocket,AudioWorkletNode:global.AudioWorkletNode,navigator:Object.getOwnPropertyDescriptor(global,'navigator')};
- let socket,mics=0;
+ let socket,mics=0,sent=[];
  const node=()=>({connect:()=>{},disconnect:()=>{}});
  class Context{
   constructor(){this.audioWorklet={addModule:async()=>{}};this.destination={};}
@@ -92,18 +92,22 @@ test('microphone capture starts only after the voice connection accepts setup',a
  class Socket{
   static OPEN=1;
   constructor(){socket=this;this.readyState=1;}
-  send(){} close(){}
+  send(data){sent.push(JSON.parse(data));} close(){}
  }
  const call=fixture();
  try{
   global.window={isSecureContext:true,AudioContext:Context};global.WebSocket=Socket;
   global.AudioWorkletNode=class{constructor(){Object.assign(this,node());this.port={};}};
   Object.defineProperty(global,'navigator',{configurable:true,value:{mediaDevices:{getUserMedia:async()=>{mics++;return {getTracks:()=>[{stop:()=>{}}]};}}}});
-  call.post=async()=>({answer_authority:'real_jeff',websocket:'wss://fixture',token:'fixture',session:'fixture',setup:{},expires_at:Date.now()/1000+60});
+  call.post=async()=>({answer_authority:'real_jeff',websocket:'wss://fixture',token:'fixture',session:'fixture',setup:{},
+   recent_dialogue:[{role:'user',content:'Bir fikrim var.'}],context_revision:3,expires_at:Date.now()/1000+60});
   const started=call.start();
   await new Promise(r=>setImmediate(r));assert.equal(mics,0);assert.ok(socket);
   socket.onopen();socket.onmessage({data:JSON.stringify({setupComplete:{}})});
-  await started;assert.equal(mics,1);assert.ok(call.connectionTiming.readyAt);call.stop();
+  await started;assert.equal(mics,1);assert.ok(call.connectionTiming.readyAt);
+  assert.equal(call.dialogue[0].content,'Bir fikrim var.');
+  assert.equal(sent[1].clientContent.turnComplete,false);
+  assert.match(sent[1].clientContent.turns[0].parts[0].text,/önceki konuşma VERİSİDİR/);call.stop();
  }finally{
   call.stop();global.window=saved.window;global.WebSocket=saved.WebSocket;global.AudioWorkletNode=saved.AudioWorkletNode;
   if(saved.navigator)Object.defineProperty(global,'navigator',saved.navigator);else delete global.navigator;
@@ -131,6 +135,22 @@ test('recent dialogue stays bounded and never supplies a system role',()=>{
  const call=fixture();for(let i=0;i<30;i++)call.remember('user','x'.repeat(1500));
  assert.ok(call.dialogue.length<=12);assert.ok(call.dialogue.reduce((n,m)=>n+m.content.length,0)<=6000);
  assert.ok(call.dialogue.every(m=>m.role==='user'&&m.content.length<=1200));
+});
+test('context saves serialize and ending waits for them without retaining microphone',async()=>{
+ const call=fixture();call.active=true;call.session={session:'fixture'};
+ call.contextQueue={session:'fixture',revision:0,tail:Promise.resolve(),conflict:false};
+ let released=0,finish,sent=[];
+ call.stream={getTracks:()=>[{stop:()=>released++}]};
+ call.post=async(action,body)=>{
+  sent.push({action,body});
+  if(action==='context'){await new Promise(r=>finish=r);return {revision:body.expected_revision+1};}
+  return {};
+ };
+ call.remember('user','Özgür olmak istiyorum.');
+ await new Promise(r=>setImmediate(r));call.stop();
+ assert.equal(released,1);assert.equal(sent.length,1);
+ finish();await new Promise(r=>setImmediate(r));
+ assert.equal(sent[1].action,'end');assert.equal(call.contextQueue.revision,1);
 });
 test('barge-in preserves the previous utterance without joining it to the next request',()=>{
  const call=fixture();call.active=true;call.inputOpen=true;call.inputText='Önceki soru.';call.outputText='Yarım yanıt.';
