@@ -33,8 +33,16 @@ def private_directory(path):
         import csv
         sid=next(csv.reader([who.strip()]))[1]
         if not sid.startswith('S-1-'):raise ValueError('Cannot determine snapshot owner')
-        result=subprocess.run(['icacls',str(path),'/inheritance:r','/grant:r',sid+':(OI)(CI)F'],capture_output=True)
+        # Numeric SIDs require '*' per the Windows icacls contract.
+        result=subprocess.run(['icacls',str(path),'/inheritance:r','/grant:r','*'+sid+':(OI)(CI)F'],capture_output=True)
         if result.returncode:raise OSError('Cannot protect private snapshot')
+        import win32security
+        acl=win32security.GetFileSecurity(str(path),win32security.DACL_SECURITY_INFORMATION).GetSecurityDescriptorDacl()
+        if acl is None:raise OSError('Private snapshot has no access boundary')
+        principals={win32security.ConvertSidToStringSid(acl.GetAce(index)[2]) for index in range(acl.GetAceCount())}
+        # Current owner, owner-rights, system and local administrators only.
+        if not principals <= {sid,'S-1-3-4','S-1-5-18','S-1-5-32-544'}:
+            raise OSError('Private snapshot has an unexpected reader')
     else:path.chmod(0o700)
     return path
 
