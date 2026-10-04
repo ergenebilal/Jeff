@@ -7,7 +7,9 @@ import sqlite3
 import threading
 import time
 import uuid
+from pathlib import Path
 from contextlib import contextmanager
+from pablo_local_drafts import LocalDraftStore, DraftError, expectation
 from pablo_antigravity import ALIASES as ANTIGRAVITY_ALIASES, prepare as prepare_antigravity
 from pablo_approval_client import action_binding, ApprovalUnavailable
 
@@ -166,6 +168,9 @@ def is_approval_required(action: str, params: dict) -> tuple:
     """
     if not isinstance(params, dict):
         params = {}
+    if action == 'local_draft':
+        # The durable guard validates this bounded, private draft contract first.
+        return False, 'LOCAL_DRAFT_ONLY'
     if action in ANTIGRAVITY_ALIASES:
         return True, 'OPAQUE_EXECUTION: Antigravity script/tool side effects require an input-bound owner decision.'
 
@@ -238,6 +243,7 @@ class TaskGuard:
         self.path, self.actions, self.owner = str(path), actions, str(owner or '')
         self.desktop_ready, self.clock, self.ttl = desktop_ready, clock, ttl
         self.approvals=approvals
+        self.local_drafts = LocalDraftStore(Path(self.path).parent / 'verified-drafts')
         self.lock = threading.RLock()
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, action TEXT, params TEXT, status TEXT, response TEXT, approval TEXT, expires REAL, consumed INTEGER DEFAULT 0)')
@@ -301,6 +307,11 @@ class TaskGuard:
         if not isinstance(rid, str) or not rid or len(rid) > 128 or not isinstance(params, dict):
             return self.response(str(rid)[:128], 'ERROR', error='Invalid request')
         params = json.loads(json.dumps(params))
+        if action == 'local_draft':
+            try:
+                expectation(rid, params)
+            except (DraftError, TypeError, UnicodeError):
+                return self.response(rid, 'ERROR', error='Invalid local draft contract', outcome_verified=False)
         if action in ANTIGRAVITY_ALIASES:
             action='antigravity'
             try:
@@ -336,7 +347,7 @@ class TaskGuard:
                 db.execute('UPDATE requests SET approval=?,expires=? WHERE id=?', (aid, self.clock() + self.ttl, rid))
                 return self.store(db, rid, result)
 
-            if action not in self.actions:
+            if action not in self.actions and action != 'local_draft':
                 return self.store(db, rid, self.response(rid, 'ERROR', error='Unknown action'))
             db.commit()  # Persist claim BEFORE executing anything.
         return self._run(rid, action, params)
@@ -380,7 +391,40 @@ class TaskGuard:
                 except ApprovalUnavailable: result['approval_reconciliation']='required'
         return result
 
+    def _run_local_draft(self, rid, params):
+        with self.lock:
+            expected = expectation(rid, params)
+            proof = {'method': 'independent_file_read', 'request_id': rid,
+                     'input_digest': fingerprint('local_draft', params),
+                     'expected_sha256': expected.sha256, 'expected_bytes': len(expected.data),
+                     'observed_sha256': None, 'observed_bytes': None, 'observed_at': self.clock()}
+            publication, write_error = None, None
+            try:
+                publication = self.local_drafts.write(rid, expected)
+            except (OSError, DraftError) as exc:
+                write_error = type(exc).__name__
+            try:
+                proof.update(self.local_drafts.observe(rid, expected))
+                matches = (proof['observed_sha256'] == expected.sha256
+                           and proof['observed_bytes'] == len(expected.data))
+                status = 'SUCCESS' if matches else 'OUTCOME_MISMATCH'
+                proof['status'] = 'matched' if matches else 'mismatch'
+            except (OSError, DraftError) as exc:
+                matches, status = False, 'VERIFICATION_UNAVAILABLE'
+                proof.update(status='unavailable', reason=type(exc).__name__)
+            result = self.response(rid, status, verified=matches, outcome_verified=matches,
+                                   action_verified=write_error is None,
+                                   outcome_evidence=proof,
+                                   result={'path': str(self.local_drafts.path(rid, expected)),
+                                           'publication': publication, 'write_error': write_error,
+                                           'delivered': False},
+                                   error=None if matches else 'Local draft outcome did not verify')
+            with self.connect() as db:
+                return self.store(db, rid, result)
+
     def _run(self, rid, action, params):
+        if action == 'local_draft':
+            return self._run_local_draft(rid, params)
         # One desktop action at a time; repeat the desktop check at execution time.
         with self.lock:
             try:

@@ -57,7 +57,7 @@ NODE_DIR = Path(__file__).resolve().parent
 PROCESS_STARTED_AT = time.time()
 LOADED_SOURCE_SHA256 = {
     name: hashlib.sha256((NODE_DIR / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py')
+    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py', 'pablo_local_drafts.py')
 }
 try:
     SOURCE_RELEASE = json.loads((NODE_DIR / 'deployment.json').read_text(encoding='utf-8')).get('commit', 'unknown')
@@ -739,6 +739,8 @@ class PabloWorkcopyTaskGuard(TaskGuard):
         return super().execute(action, params, request_id)
 
     def _run(self, rid, action, params):
+        if action == 'local_draft':
+            return super()._run(rid, action, params)
         with self.lock:
             try:
                 if action in GUI_ACTIONS and not self.desktop_ready():
