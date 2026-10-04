@@ -1,6 +1,6 @@
 ---
 name: jeff-beyin
-version: 1.2.0
+version: 1.2.1
 description: Bilal önceki bir kararın nedenini, bir hedefi, tercihi veya Jeff-Beyin kasasındaki geçmiş çalışmayı sorunca kaynaklı hafızayı oku. Kasa ayrı tarihsel kaynaktır; bugünkü durum ve kullanıcı talimatı yerine geçmez.
 ---
 
@@ -26,6 +26,15 @@ Eski kaydı tarihsel bilgi olarak anlat. `current_truth_verified` her zaman
 false: kaynağın gerçekliği içindeki iddianın bugün doğru olduğunu kanıtlamaz.
 Canlı durum sorusunda ilgili mevcut durum okuyucusuna başvur; hafızadan cevapla
 sağlık, para, teslim veya tamamlanma iddiası üretme.
+
+Kaynak yolunu çıktının `records[].source` değerinden harfi harfine aktar.
+Çalışma klasörü, HOME, geçici deneme dizini veya tahmini mutlak yol ekleme;
+`...` ile yol üretme. Olmayan kaydı, kasanın kökünü veya bu beceri dosyasını
+kararın kanıtı diye gösterme. `no_source_evidence` için karar kaynakları boştur.
+`declared_date` kaynak tarihidir; metindeki olay tarihi ayrıca olay tarihi diye
+anlatılabilir, fakat unknown kaynak tarihini known/mixed yapmaz. Kaynaktaki bir
+değerin anlamına kayıt dışı yorum ekleme: örneğin `guess` kararı, belgenin kendi
+doğruluğunun tahmin olduğuna kanıt değildir.
 
 `conflicts` doluysa iki kaynağı/tarihlerini göster; en yeni tarihi otomatik
 doğru seçme. Çözüm için açık kullanıcı düzeltmesi veya bağımsız güncel kanıt
