@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import os
 import pytest
 from pablo.pablo_recovery import CORE,snapshot,restore,validate
 
@@ -42,3 +43,14 @@ def test_snapshot_missing_live_database_cannot_pass(tmp_path):
     live=fixture(tmp_path);(live/'intent_guard.sqlite3').unlink()
     with pytest.raises(FileNotFoundError):snapshot(live,tmp_path/'snapshot',collect_packages=False)
     assert not (tmp_path/'snapshot').exists()
+
+
+@pytest.mark.skipif(os.name=='nt',reason='POSIX permission boundary')
+def test_nested_private_directories_and_restored_files(tmp_path):
+    live=fixture(tmp_path);draft=live/'verified-drafts'/'child'
+    draft.mkdir(parents=True);(draft/'result.txt').write_text('private fixture')
+    snap=tmp_path/'snapshot';snapshot(live,snap,collect_packages=False)
+    root=tmp_path/'root';restore(snap,root)
+    for base in (snap,root):
+        assert base.stat().st_mode&0o777==0o700
+        assert all(p.stat().st_mode&0o077==0 for p in base.rglob('*'))

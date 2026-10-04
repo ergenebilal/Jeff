@@ -59,6 +59,14 @@ def checked_file(base,relative):
     return path
 
 
+def private_parent(target,root):
+    target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    if os.name!='nt':
+        current=target.parent
+        while current!=root:
+            current.chmod(0o700);current=current.parent
+
+
 def snapshot(live,destination,collect_packages=True):
     live=Path(live).absolute();started=time.time()
     for name in CORE:checked_file(live,name)
@@ -74,7 +82,7 @@ def snapshot(live,destination,collect_packages=True):
             names.update((Path(directory)/name).relative_to(live).as_posix() for name in filenames)
     entries=[]
     for name in sorted(names):
-        source=checked_file(live,name);target=files/name;target.parent.mkdir(parents=True,exist_ok=True)
+        source=checked_file(live,name);target=files/name;private_parent(target,dest)
         if name.endswith('.sqlite3'):
             conn=sqlite3.connect(source.as_uri()+'?mode=ro',uri=True);copy=sqlite3.connect(target)
             try:conn.backup(copy)
@@ -121,7 +129,8 @@ def restore(snapshot_dir,destination):
     dest=private_directory(destination)
     for entry in manifest['entries']:
         relative=entry['path'][6:];source=checked_file(snapshot_dir,entry['path']);target=dest/relative
-        target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
+        private_parent(target,dest);shutil.copy2(source,target)
+        if os.name!='nt':target.chmod(0o600)
         if digest(target)!=entry['sha256']:raise ValueError('Restored file mismatch')
     return {'restored':str(dest),'files':len(manifest['entries']),'verified':True,'workers_started':False}
 
