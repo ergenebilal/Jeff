@@ -44,3 +44,18 @@ def test_patch_requires_exact_anchor_and_is_idempotent():
     original='    install_approval_adapter(sys.modules[__name__])\n'
     assert patch(patch(original))==patch(original)
     with pytest.raises(ValueError):patch('changed app')
+
+
+def test_panel_uses_existing_agent_key_without_privileged_shell(tmp_path,monkeypatch):
+    from scripts import jarvis_snapshot
+    (tmp_path/'approval-gateway.json').write_text(json.dumps({'auth_token':'fixture-agent','approval_decision_key':'fixture-owner'}))
+    observed=[]
+    def work(key=None):
+        assert key=='fixture-agent';observed.append(key)
+        return {'open_count':0,'items':[],'next_offset':None,'automatic_replay':False}
+    monkeypatch.setattr(jarvis_snapshot,'read_work',work)
+    app=SimpleNamespace(DATA=tmp_path,build_state=lambda:{},briefing=SimpleNamespace(jeff_context=lambda store:''),jeff=SimpleNamespace(stream_reply=lambda *a:iter(()),VOICE_RULES='',FALLBACK_SYSTEM=''))
+    install(app)
+    result=app.build_state()['jarvis']
+    assert result['work']['known'] and result['work']['open']==0 and observed==['fixture-agent']
+    assert 'fixture-agent' not in json.dumps(result) and 'fixture-owner' not in json.dumps(result)

@@ -6,9 +6,10 @@ import time
 from urllib.request import Request,urlopen
 
 
-def read_work():
-    from scripts.pablo_dispatch import bridge_key
-    key=bridge_key()
+def read_work(key=None):
+    if key is None:
+        from scripts.pablo_dispatch import bridge_key
+        key=bridge_key()
     if not key:raise RuntimeError('Work credential unavailable')
     with urlopen(Request('http://100.89.26.86:7788/work',headers={'X-Bridge-Key':key}),timeout=3) as response:
         return json.load(response)

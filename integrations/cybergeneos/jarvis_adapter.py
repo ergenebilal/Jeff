@@ -1,6 +1,7 @@
 """Only infrastructure status. Business workflows and approvals are untouched."""
 import json
 import sys
+from pathlib import Path
 
 TRUTH_RULES=(' Güncel altyapı/onay/Pablo durumu için untrusted_panel_data içindeki jarvis_snapshot kaydını kullan. '
              'known false veya kısmi listeyi başarı sayma. Onay ve iş sonucu ayrıdır. Güncel kaydın yoksa tahmin etme. '
@@ -30,8 +31,15 @@ def install(app,reader=None,renderer=None):
     if getattr(app,'_jarvis_installed',False):return
     if reader is None:
         sys.path.insert(0,'/home/hermes/jeff_repo')
-        from scripts.jarvis_snapshot import snapshot,render
-        reader=snapshot;renderer=render
+        from scripts.jarvis_snapshot import snapshot,render,read_work
+        def panel_work():
+            # The panel already has this agent credential; never needs sudo.
+            config=json.loads((Path(app.DATA)/'approval-gateway.json').read_text())
+            key=config.get('auth_token')
+            if not isinstance(key,str) or not key:raise ValueError('Panel work credential unavailable')
+            return read_work(key=key)
+        reader=lambda:snapshot(work_reader=panel_work)
+        renderer=render
     state_original=app.build_state;context_original=app.briefing.jeff_context;reply_original=app.jeff.stream_reply
     def state():return {**state_original(),'jarvis':reader()}
     def context(store):
