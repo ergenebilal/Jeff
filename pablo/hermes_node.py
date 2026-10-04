@@ -33,6 +33,7 @@ import uuid
 import hashlib
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+import socket
 
 # Win32 & GUI
 import win32gui
@@ -2819,6 +2820,16 @@ def run_tailscale_watchdog():
 
 # ── MAIN ENTRYPOINT (FOREGROUND INTERACTIVE WORKER) ──────────────────────────
 
+class ExclusiveNodeServer(ThreadingHTTPServer):
+    """Windows must reject a second listener before it can start any worker."""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def main():
     print("=" * 70)
     print("  CYBERGENE NATIVE WINDOWS HERMES AGENT: PABLO [FRONT-RUNNING]")
@@ -2833,7 +2844,7 @@ def main():
 
     # Reserve the single node listener before recording restart receipts or
     # starting any executor. A duplicate process must fail without task changes.
-    server = ThreadingHTTPServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
+    server = ExclusiveNodeServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
     server.daemon_threads = True
     task_guard().note_restart(PROCESS_STARTED_AT)
 

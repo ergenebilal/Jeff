@@ -7,6 +7,8 @@ from pathlib import Path
 import tempfile
 import types
 import unittest
+import socket
+from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from unittest import mock
 from pablo_task_guard import TaskGuard,fingerprint
 
@@ -49,15 +51,27 @@ class RuntimeInterruptionTests(unittest.TestCase):
             def start(self):events.append('thread')
         guard=mock.Mock();guard.note_restart.side_effect=lambda _:events.append('restart_receipt')
         ns={'CONFIG':{'version':'fixture','listen_host':'127.0.0.1','listen_port':1234,'jeff_bridge_api_url':'fixture'},
-            'ThreadingHTTPServer':bind,'PabloRequestHandler':object,'task_guard':lambda:guard,'PROCESS_STARTED_AT':900,
+            'ExclusiveNodeServer':bind,'PabloRequestHandler':object,'task_guard':lambda:guard,'PROCESS_STARTED_AT':900,
             'threading':types.SimpleNamespace(Thread=Thread),'run_bridge_worker':mock.Mock(),'run_telegram_worker':mock.Mock(),
             'run_tailscale_watchdog':mock.Mock(),'log':mock.Mock()}
         exec(compile(ast.Module(body=[fn],type_ignores=[]),'real-node-startup','exec'),ns)
         with contextlib.redirect_stdout(io.StringIO()):ns['main']()
         self.assertEqual(events[:2],['bind','restart_receipt']);self.assertEqual(events.count('thread'),3)
-        events.clear();ns['ThreadingHTTPServer']=mock.Mock(side_effect=OSError('bound'))
+        events.clear();ns['ExclusiveNodeServer']=mock.Mock(side_effect=OSError('bound'))
         with contextlib.redirect_stdout(io.StringIO()),self.assertRaises(OSError):ns['main']()
         self.assertEqual(events,[])
+
+    def test_actual_listener_refuses_a_second_server_on_same_port(self):
+        tree=ast.parse(Path(__file__).with_name('hermes_node.py').read_text(encoding='utf-8'))
+        cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='ExclusiveNodeServer')
+        ns={'ThreadingHTTPServer':ThreadingHTTPServer,'socket':socket}
+        exec(compile(ast.Module(body=[cls],type_ignores=[]),'real-node-server','exec'),ns)
+        first=ns['ExclusiveNodeServer'](('127.0.0.1',0),BaseHTTPRequestHandler)
+        try:
+            with self.assertRaises(OSError):
+                second=ns['ExclusiveNodeServer'](first.server_address,BaseHTTPRequestHandler)
+                second.server_close()
+        finally:first.server_close()
 
 
 if __name__=='__main__':unittest.main()
