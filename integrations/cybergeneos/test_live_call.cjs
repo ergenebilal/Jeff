@@ -15,7 +15,7 @@ test('voice model cannot play unconsulted audio',()=>{
 });
 test('cancelled consultation cannot send late result',async()=>{
  const call=fixture();call.active=true;let done,sends=0;
- call.session={session:'fixture'};call.ws={send:()=>sends++};call.post=()=>new Promise(r=>done=r);
+ call.session={session:'fixture'};call.ws={send:()=>sends++};call.postConsult=()=>new Promise(r=>done=r);
  const task=call.consult({id:'fixture',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
  call.receive({toolCallCancellation:{ids:['fixture']}},call.generation);
  done({authority:'real_jeff',answer:'Yanıt'});await task;assert.equal(sends,0);assert.equal(call.audioAllowed,false);
@@ -42,10 +42,26 @@ test('real capture rates produce 20ms frames at 16kHz',()=>{
 test('local speech start cancels thinking without stopping microphone or replaying',async()=>{
  global.WebSocket={OPEN:1};const call=fixture();call.active=true;let done,sends=[];
  call.session={session:'fixture'};call.ws={readyState:1,send:text=>sends.push(JSON.parse(text))};
- call.post=()=>new Promise(r=>done=r);
+ call.postConsult=()=>new Promise(r=>done=r);
  const task=call.consult({id:'waiting',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
  call.onInputActivity();done({authority:'real_jeff',answer:'Geç kalan cevap'});await task;
  assert.equal(call.active,true);assert.equal(call.pending.size,0);assert.equal(call.audioAllowed,false);
  assert.equal(call.stats.localInterruptions,1);assert.equal(sends.length,1);
  assert.equal(sends[0].toolResponse.functionResponses[0].response.cancelled,true);
+});
+test('actual Jeff first sentence is sent before the answer finishes',async()=>{
+ const call=fixture();call.active=true;let done,sends=[];
+ call.session={session:'fixture'};call.ws={send:text=>sends.push(JSON.parse(text))};
+ call.postConsult=(_,__,onPiece)=>{onPiece({authority:'real_jeff',answer:'Kanıt yok. '});return new Promise(r=>done=r);};
+ const task=call.consult({id:'streaming',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
+ assert.equal(sends.length,1);assert.equal(sends[0].toolResponse.functionResponses[0].willContinue,true);
+ assert.equal(call.pending.size,1);assert.equal(call.audioAllowed,true);
+ done({authority:'real_jeff',answer:'Kanıt yok. İş tamamlanmadı.'});await task;
+ assert.equal(sends.length,2);assert.equal(sends[1].toolResponse.functionResponses[0].scheduling,'SILENT');
+ assert.equal(sends[1].toolResponse.functionResponses[0].willContinue,false);
+});
+test('native partial turn boundary retains permission for remaining actual Jeff pieces',()=>{
+ const call=fixture();call.active=true;call.audioAllowed=true;call.outputText='İlk cümle.';call.pending.set('streaming',{});
+ call.receive({serverContent:{turnComplete:true}},call.generation);
+ assert.equal(call.audioAllowed,true);assert.equal(call.pending.size,1);
 });

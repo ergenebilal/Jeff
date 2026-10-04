@@ -5,6 +5,7 @@
       Object.assign(this,{state,transcript,notice,voice,worklet});
       this.active=false; this.generation=0; this.sources=new Set(); this.pending=new Map();
       this.stats={inputFrames:0,outputChunks:0,interruptions:0,localInterruptions:0,unconsultedAudioDropped:0};
+      this.timings=[];this.speechEndedAt=null;this.voiceTurn=null;
     }
     async start(){
       if(this.active)return;
@@ -56,6 +57,7 @@
         node.port.onmessage=e=>{
           if(!current()||this.muted||ws.readyState!==WebSocket.OPEN)return;
           if(e.data?.activity==='start'){this.onInputActivity();return;}
+          if(e.data?.activity==='end'){this.speechEndedAt=performance.now();return;}
           if(ws.bufferedAmount>64000){this.fail('Ses bağlantısı yetişemedi. Görüşme kapatıldı.');return;}
           const bytes=new Uint8Array(e.data);let binary='';
           for(let i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
@@ -98,18 +100,23 @@
       if(content.turnComplete){
         // Tool-request boundaries also emit turnComplete; they are not answer completion.
         if(!this.pending.size && this.outputText){
-          this.transcript('jeff',this.outputText,true);this.outputText='';this.audioAllowed=false;
+          // A non-blocking response can have more than one spoken turn. All
+          // pieces have already come from Jeff; the next microphone activity
+          // removes permission before any new answer can be heard.
+          this.transcript('jeff',this.outputText,true);this.outputText='';
         }
         this.inputOpen=false;
         if(!this.pending.size)this.afterPlayback();
       }
     }
     onInputActivity(){
-      if(!this.active||this.muted||(!this.pending.size&&!this.sources.size))return;
+      if(!this.active||this.muted)return;
+      this.audioAllowed=false;
+      if(!this.pending.size&&!this.sources.size)return;
       this.stats.interruptions++;this.stats.localInterruptions++;this.flushAudio();this.audioAllowed=false;
       const cancelled=[];
       for(const [id,ac] of this.pending){
-        ac.abort();cancelled.push({id,name:'consult_jeff',response:{cancelled:true,
+        ac.abort();cancelled.push({id,name:'consult_jeff',willContinue:false,scheduling:'SILENT',response:{cancelled:true,
           answer:'Kullanıcı araya girdi. Bu cevabı seslendirme; yeni isteği dinle.'}});
       }
       this.pending.clear();this.outputText='';
@@ -123,21 +130,35 @@
       }
       if(this.lastCall===call.id || this.pending.has(call.id))return;
       this.lastCall=call.id;this.audioAllowed=false;this.outputText='';
+      const timing={consultStartedAt:performance.now(),speechEndedAt:this.speechEndedAt,
+        firstPieceAt:null,firstAudioAt:null,answerEndedAt:null};
+      this.timings.push(timing);this.voiceTurn=timing;
       if(this.inputText){this.transcript('user',this.inputText,true);this.inputText='';}
       const ac=new AbortController();this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
       try{
-        const result=await this.post('consult',{session:this.session.session,call_id:call.id,text:call.args.text},ac.signal);
+        let streamed=false;
+        const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text},ac.signal,event=>{
+          if(!this.active||generation!==this.generation||ac.signal.aborted)return;
+          if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
+          if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();
+          this.audioAllowed=true;
+          this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
+            response:{answer:event.answer},willContinue:true,scheduling:streamed?'WHEN_IDLE':'INTERRUPT'}]}}));
+          streamed=true;
+        });
         if(!this.active||generation!==this.generation||ac.signal.aborted)return;
         if(result.authority!=='real_jeff'||!result.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
-        this.audioAllowed=true;this.inputOpen=false;
-        this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,response:{answer:result.answer}}]}}));
+        timing.answerEndedAt=performance.now();this.audioAllowed=true;this.inputOpen=false;
+        this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
+          response:streamed?{}:{answer:result.answer},willContinue:false,scheduling:streamed?'SILENT':'INTERRUPT'}]}}));
       }catch(e){
         if(e.name!=='AbortError'&&this.active&&generation===this.generation)
           this.fail(e.message||'Jeff yanıtı alınamadı.');
       }finally{if(this.pending.get(call.id)===ac)this.pending.delete(call.id);}
     }
     play(inline){
+      if(this.voiceTurn&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.firstAudioAt=performance.now();
       const rate=Number(/rate=(\d+)/.exec(inline.mimeType||'')?.[1]);
       if(![16000,24000,48000].includes(rate)){this.fail('Ses biçimi doğrulanamadı.');return;}
       const binary=atob(inline.data);
@@ -178,6 +199,33 @@
         throw new Error(reasons[result.error]||'Görüşme bağlantısı kurulamadı.');
       }
       return result;
+    }
+    async postConsult(body,signal,onPiece){
+      const r=await fetch('/api/voice/consult',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...body,stream:true}),signal});
+      if(!r.ok){
+        const data=await r.json().catch(()=>({}));
+        const reasons={onceki_konusmanin_sonucu_bilinmiyor:'Önceki isteğin sonucu bilinmiyor. Yeniden çalıştırmadım.',
+          jeff_halen_dusunuyor:'Jeff önceki isteği değerlendiriyor. İsteği yeniden çalıştırmadım.'};
+        throw new Error(reasons[data.error]||'Jeff yanıtı alınamadı.');
+      }
+      const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='',result=null;
+      try{
+        while(true){
+          const {done,value}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+          let end;
+          while((end=buffer.indexOf('\n'))>=0){
+            const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;
+            const event=JSON.parse(line);
+            if(event.t==='err')throw new Error('Jeff cevabı tamamlanamadı. Sonuç doğrulanmadı.');
+            if(event.t==='piece')onPiece(event);
+            if(event.t==='end')result=event;
+          }
+          if(done)break;
+        }
+        if(buffer.trim()||!result)throw new Error('Jeff cevabı yarım kaldı. Sonuç doğrulanmadı.');
+        return result;
+      }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
     }
     fail(message){this.stop();this.notice(message);}
     stop(){

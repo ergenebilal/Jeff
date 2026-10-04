@@ -8,6 +8,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import sqlite3
@@ -23,7 +24,8 @@ VOICE_RULES = (
     "Sen gerçek Jeff'in canlı ses arayüzüsün. Türkçe, doğal, kısa konuş. "
     "Her kullanıcı ifadesi için önce consult_jeff çağır; text tam kullanıcının isteği olsun, "
     "isteğine eylem, onay veya bilgi ekleme. Araç yanıtı gelmeden ses üretme. "
-    "Yalnız aracın answer alanını aynen seslendir; sayıları, belirsizliği ve olumsuzlukları değiştirme. "
+    "Araç cevap parçaları gönderir. Her yeni answer parçasını yalnız bir kez aynen seslendir; "
+    "eski parçayı tekrarlama. Sayıları, belirsizliği ve olumsuzlukları değiştirme. "
     "Kendinden hafıza, tamamlanma, durum, yetki veya başarı ekleme. "
     "Kullanıcı araya girerse sus ve onu dinle. Görüşmeyi başlatınca kendiliğinden konuşma. "
     "Araç hata verirse yalnız gerçek Jeff'e ulaşılamadığını söyle; alternatif cevap uydurma."
@@ -39,12 +41,13 @@ def setup(voice='Charon'):
                              'speechConfig': {'voiceConfig': {'prebuiltVoiceConfig': {'voiceName': voice}}}},
         'systemInstruction': {'parts': [{'text': VOICE_RULES}]},
         'tools': [{'functionDeclarations': [{'name': 'consult_jeff',
-                   'description': 'Kullanıcının isteğini gerçek Jeff ile değerlendir; cevabını al.',
+                   'description': 'Kullanıcının isteğini gerçek Jeff ile değerlendir; cevabını parçalar halinde al.',
+                   'behavior': 'NON_BLOCKING',
                    'parameters': {'type': 'OBJECT', 'properties': {'text': {'type': 'STRING'}},
                                   'required': ['text']}}]}],
         'inputAudioTranscription': {}, 'outputAudioTranscription': {},
         'realtimeInputConfig': {'activityHandling': 'START_OF_ACTIVITY_INTERRUPTS',
-                               'automaticActivityDetection': {'silenceDurationMs': 600,
+                               'automaticActivityDetection': {'silenceDurationMs': 350,
                                                                'prefixPaddingMs': 120}},
         'sessionResumption': {}, 'contextWindowCompression': {'slidingWindow': {}}}
 
@@ -106,6 +109,15 @@ class LiveCalls:
                 'expires_at': now + 1200, 'answer_authority': 'real_jeff'}
 
     def consult(self, owner, body):
+        result = None
+        for event in self.consult_stream(owner, body):
+            if event['t'] == 'end':
+                result = {k: v for k, v in event.items() if k != 't'}
+        return result
+
+    def consult_stream(self, owner, body):
+        """Yield real Jeff sentences; partial words never imply completed execution."""
+        started = time.monotonic()
         nonce, cid, text = (body.get(k) for k in ('session', 'call_id', 'text'))
         if (not isinstance(nonce, str) or len(nonce) > 100 or not isinstance(cid, str)
                 or not 1 <= len(cid) <= 160 or not isinstance(text, str)
@@ -123,7 +135,8 @@ class LiveCalls:
                 if prior[0] != binding:
                     raise Refused(409, 'konusma_kimligi_degisti')
                 if prior[1] == 'ANSWERED':
-                    return {'answer': prior[2], 'authority': 'real_jeff', 'cached': True}
+                    yield {'t': 'end', 'answer': prior[2], 'authority': 'real_jeff', 'cached': True}
+                    return
                 raise Refused(409, 'onceki_konusmanin_sonucu_bilinmiyor')
             if db.execute('SELECT count(*) FROM voice_calls WHERE session=?', (sid,)).fetchone()[0] >= 120:
                 raise Refused(429, 'gorusme_siniri')
@@ -136,16 +149,37 @@ class LiveCalls:
                     raise Refused(409, 'onceki_konusmanin_sonucu_bilinmiyor')
                 db.execute('INSERT INTO voice_calls VALUES(?,?,?, ?,NULL)', (sid,cid,binding,'RUNNING'))
             try:
-                answer = ''.join(self.reply(text))
+                yield {'t': 'accepted', 'authority': 'real_jeff', 'completion_verified': False}
+                pieces = []
+                pending = ''
+                first = None
+                for piece in self.reply(text):
+                    if not isinstance(piece, str):
+                        raise RuntimeError('invalid_reply')
+                    pieces.append(piece)
+                    pending += piece
+                    # Complete sentences only: never split a number at its decimal point.
+                    while (match := re.search(r'[.!?]\s+', pending)):
+                        end = match.end()
+                        chunk, pending = pending[:end], pending[end:]
+                        if chunk.strip():
+                            if first is None: first = time.monotonic() - started
+                            yield {'t': 'piece', 'answer': chunk, 'authority': 'real_jeff', 'completion_verified': False}
+                answer = ''.join(pieces)
                 if not answer.strip():
                     raise RuntimeError('empty_reply')
-            except Exception:
+                if pending.strip():
+                    if first is None: first = time.monotonic() - started
+                    yield {'t': 'piece', 'answer': pending, 'authority': 'real_jeff', 'completion_verified': False}
+            except BaseException as exc:
                 with self.db() as db:
                     db.execute("UPDATE voice_calls SET state='OUTCOME_UNKNOWN' WHERE session=? AND id=?", (sid,cid))
+                if isinstance(exc, (GeneratorExit, KeyboardInterrupt, SystemExit)): raise
                 raise Refused(502, 'jeff_yaniti_dogrulanamadi') from None
             with self.db() as db:
                 db.execute("UPDATE voice_calls SET state='ANSWERED',answer=? WHERE session=? AND id=?", (answer,sid,cid))
-            return {'answer': answer, 'authority': 'real_jeff', 'cached': False}
+            yield {'t': 'end', 'answer': answer, 'authority': 'real_jeff', 'cached': False,
+                   'first_sentence_seconds': first, 'answer_seconds': time.monotonic() - started}
         finally:
             self.lock.release()
 
@@ -180,9 +214,34 @@ def install(app):
             return app.jeff.stream_reply(clean, '')
         # Voice starts with current infrastructure truth. Jeff can consult his existing
         # tools for other subjects; no business query or workflow is modified here.
-        return app.jeff.stream_reply(text, json.dumps({'jarvis_snapshot':app._jarvis_snapshot()},ensure_ascii=False))
+        # Avoid a Windows round trip before every conversational turn. No stale
+        # status is injected: Jeff must consult existing tools when facts are needed.
+        return app.jeff.stream_reply(text, json.dumps({'live_voice': True,
+            'status_not_prefetched': True,
+            'rule': 'Güncel durum bu mesajda okunmadı. Durum gerekiyorsa mevcut araçlarla doğrula; tahmin etme.'},ensure_ascii=False))
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply)
     original = app.H.route
+    json_original = app.H._json
+    class VoiceStream:
+        def __init__(self, first, iterator):
+            self.first, self.iterator = first, iterator
+    def send_json(handler, code, out):
+        if not isinstance(out, VoiceStream):
+            return json_original(handler, code, out)
+        try:
+            handler._stream_headers('application/x-ndjson')
+            def emit(event):
+                handler.wfile.write((json.dumps(event,ensure_ascii=False)+'\n').encode())
+                handler.wfile.flush()
+            emit(out.first)
+            for event in out.iterator: emit(event)
+        except Refused as exc:
+            try: emit({'t':'err','error':exc.reason})
+            except OSError: pass
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            out.iterator.close()  # Partial answer on a disconnected client stays unknown.
     def route(handler, parts, body):
         if parts[:2] != ['api','voice']:
             return original(handler,parts,body)
@@ -208,6 +267,9 @@ def install(app):
                     raise Refused(429, 'cok_sik')
                 return 200, calls.session(owner,body.get('voice'))
             if parts == ['api','voice','consult']:
+                if body.get('stream') is True:
+                    iterator=calls.consult_stream(owner,body)
+                    return 200, VoiceStream(next(iterator),iterator)
                 return 200, calls.consult(owner,body)
             return 404, {'error': 'yok'}
         except Refused as e:
@@ -215,4 +277,5 @@ def install(app):
         except Exception:
             return 502, {'error': 'ses_baglantisi_kurulamadi'}
     app.H.route = route
+    app.H._json = send_json
     app._live_installed = True

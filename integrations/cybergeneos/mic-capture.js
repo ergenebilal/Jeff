@@ -18,7 +18,7 @@ class JeffMicrophone extends AudioWorkletProcessor {
           this.silentFrames=voiced?0:this.silentFrames+1;
           // Local interruption only. Provider detection still decides utterance boundaries.
           if(!this.speaking&&this.speechFrames>=4){this.speaking=true;this.port.postMessage({activity:'start'});}
-          if(this.silentFrames>=15)this.speaking=false;
+          if(this.speaking&&this.silentFrames>=15){this.speaking=false;this.port.postMessage({activity:'end'});}
           this.port.postMessage(this.frame.buffer,[this.frame.buffer]);this.frame=new Int16Array(320);this.used=0;
         }
       }

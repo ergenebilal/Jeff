@@ -50,6 +50,29 @@ class LiveTests(unittest.TestCase):
     def test_empty_answer_is_not_pass(self):
         self.service.reply=lambda _:iter([])
         with self.assertRaises(Refused):self.service.consult('owner',self.body)
+    def test_sentence_arrives_before_generator_completes(self):
+        completed=[]
+        def reply(_):
+            yield 'Kanıt yok. '
+            completed.append(True)
+            yield 'İş tamamlanmadı.'
+        self.service.reply=reply
+        stream=self.service.consult_stream('owner',self.body)
+        self.assertEqual(next(stream)['t'],'accepted')
+        piece=next(stream);self.assertEqual(piece['answer'],'Kanıt yok. ')
+        self.assertFalse(piece['completion_verified']);self.assertEqual(completed,[])
+        rest=list(stream);self.assertEqual(rest[-1]['answer'],'Kanıt yok. İş tamamlanmadı.')
+        self.assertEqual(completed,[True])
+    def test_disconnect_after_partial_stays_unknown_without_replay(self):
+        stream=self.service.consult_stream('owner',self.body)
+        next(stream);next(stream);stream.close()
+        with self.assertRaises(Refused):self.service.consult('owner',self.body)
+        self.assertEqual(len(self.calls),1)
+        self.assertFalse(self.service.lock.locked())
+    def test_stream_never_cuts_a_split_decimal(self):
+        self.service.reply=lambda _:iter(['Süre 3.','5 saniye. ','İş tamamlanmadı.'])
+        events=list(self.service.consult_stream('owner',self.body))
+        self.assertEqual([e['answer'] for e in events if e['t']=='piece'],['Süre 3.5 saniye. ','İş tamamlanmadı.'])
     def test_running_call_cannot_be_replayed(self):
         entered=threading.Event();leave=threading.Event()
         def blocked(text):self.calls.append(text);entered.set();leave.wait(2);return iter(['Gerçek cevap'])
@@ -70,6 +93,7 @@ class LiveTests(unittest.TestCase):
         with self.assertRaises(ValueError):patch_app('changed')
     def test_route_cannot_use_agent_token_or_foreign_origin(self):
         class H:
+            _json=lambda *a: None
             def route(self,p,b):return 299,{'original':True}
         app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
             jeff=SimpleNamespace(stream_reply=lambda *a:iter(['fixture']),mode=lambda:'hermes'),
@@ -84,6 +108,7 @@ class LiveTests(unittest.TestCase):
         from unittest.mock import patch
         seen=[];contexts=[]
         class H:
+            _json=lambda *a: None
             def route(self,p,b):return 404,{}
         app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
             jeff=SimpleNamespace(stream_reply=lambda text,context:seen.append(text) or iter(['fixture'])),
@@ -93,7 +118,7 @@ class LiveTests(unittest.TestCase):
             install(app);reply=service.call_args.args[2]
             list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))
         self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
-        self.assertEqual(contexts,['read'])
+        self.assertEqual(contexts,[])
 
 
 if __name__=='__main__':unittest.main()
