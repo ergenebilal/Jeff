@@ -294,6 +294,11 @@ class TaskGuard:
 
     def _recorded(self, db, rid, raw):
         result=json.loads(raw)
+        action=db.execute('SELECT action FROM requests WHERE id=?',(rid,)).fetchone()
+        if (self.capability_policy is not None and action and action[0] not in ('local_draft','local_draft_plan')
+                and result.get('status')=='SUCCESS'):
+            result.update(recorded_status='SUCCESS',status='EXECUTION_SUCCEEDED',ok=False,
+                          worker_action_succeeded=True,outcome_verified=False,completion_authority=False)
         receipt=db.execute('SELECT process_started_at,detected_at FROM work_interruptions WHERE request_id=?',(rid,)).fetchone()
         if receipt and result['status']=='IN_PROGRESS':
             result.update(recorded_status='IN_PROGRESS',status='OUTCOME_UNKNOWN',ok=False,outcome_verified=False,
@@ -317,6 +322,8 @@ class TaskGuard:
 
     @staticmethod
     def _status_phase(status):
+        if status == 'EXECUTION_SUCCEEDED':
+            return 'awaiting_outcome_evidence'
         if status == 'SUCCESS':
             return 'completed'
         if status in CLOSED_WORK_STATUSES:
@@ -345,15 +352,21 @@ class TaskGuard:
     def work_status(self, rid):
         """One redacted record; stored task input and customer text stay private."""
         with self.connect() as db:
-            row = db.execute('SELECT action,status,created_at,updated_at,work_phase,deadline_at,observation_after FROM requests WHERE id=?', (rid,)).fetchone()
+            row = db.execute('SELECT action,status,created_at,updated_at,work_phase,deadline_at,observation_after,response FROM requests WHERE id=?', (rid,)).fetchone()
             if row is None:
                 return {'request_id': rid, 'status': 'NOT_FOUND', 'open': False}
-            action, status, created, updated, phase, deadline, after = row
+            action, status, created, updated, phase, deadline, after, saved = row
             if action == 'local_draft_plan':
                 from pablo_work_plans import WorkPlans
                 return WorkPlans(self).view(rid)
             interruption=db.execute('SELECT process_started_at,detected_at FROM work_interruptions WHERE request_id=?',(rid,)).fetchone()
             recorded_status=status
+            try:receipt=json.loads(saved)
+            except (TypeError,ValueError):receipt={}
+            outcome_verified=(action=='local_draft' and receipt.get('outcome_verified') is True
+                              and receipt.get('completion_authority') is not False)
+            if status=='SUCCESS' and not outcome_verified:
+                status='EXECUTION_SUCCEEDED'
             if interruption and status=='IN_PROGRESS':
                 status,phase='OUTCOME_UNKNOWN','outcome_unknown_after_restart'
             phase = phase if interruption and recorded_status=='IN_PROGRESS' else ((phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status))
@@ -368,28 +381,31 @@ class TaskGuard:
             events = [dict(seq=r[0], phase=r[1], status=r[2], observed_at=r[3]) for r in
                       db.execute('SELECT seq,phase,status,observed_at FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 20', (rid,))]
             history = db.execute('SELECT archived_at,reason FROM work_history WHERE request_id=?', (rid,)).fetchone()
+        legacy_worker_history=created is None and status=='EXECUTION_SUCCEEDED'
         return dict(request_id=rid, action=action, status=status, phase=phase, open=status not in CLOSED_WORK_STATUSES,
+                    outcome_verified=outcome_verified, completion_authority=outcome_verified,
                     next_step=next_step, waiting_for=waiting_for, created_at=created, updated_at=updated,
                     deadline_at=deadline, deadline_known=deadline is not None,
                     overdue=deadline is not None and deadline < self.clock() and status not in CLOSED_WORK_STATUSES,
                     observation_after=after, automatic_replay=False, events=list(reversed(events)),
-                    history_only=history is not None, archived_at=history[0] if history else None,
-                    archive_reason=history[1] if history else None,
+                    history_only=history is not None or legacy_worker_history, archived_at=history[0] if history else None,
+                    archive_reason=history[1] if history else ('legacy_worker_success_outcome_unverified' if legacy_worker_history else None),
                     recorded_status=recorded_status,
                     runtime_interruption=({'process_started_at':interruption[0],'detected_at':interruption[1]}
                                           if interruption and recorded_status=='IN_PROGRESS' else None))
 
     def work_snapshot(self, limit=100, offset=0, include_history=False):
         limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
-        selection = "parent_id IS NULL AND status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')"
-        if not include_history:
-            selection += ' AND NOT EXISTS (SELECT 1 FROM work_history h WHERE h.request_id=requests.id)'
+        selection = "parent_id IS NULL AND status NOT IN ('REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')"
         with self.connect() as db:
-            total = db.execute('SELECT count(*) FROM requests WHERE ' + selection).fetchone()[0]
-            history = db.execute("SELECT count(*) FROM work_history h JOIN requests r ON r.id=h.request_id WHERE r.status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')").fetchone()[0]
-            ids = [r[0] for r in db.execute('SELECT id FROM requests WHERE ' + selection + ' ORDER BY coalesce(created_at,0),id LIMIT ? OFFSET ?', (limit, offset))]
-        return {'open_count': total, 'items': [self.work_status(rid) for rid in ids],
-                'next_offset': offset + len(ids) if offset + len(ids) < total else None,
+            ids = [r[0] for r in db.execute('SELECT id FROM requests WHERE ' + selection + ' ORDER BY coalesce(created_at,0),id')]
+        # Derived views never rewrite old worker claims or replay an action.
+        opened=[view for rid in ids if (view:=self.work_status(rid))['open']]
+        history=sum(view.get('history_only') is True for view in opened)
+        visible=opened if include_history else [view for view in opened if not view.get('history_only')]
+        total=len(visible);items=visible[offset:offset+limit]
+        return {'open_count': total, 'items': items,
+                'next_offset': offset + len(items) if offset + len(items) < total else None,
                 'observed_at': self.clock(), 'automatic_replay': False, 'history_open_count': history,
                 'total_open_and_history': total if include_history else total + history,
                 'includes_history': bool(include_history)}
@@ -688,6 +704,8 @@ class TaskGuard:
                     ok = raw.get('ok') is True and inner.get('ok', True) is not False and inner.get('exit_code', 0) == 0
                     status=raw.get('status') if isinstance(raw.get('status'),str) else None
                     if not ok and status=='SUCCESS':status='ERROR'
+                    if self.capability_policy is not None and ok and status in (None,'SUCCESS'):
+                        status='EXECUTION_SUCCEEDED'
                     result = self.response(rid, status or ('SUCCESS' if ok else 'ERROR'), result=raw.get('result'),
                                            error=None if ok else raw.get('error', 'Action failed'))
                     if self.capability_policy is not None:

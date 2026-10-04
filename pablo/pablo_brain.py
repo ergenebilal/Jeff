@@ -64,7 +64,7 @@ SYSTEM_PROMPT = """Sen **Pablo**'sun: CyberGene'in dijital çalışanı ve Bilal
 ## ÇALIŞMA İLKEN: %99 ÖZERKLİK, %1 ONAY
 - Bir işi kendin çöz: araştır, dene, ilerle. Küçük şeyler için izin isteme, "yapayım mı?" diye sorup Bilal'i yorma.
 - Fırsat ya da risk görürsen (bir müşteri adayı, tıkanmış bir iş, tuhaf bir ekran, dolmak üzere bir yer) kısa bir cümleyle haber ver.
-- Sistem, şu dört durumda eylemi kendisi durdurup Bilal'e Telegram'da onay kartı gönderir: (1) kamuya açık paylaşım, (2) daha önce yazışılmamış birine ilk mesaj, (3) yıkıcı bir silme/sistem işlemi, (4) para harcaması veya ödeme. Onay gerektirecek bir şey yapmak istiyorsan yine dene; onay kartı gider.
+- Sistem, şu dört durumda eylemi durdurup onay kaydı oluşturur: (1) kamuya açık paylaşım, (2) daha önce yazışılmamış birine ilk mesaj, (3) yıkıcı bir silme/sistem işlemi, (4) para harcaması veya ödeme. Bildirimin gönderildiğini yalnız ayrı teslim kanıtı varsa söyle.
 
 ## ONAY BEKLEYEN EYLEM: DOLANMA, BEKLE
 - Bir araç "onay bekliyor" (APPROVAL_REQUIRED) dönerse: eylem YAPILMADI. Bilal'e ne için onay beklediğini bir cümleyle söyle ve dur. Bilal onaylayınca sistem işi kendisi yapar.
@@ -317,10 +317,18 @@ class PabloBrain:
                 reason = exec_res.get("reason") or err_msg
                 messages.append({"role": "user", "content": (
                     f"[SİSTEM: '{tool_name}' eylemi YAPILMADI; Bilal'in onayı gerekiyor ({reason}). "
-                    "Onay kartı Bilal'e Telegram'dan gönderildi. Bilal onaylayınca sistem işi kendisi yapacak. "
+                    "Onay kaydı bekliyor; Telegram'a bildirim teslim edildiğine dair kanıt yok. "
                     "Bu işi BAŞKA BİR YOLLA yapmaya çalışma ve yeni araç çağırma. "
                     "Bilal'e sade bir dille neyin onay beklediğini söyle.]")})
-                fallback_text = f"⏳ Bu iş için senin onayın gerekiyor patron ({tool_name}). Telegram'a onay kartı gönderdim; onaylayınca yapılacak."
+                fallback_text = f"⏳ Bu iş henüz yapılmadı; onayın bekleniyor ({tool_name}). Onay kaydını panelden kontrol edebilirsin."
+                break
+
+            if not has_outcome_proof and (status_val in ('EXECUTION_SUCCEEDED','OUTCOME_UNKNOWN','PENDING_VERIFICATION','VERIFICATION_UNAVAILABLE')
+                                         or (is_ok and exec_res.get('completion_authority') is False)):
+                stop_reason='outcome_unverified'
+                fallback_text=(f"İşlem çalıştı ({tool_name}); beklenen sonucun oluştuğunu henüz doğrulamadım. Tekrar çalıştırmadım."
+                               if exec_res.get('worker_action_succeeded') is True else
+                               f"Bu işin sonucu henüz doğrulanamadı ({tool_name}). Tekrar çalıştırmadım.")
                 break
 
             if status_val == "BLOCKED":
@@ -358,7 +366,10 @@ class PabloBrain:
                 "kalanı Bilal'e sade bir dille özetle.]")})
             fallback_text = f"ℹ️ {MAX_STEPS} adım yaptım patron, burada durdum; kaldığım yerden devam edebilirim."
 
-        if stop_reason:
+        if stop_reason in ('approval','outcome_unverified','failed','blocked'):
+            # A model cannot upgrade an absent receipt or invent delivery.
+            final_text=fallback_text
+        elif stop_reason:
             # Durma sebebi ne olursa olsun, arac cagirmadan dürüst bir son cevap yazdir.
             try:
                 messages.append({"role": "user", "content": "[SİSTEM: Şimdi araç çağırmadan, yalnızca Bilal'e düz Türkçe bir cevap yaz.]"})

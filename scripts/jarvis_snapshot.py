@@ -46,7 +46,7 @@ def render(data):
     onay=f"Karar bekleyen güncel onay {approvals['pending']}" if approvals['known'] else 'Onay durumu okunamadı'
     isler=f"Pablo’da {work['open']} açık iş var" if work['known'] else 'Pablo iş durumu okunamadı'
     if work['known']:
-        uncertain=sum(i['status'] in ('OUTCOME_UNKNOWN','UNKNOWN','IN_PROGRESS','PENDING_VERIFICATION') and not i['outcome_verified'] for i in work['items'])
+        uncertain=sum(i['status'] in ('OUTCOME_UNKNOWN','UNKNOWN','IN_PROGRESS','PENDING_VERIFICATION','EXECUTION_SUCCEEDED') and not i['outcome_verified'] for i in work['items'])
         if uncertain:isler+=f'; görünen işlerin {uncertain} tanesinin sonucu henüz doğrulanmadı'
         if not work['complete_list']:isler+='; liste kısmi'
     return onay+'. '+isler+'. Onay verilmesi işin bittiğini kanıtlamaz.'
