@@ -146,5 +146,26 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
         self.assertEqual(contexts,['read'])
 
+    def test_common_record_question_reads_current_source_without_agent_wait(self):
+        from unittest.mock import patch
+        class H:
+            _json=lambda *a: None
+            def route(self,p,b):return 404,{}
+        reads=[]
+        data={'approvals':{'known':True,'pending':0},'work':{'known':True,'open':16,
+            'items':[{'status':'OUTCOME_UNKNOWN','outcome_verified':False}]*10,'complete_list':True}}
+        app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
+            jeff=SimpleNamespace(stream_reply=lambda *a:self.fail('Current summary must not wait on agent')),
+            _jarvis_snapshot=lambda:reads.append(True) or data)
+        with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service:
+            install(app);reply=service.call_args.args[2]
+            answer=''.join(reply('Bugün ne var?'))
+            self.assertIn('16 açık iş',answer);self.assertIn('10 tanesinin sonucu',answer)
+            self.assertIn('takvimini ve genel sistem sağlığını bu yanıtla doğrulamadım',answer)
+            data['work']={'known':False}
+            self.assertIn('iş durumu okunamadı',''.join(reply('Bekleyen iş var mı?')))
+            self.assertNotIn('0 açık iş',''.join(reply('Bekleyen iş var mı?')))
+        self.assertEqual(len(reads),3)
+
 
 if __name__=='__main__':unittest.main()

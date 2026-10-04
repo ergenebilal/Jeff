@@ -30,6 +30,11 @@ PROOF_REQUIRED = (r'(?i)(onay|görev|pablo|durum|bitir|bitti|tamamla|tamamlandı
     r'başlat|çalıştır|gönder|kaydet|arşiv|iptal|hatır|hafıza|müşteri|lead|radar|'
     r'para|fiyat|hesap|ödeme|bakiye|sermaye|bugün|şimdi|güncel|haber|hava|'
     r'takvim|randevu|sil(?:me|in|indi)?\b|dosya|sunucu|\biş(?:ler|leri|im|in)?\b)')
+RECORD_SUMMARIES = {
+    'bugün ne var', 'bugün ne var jeff', 'jeff bugün ne var',
+    'bekleyen iş var mı', 'işler ne durumda',
+    'onay bekleyen var mı', 'bekleyen onay var mı',
+}
 VOICE_RULES = (
     "Sen Bilal'in Jeff adlı asistanının canlı konuşma katmanısın. Türkçe, doğal, kısa konuş. "
     "Sıradan sohbeti, genel açıklamaları, fikirleri birlikte düşünmeyi ve empatiyi DOĞRUDAN canlı yanıtla; "
@@ -277,6 +282,12 @@ def install(app):
         if clean in STATUS_REQUESTS:
             # The shared deterministic reader ignores panel business context entirely.
             return app.jeff.stream_reply(clean, '')
+        if clean in RECORD_SUMMARIES:
+            from scripts.jarvis_snapshot import render
+            answer='İş ve onay kayıtlarında: '+render(app._jarvis_snapshot())
+            if 'bugün' in clean:
+                answer+=' Bugünün takvimini ve genel sistem sağlığını bu yanıtla doğrulamadım.'
+            return iter([answer])
         # Voice starts with current infrastructure truth. Jeff can consult his existing
         # tools for other subjects; no business query or workflow is modified here.
         # Ordinary conversation is already native. A grounded consultation can
