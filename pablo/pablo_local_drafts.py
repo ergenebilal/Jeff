@@ -6,6 +6,7 @@ This is a file outcome check, not an operating-system sandbox.
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -33,8 +34,12 @@ def expectation(request_id, params):
         request_id.encode('utf-8')
     except UnicodeError as exc:
         raise DraftError('Invalid draft request encoding') from exc
-    if not isinstance(params, dict) or set(params) - {'name', 'format', 'content', 'request_id'}:
+    if not isinstance(params, dict) or set(params) - {'name', 'format', 'content', 'request_id', 'deadline_at'}:
         raise DraftError('Unsupported draft parameters')
+    deadline = params.get('deadline_at')
+    if deadline is not None and (type(deadline) not in (int, float) or not math.isfinite(deadline)
+                                 or not 0 < deadline <= 253402300799):
+        raise DraftError('Invalid UTC deadline')
     if params.get('request_id', request_id) != request_id:
         raise DraftError('Draft request mismatch')
     name, format_, content = params.get('name', 'draft'), params.get('format', 'txt'), params.get('content')

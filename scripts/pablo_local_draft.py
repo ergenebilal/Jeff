@@ -53,6 +53,7 @@ def main(argv=None):
     parser.add_argument('--format', choices=('txt', 'md', 'json'), default='txt')
     parser.add_argument('--task-id', default=None)
     parser.add_argument('--wait-seconds', type=int, default=30)
+    parser.add_argument('--deadline-at', type=float, help='Optional deadline as UTC Unix seconds; not an execution schedule')
     args = parser.parse_args(argv)
     if not 1 <= args.wait_seconds <= 60:
         parser.error('wait-seconds must be between 1 and 60')
@@ -66,6 +67,11 @@ def main(argv=None):
         print('Taslak okunamadı veya boyutu uygun değil.', file=sys.stderr)
         return 2
     params = {'name': args.name, 'format': args.format, 'content': content}
+    if args.deadline_at is not None:
+        import math
+        if not math.isfinite(args.deadline_at) or not 0 < args.deadline_at <= 253402300799:
+            parser.error('Invalid UTC deadline')
+        params['deadline_at'] = args.deadline_at
     task_id = args.task_id or 'local-draft-' + uuid.uuid4().hex
     if (not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', task_id)
             or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', args.name)):

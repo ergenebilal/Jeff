@@ -2283,7 +2283,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok": false, "error": "Forbidden: IP not allowed"}')
             return
 
-        if self.path.startswith('/tasks/'):
+        if self.path.startswith('/tasks/') or self.path.split('?')[0] == '/work' or self.path.startswith('/work/'):
             import hmac
             token = self.headers.get('X-Bridge-Key') or self.headers.get('X-Alfred-Token') or ''
             expected = CONFIG.get('auth_token', '')
@@ -2291,7 +2291,18 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 self.send_response(401)
                 self.end_headers()
                 return
-            result = task_guard().get(urllib.parse.unquote(self.path[len('/tasks/'):]))
+            if self.path.split('?')[0] == '/work':
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    result = task_guard().work_snapshot(int(query.get('limit', ['100'])[0]), int(query.get('offset', ['0'])[0]))
+                except ValueError:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+            elif self.path.startswith('/work/'):
+                result = task_guard().work_status(urllib.parse.unquote(self.path[len('/work/'):]))
+            else:
+                result = task_guard().get(urllib.parse.unquote(self.path[len('/tasks/'):]))
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
@@ -2374,7 +2385,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok": false, "error": "Forbidden: IP not allowed"}')
             return
 
-        if self.path == "/execute":
+        if self.path == "/execute" or (self.path.startswith('/work/') and self.path.endswith('/reconcile')):
             # 2. Token Tabanlı Yetkilendirme Kontrolü (401)
             token = (
                 self.headers.get("X-Pablo-Token")
@@ -2404,11 +2415,15 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": False, "error": f"Invalid JSON: {e}"}).encode("utf-8"))
                 return
 
-            action_name = data.get("action")
-            raw_params = data.get("params", {})
-            params = raw_params if action_name == 'local_draft' else normalize_tool_params(raw_params)
-
-            res = execute_request(action_name, params, data.get('request_id'))
+            if self.path.startswith('/work/'):
+                rid = urllib.parse.unquote(self.path[len('/work/'):-len('/reconcile')])
+                task_guard().reconcile(rid)
+                res = task_guard().work_status(rid)
+            else:
+                action_name = data.get("action")
+                raw_params = data.get("params", {})
+                params = raw_params if action_name == 'local_draft' else normalize_tool_params(raw_params)
+                res = execute_request(action_name, params, data.get('request_id'))
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -2454,12 +2469,16 @@ def run_bridge_worker():
     jeff_bridge_url = CONFIG["jeff_bridge_api_url"]
     bridge_key = CONFIG["auth_token"]
     last_hb = 0.0
+    last_recovery = 0.0
 
     log("INFO", f"Jeff Bridge Worker baslatildi. Hedef: {jeff_bridge_url}")
 
     while True:
         try:
             now = time.time()
+            if now - last_recovery >= 60:
+                task_guard().recover_pending()
+                last_recovery = now
             task_guard().flush_results(send_bridge_result)
 
             # 1. Heartbeat
@@ -2551,7 +2570,7 @@ def handle_bridge_task(task: dict):
     if not isinstance(params, dict):
         params = {'value': params}
     if task.get('reconcile_only'):
-        result = task_guard().get(rid)
+        result = task_guard().reconcile(rid)
         if result['status'] in ('NOT_FOUND', 'IN_PROGRESS'):
             log('WARN', f'Bridge task {rid} requires manual reconciliation: {result["status"]}')
             return

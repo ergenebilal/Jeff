@@ -36,6 +36,7 @@ GUI_ACTIONS = {'window_focus', 'gui_click', 'gui_drag', 'gui_scroll', 'gui_type'
                'vision_grounding', 'browser_open', 'browser_read', 'browser_act', 'browser_session',
                'pilot_run_session', 'youtube_play', 'whatsapp_send', 'whatsapp_draft'}
 GUI_ACTIONS.update(ANTIGRAVITY_ALIASES)
+CLOSED_WORK_STATUSES = {'SUCCESS', 'REJECTED', 'EXPIRED', 'NEEDS_REVALIDATION'}
 
 DESTRUCTIVE_COMMAND_PATTERNS = [
     "rmdir /s", "rd /s",
@@ -248,9 +249,12 @@ class TaskGuard:
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, action TEXT, params TEXT, status TEXT, response TEXT, approval TEXT, expires REAL, consumed INTEGER DEFAULT 0)')
             db.execute('CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, payload TEXT)')
-            for name,definition in (('created_at','REAL'),('canonical_claim','TEXT')):
+            for name,definition in (('created_at','REAL'),('canonical_claim','TEXT'),
+                                    ('updated_at','REAL'),('work_phase','TEXT'),
+                                    ('deadline_at','REAL'),('observation_after','REAL')):
                 if name not in {r[1] for r in db.execute('PRAGMA table_info(requests)')}:
                     db.execute('ALTER TABLE requests ADD COLUMN '+name+' '+definition)
+            db.execute('CREATE TABLE IF NOT EXISTS work_events (seq INTEGER PRIMARY KEY, request_id TEXT NOT NULL, phase TEXT NOT NULL, status TEXT NOT NULL, observed_at REAL NOT NULL)')
 
     @contextmanager
     def connect(self):
@@ -265,8 +269,119 @@ class TaskGuard:
         return dict(request_id=rid, task_id=rid, status=status, ok=status == 'SUCCESS', **kw)
 
     def store(self, db, rid, result):
-        db.execute('UPDATE requests SET status=?, response=? WHERE id=?', (result['status'], json.dumps(result), rid))
+        row = db.execute('SELECT action,status,response FROM requests WHERE id=?', (rid,)).fetchone()
+        # An independent recovery observation may have closed this request while
+        # another process was finishing its original writer. Never regress it.
+        if row and row[0] == 'local_draft' and row[1] == 'SUCCESS':
+            return json.loads(row[2])
+        db.execute('UPDATE requests SET status=?, response=?,updated_at=? WHERE id=?', (result['status'], json.dumps(result), self.clock(), rid))
+        self._phase(db, rid, self._status_phase(result['status']), result['status'])
         return result
+
+    @staticmethod
+    def _status_phase(status):
+        if status == 'SUCCESS':
+            return 'completed'
+        if status in CLOSED_WORK_STATUSES:
+            return 'closed'
+        if status == 'IN_PROGRESS':
+            return 'claimed'
+        if status == 'APPROVAL_REQUIRED':
+            return 'waiting_for_owner'
+        return 'needs_review'
+
+    def _phase(self, db, rid, phase, status=None):
+        row = db.execute('SELECT work_phase,status FROM requests WHERE id=?', (rid,)).fetchone()
+        if row is None:
+            return
+        if row[1] == 'SUCCESS' and phase != 'completed':
+            return
+        if row[0] == phase:
+            last = db.execute('SELECT status FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 1', (rid,)).fetchone()
+            if last and last[0] == (status or row[1]):
+                return
+        now = self.clock()
+        db.execute('UPDATE requests SET work_phase=?,updated_at=? WHERE id=?', (phase, now, rid))
+        db.execute('INSERT INTO work_events(request_id,phase,status,observed_at) VALUES(?,?,?,?)',
+                   (rid, phase, status or row[1], now))
+
+    def work_status(self, rid):
+        """One redacted record; stored task input and customer text stay private."""
+        with self.connect() as db:
+            row = db.execute('SELECT action,status,created_at,updated_at,work_phase,deadline_at,observation_after FROM requests WHERE id=?', (rid,)).fetchone()
+            if row is None:
+                return {'request_id': rid, 'status': 'NOT_FOUND', 'open': False}
+            action, status, created, updated, phase, deadline, after = row
+            phase = (phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status)
+            if status in CLOSED_WORK_STATUSES:
+                next_step, waiting_for = 'none', None
+            elif status == 'APPROVAL_REQUIRED':
+                next_step, waiting_for = 'owner_decision', 'owner'
+            elif action == 'local_draft':
+                next_step, waiting_for = 'observe_file_without_writing', 'file_evidence'
+            else:
+                next_step, waiting_for = 'inspect_outcome_without_replay', 'outcome_evidence'
+            events = [dict(seq=r[0], phase=r[1], status=r[2], observed_at=r[3]) for r in
+                      db.execute('SELECT seq,phase,status,observed_at FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 20', (rid,))]
+        return dict(request_id=rid, action=action, status=status, phase=phase, open=status not in CLOSED_WORK_STATUSES,
+                    next_step=next_step, waiting_for=waiting_for, created_at=created, updated_at=updated,
+                    deadline_at=deadline, deadline_known=deadline is not None,
+                    overdue=deadline is not None and deadline < self.clock() and status not in CLOSED_WORK_STATUSES,
+                    observation_after=after, automatic_replay=False, events=list(reversed(events)))
+
+    def work_snapshot(self, limit=100, offset=0):
+        limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
+        with self.connect() as db:
+            total = db.execute("SELECT count(*) FROM requests WHERE status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION')").fetchone()[0]
+            ids = [r[0] for r in db.execute("SELECT id FROM requests WHERE status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION') ORDER BY coalesce(created_at,0),id LIMIT ? OFFSET ?", (limit, offset))]
+        return {'open_count': total, 'items': [self.work_status(rid) for rid in ids],
+                'next_offset': offset + len(ids) if offset + len(ids) < total else None,
+                'observed_at': self.clock(), 'automatic_replay': False}
+
+    def reconcile(self, rid):
+        """Observe the immutable local draft only. Never call an action/writer."""
+        with self.lock, self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT action,params,digest,status,response,observation_after FROM requests WHERE id=?', (rid,)).fetchone()
+            if row is None:
+                return self.response(rid, 'NOT_FOUND', error='Unknown request')
+            action, raw, digest, status, saved, after = row
+            if action != 'local_draft' or status == 'SUCCESS':
+                return json.loads(saved)
+            try:
+                params = json.loads(raw)
+                if fingerprint(action, params) != digest:
+                    raise DraftError('Stored binding changed')
+                expected = expectation(rid, params)
+            except (TypeError, ValueError, UnicodeError):
+                return self.store(db, rid, self.response(rid, 'RECOVERY_BLOCKED',
+                                  outcome_verified=False, error='Stored draft binding invalid; do not replay'))
+            proof = {'method': 'independent_file_read', 'request_id': rid, 'input_digest': digest,
+                     'expected_sha256': expected.sha256, 'expected_bytes': len(expected.data),
+                     'observed_sha256': None, 'observed_bytes': None}
+            try:
+                proof.update(self.local_drafts.observe(rid, expected))
+                matches = proof['observed_sha256'] == expected.sha256 and proof['observed_bytes'] == len(expected.data)
+                proof['status'] = 'matched' if matches else 'mismatch'
+                outcome = 'SUCCESS' if matches else 'OUTCOME_MISMATCH'
+            except (OSError, DraftError) as exc:
+                matches, outcome = False, 'VERIFICATION_UNAVAILABLE'
+                proof.update(status='unavailable', reason=type(exc).__name__)
+            proof['observed_at'] = self.clock()
+            # A missing file during a current write is not evidence of failure.
+            if not matches and status == 'IN_PROGRESS' and after is not None and after > self.clock():
+                return json.loads(saved)
+            result = self.response(rid, outcome, verified=matches, outcome_verified=matches,
+                                   action_verified=False, recovered_by_observation=True,
+                                   outcome_evidence=proof, result={'path': str(self.local_drafts.path(rid, expected)),
+                                   'publication': None, 'write_error': None, 'delivered': False, 'replayed': False},
+                                   error=None if matches else 'Observation incomplete; do not replay')
+            return self.store(db, rid, result)
+
+    def recover_pending(self):
+        with self.connect() as db:
+            ids = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft' AND status='IN_PROGRESS'")]
+        return [self.reconcile(rid) for rid in ids]
 
     def get(self, rid):
         with self.connect() as db:
@@ -330,6 +445,10 @@ class TaskGuard:
             db.execute('INSERT INTO requests(id,digest,action,params,status,response) VALUES(?,?,?,?,?,?)',
                        (rid, digest, action, json.dumps(params), result['status'], json.dumps(result)))
             db.execute('UPDATE requests SET created_at=? WHERE id=?',(self.clock(),rid))
+            self._phase(db, rid, 'claimed')
+            if action == 'local_draft':
+                db.execute('UPDATE requests SET deadline_at=?,observation_after=? WHERE id=?',
+                           (params.get('deadline_at'), self.clock() + 300, rid))
             # Kırmızı Çizgi Kontrolü (Approval Gate)
             needs_approval, reason = is_approval_required(action, params)
             if needs_approval:
@@ -393,6 +512,11 @@ class TaskGuard:
 
     def _run_local_draft(self, rid, params):
         with self.lock:
+            with self.connect() as db:
+                saved = db.execute('SELECT status,response FROM requests WHERE id=?', (rid,)).fetchone()
+                if saved and saved[0] == 'SUCCESS':
+                    return json.loads(saved[1])
+                self._phase(db, rid, 'publishing')
             expected = expectation(rid, params)
             proof = {'method': 'independent_file_read', 'request_id': rid,
                      'input_digest': fingerprint('local_draft', params),
@@ -403,6 +527,8 @@ class TaskGuard:
                 publication = self.local_drafts.write(rid, expected)
             except (OSError, DraftError) as exc:
                 write_error = type(exc).__name__
+            with self.connect() as db:
+                self._phase(db, rid, 'observing')
             try:
                 proof.update(self.local_drafts.observe(rid, expected))
                 matches = (proof['observed_sha256'] == expected.sha256
@@ -412,6 +538,7 @@ class TaskGuard:
             except (OSError, DraftError) as exc:
                 matches, status = False, 'VERIFICATION_UNAVAILABLE'
                 proof.update(status='unavailable', reason=type(exc).__name__)
+            proof['observed_at'] = self.clock()
             result = self.response(rid, status, verified=matches, outcome_verified=matches,
                                    action_verified=write_error is None,
                                    outcome_evidence=proof,
