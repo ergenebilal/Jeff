@@ -37,7 +37,11 @@ def test_core_archive_hash_detects_same_name_wrong_code(tmp_path):
 
 
 def test_backups_include_active_repo_beyin_state_and_runtime(tmp_path):
+    (tmp_path/'.venv/lib/python3.12/site-packages').mkdir(parents=True)
+    (tmp_path/'.local/lib/python3.11/site-packages').mkdir(parents=True)
     roots=jb.trees(tmp_path,opt_trees=())
     assert tmp_path/'jeff_repo' in roots
     assert tmp_path/'.local/share/beyin-v3' in roots
     assert tmp_path/'jeff-v0.21.5/site' in roots
+    assert tmp_path/'.venv/lib/python3.12/site-packages' in roots
+    assert tmp_path/'.local/lib/python3.11/site-packages' in roots

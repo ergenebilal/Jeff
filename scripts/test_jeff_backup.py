@@ -47,7 +47,10 @@ class Fixture:
 
     def run(self, **kw):
         logs = []
-        code = jb.run(self.home, self.dest, log=logs.append, opt_trees=(), **kw)
+        # Fixture backups test archive/database logic; installed-package discovery has its own tests.
+        from unittest.mock import patch
+        with patch.object(jb, 'package_inventory', return_value={}):
+            code = jb.run(self.home, self.dest, log=logs.append, opt_trees=(), **kw)
         return code, logs
 
     def latest(self):

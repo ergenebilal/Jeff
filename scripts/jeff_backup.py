@@ -39,6 +39,7 @@ CORE_SOURCE_PATHS = (
     'jeff_repo/pablo/pablo_work_plans.py', 'jeff-v0.21.5/src/run_agent.py',
     'jeff-v0.21.5/site/openai/__init__.py',
     'jeff-beyin/.beyin-runtime.json', 'jeff-beyin/.claude/scripts/beyin_v3.py',
+    '.venv/lib/python3.12/site-packages/aiosqlite/__init__.py',
 )
 CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
 # Directory names that are skipped anywhere inside a backed-up tree.
@@ -57,7 +58,9 @@ def trees(home, opt_trees=OPT_TREES):
             h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos', h / 'jeff-artifacts',
             h / '.alert.env', h / '.config', h / 'jeff_repo',
             h / 'jeff-v0.21.5' / 'live_ext', h / 'jeff-v0.21.5' / 'site',
-            h / '.local/share/beyin-v3', *opt_trees]
+            h / '.local/share/beyin-v3',
+            *sorted((h / '.local/lib').glob('python*/site-packages')),
+            *sorted((h / '.venv/lib').glob('python*/site-packages')), *opt_trees]
 
 
 ETC_PATTERNS = [
@@ -192,6 +195,8 @@ def package_inventory(home, runner=subprocess.run):
     sources = {
         'etc/pip-freeze-jeff-site.txt': ['python3.11', '-m', 'pip', 'freeze', '--path', str(h / 'jeff-v0.21.5' / 'site')],
         'etc/pip-freeze-user.txt': ['python3.11', '-m', 'pip', 'freeze', '--user'],
+        'etc/pip-freeze-bridge.txt': [str(h / '.venv/bin/python'), '-m', 'pip', 'freeze'],
+        'etc/host-os-release.txt': ['cat', '/etc/os-release'],
         'etc/node-global.txt': ['npm', 'ls', '-g', '--depth=0'],
         'etc/crontab-hermes.txt': ['crontab', '-l'],
     }
@@ -281,7 +286,7 @@ def run(home='/home/hermes', dest='/home/hermes/backups', keep=10, extra_files=(
             return 1
         dbs = find_databases(home, opt_trees)
         copied, errors = snapshot_databases(dbs, work, log)
-        with tarfile.open(partial, 'w:gz') as tar:
+        with tarfile.open(partial, 'w:gz', compresslevel=3) as tar:
             tar.add(work / 'db', arcname='db')
             data = json.dumps(core, indent=1).encode('utf-8')
             info = tarfile.TarInfo('etc/CORE-SOURCES.json')
