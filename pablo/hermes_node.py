@@ -57,7 +57,7 @@ NODE_DIR = Path(__file__).resolve().parent
 PROCESS_STARTED_AT = time.time()
 LOADED_SOURCE_SHA256 = {
     name: hashlib.sha256((NODE_DIR / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py', 'pablo_local_drafts.py')
+    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py', 'pablo_local_drafts.py', 'pablo_work_plans.py')
 }
 try:
     SOURCE_RELEASE = json.loads((NODE_DIR / 'deployment.json').read_text(encoding='utf-8')).get('commit', 'unknown')
@@ -733,13 +733,13 @@ class PabloWorkcopyTaskGuard(TaskGuard):
         super().__init__(*args, **kwargs)
         self.intent_guard = get_intent_guard()
 
-    def execute(self, action, params, request_id=None):
+    def execute(self, action, params, request_id=None, parent_id=None):
         if isinstance(params, dict) and request_id:
             params["request_id"] = request_id
-        return super().execute(action, params, request_id)
+        return super().execute(action, params, request_id, parent_id=parent_id)
 
     def _run(self, rid, action, params):
-        if action == 'local_draft':
+        if action in ('local_draft', 'local_draft_plan'):
             return super()._run(rid, action, params)
         with self.lock:
             try:
@@ -785,7 +785,7 @@ def task_guard():
 def execute_request(action, params, request_id=None):
     # The bounded draft has a strict schema; general text aliases would add
     # unsupported fields and change its immutable input contract.
-    normalized = dict(params) if action == 'local_draft' and isinstance(params, dict) else normalize_tool_params(params)
+    normalized = dict(params) if action in ('local_draft', 'local_draft_plan') and isinstance(params, dict) else normalize_tool_params(params)
     if request_id:
         normalized["request_id"] = request_id
     result = task_guard().execute(action, normalized, request_id)
@@ -2294,7 +2294,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             if self.path.split('?')[0] == '/work':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 try:
-                    result = task_guard().work_snapshot(int(query.get('limit', ['100'])[0]), int(query.get('offset', ['0'])[0]))
+                    result = task_guard().work_snapshot(int(query.get('limit', ['100'])[0]), int(query.get('offset', ['0'])[0]), query.get('include_history', ['0'])[0] == '1')
                 except ValueError:
                     self.send_response(400)
                     self.end_headers()
@@ -2385,7 +2385,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok": false, "error": "Forbidden: IP not allowed"}')
             return
 
-        if self.path == "/execute" or (self.path.startswith('/work/') and self.path.endswith('/reconcile')):
+        if self.path == "/execute" or (self.path.startswith('/work/') and self.path.endswith(('/reconcile', '/advance', '/signal', '/cancel'))):
             # 2. Token Tabanlı Yetkilendirme Kontrolü (401)
             token = (
                 self.headers.get("X-Pablo-Token")
@@ -2415,14 +2415,39 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": False, "error": f"Invalid JSON: {e}"}).encode("utf-8"))
                 return
 
+            if not isinstance(data, dict):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'{"ok":false,"error":"Expected JSON object"}')
+                return
+
             if self.path.startswith('/work/'):
-                rid = urllib.parse.unquote(self.path[len('/work/'):-len('/reconcile')])
-                task_guard().reconcile(rid)
-                res = task_guard().work_status(rid)
+                route = self.path.rsplit('/', 1)[1]
+                rid = urllib.parse.unquote(self.path[len('/work/'):-(len(route)+1)])
+                if route == 'signal':
+                    import hmac
+                    from pablo_work_plans import WorkPlans, DraftError
+                    owner_key = CONFIG.get('approval_decision_key') or ''
+                    owner = bool(owner_key and owner_key != expected_token and hmac.compare_digest(self.headers.get('X-Approval-Key') or '', owner_key))
+                    try:
+                        res = WorkPlans(task_guard()).signal(rid, data.get('step'), data.get('key'), data.get('source'), owner=owner)
+                    except (DraftError, PermissionError, TypeError, ValueError) as exc:
+                        self.send_response(403 if isinstance(exc, PermissionError) else 409)
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'ok': False, 'error': type(exc).__name__}).encode())
+                        return
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res).encode())
+                    return
+                result = (task_guard().advance_plan(rid) if route == 'advance' else
+                          task_guard().cancel_plan(rid) if route == 'cancel' else task_guard().reconcile(rid))
+                res = result if result['status'] in ('RECOVERY_BLOCKED', 'NOT_FOUND') else task_guard().work_status(rid)
             else:
                 action_name = data.get("action")
                 raw_params = data.get("params", {})
-                params = raw_params if action_name == 'local_draft' else normalize_tool_params(raw_params)
+                params = raw_params if action_name in ('local_draft', 'local_draft_plan') else normalize_tool_params(raw_params)
                 res = execute_request(action_name, params, data.get('request_id'))
 
             self.send_response(200)

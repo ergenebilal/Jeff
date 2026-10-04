@@ -22,6 +22,10 @@ vardır. Aynı istek yeniden gönderilince kayıtlı sonuç döner; yeni ölçü
 tekrarlanmaz. P20 kesintiden sonra yalnız dosya gözlemine dayalı toparlanmayı
 ekler; genel GUI, müşteri teslimi ve günlerce süren çok adımlı iş yürütme açık kalır.
 
+P21 ile özel yerel taslaklar için sıralı, tarihe/olaya/kişiye bağlı plan yürütme
+eklenmiştir: [kalıcı iş planı rehberi](pablo-work-plans.md). Aşağıdaki P20 sınırı
+kendi tarihli kabulüne aittir; genel GUI ve müşteri teslimi yine kapsam dışıdır.
+
 Sunucuda küçük bir yerel taslak için:
 
 ```sh

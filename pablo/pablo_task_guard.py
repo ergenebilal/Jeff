@@ -36,7 +36,7 @@ GUI_ACTIONS = {'window_focus', 'gui_click', 'gui_drag', 'gui_scroll', 'gui_type'
                'vision_grounding', 'browser_open', 'browser_read', 'browser_act', 'browser_session',
                'pilot_run_session', 'youtube_play', 'whatsapp_send', 'whatsapp_draft'}
 GUI_ACTIONS.update(ANTIGRAVITY_ALIASES)
-CLOSED_WORK_STATUSES = {'SUCCESS', 'REJECTED', 'EXPIRED', 'NEEDS_REVALIDATION'}
+CLOSED_WORK_STATUSES = {'SUCCESS', 'REJECTED', 'EXPIRED', 'NEEDS_REVALIDATION', 'CANCELLED'}
 
 DESTRUCTIVE_COMMAND_PATTERNS = [
     "rmdir /s", "rd /s",
@@ -169,7 +169,7 @@ def is_approval_required(action: str, params: dict) -> tuple:
     """
     if not isinstance(params, dict):
         params = {}
-    if action == 'local_draft':
+    if action in ('local_draft', 'local_draft_plan'):
         # The durable guard validates this bounded, private draft contract first.
         return False, 'LOCAL_DRAFT_ONLY'
     if action in ANTIGRAVITY_ALIASES:
@@ -251,10 +251,18 @@ class TaskGuard:
             db.execute('CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, payload TEXT)')
             for name,definition in (('created_at','REAL'),('canonical_claim','TEXT'),
                                     ('updated_at','REAL'),('work_phase','TEXT'),
-                                    ('deadline_at','REAL'),('observation_after','REAL')):
+                                    ('deadline_at','REAL'),('observation_after','REAL'),('parent_id','TEXT')):
                 if name not in {r[1] for r in db.execute('PRAGMA table_info(requests)')}:
                     db.execute('ALTER TABLE requests ADD COLUMN '+name+' '+definition)
             db.execute('CREATE TABLE IF NOT EXISTS work_events (seq INTEGER PRIMARY KEY, request_id TEXT NOT NULL, phase TEXT NOT NULL, status TEXT NOT NULL, observed_at REAL NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS work_plan_signals (request_id TEXT NOT NULL,step_name TEXT NOT NULL,input_digest TEXT NOT NULL,signal_key TEXT NOT NULL,actor_kind TEXT NOT NULL,source TEXT NOT NULL,recorded_at REAL NOT NULL,PRIMARY KEY(request_id,step_name))')
+            db.execute('CREATE TABLE IF NOT EXISTS work_history (request_id TEXT PRIMARY KEY,archived_at REAL NOT NULL,reason TEXT NOT NULL)')
+            # Quiet legacy terminal failures; their outcome remains unverified.
+            # Do not infer their age, archive pending authority or hide ambiguity.
+            db.execute("INSERT OR IGNORE INTO work_history SELECT id,?,'legacy_terminal_failure_outcome_unverified' FROM requests r WHERE created_at IS NULL AND status IN ('ERROR','BLOCKED','FAILED') AND coalesce(approval,'')='' AND coalesce(canonical_claim,'')='' AND parent_id IS NULL AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.id=r.id)", (self.clock(),))
+            for table in ('work_events', 'work_plan_signals', 'work_history'):
+                for operation in ('UPDATE', 'DELETE'):
+                    db.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_{operation.lower()} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'work history is append-only'); END")
 
     @contextmanager
     def connect(self):
@@ -270,12 +278,16 @@ class TaskGuard:
 
     def store(self, db, rid, result):
         row = db.execute('SELECT action,status,response FROM requests WHERE id=?', (rid,)).fetchone()
+        if row and row[0] == 'local_draft_plan' and row[1] == 'CANCELLED':
+            return json.loads(row[2])
         # An independent recovery observation may have closed this request while
         # another process was finishing its original writer. Never regress it.
-        if row and row[0] == 'local_draft' and row[1] == 'SUCCESS':
+        if (row and row[0] in ('local_draft', 'local_draft_plan') and row[1] == 'SUCCESS'
+                and not (row[0] == 'local_draft_plan' and result['status'] == 'RECOVERY_BLOCKED')):
             return json.loads(row[2])
         db.execute('UPDATE requests SET status=?, response=?,updated_at=? WHERE id=?', (result['status'], json.dumps(result), self.clock(), rid))
-        self._phase(db, rid, self._status_phase(result['status']), result['status'])
+        phase = result.get('work', {}).get('phase') if row and row[0] == 'local_draft_plan' else None
+        self._phase(db, rid, phase or self._status_phase(result['status']), result['status'])
         return result
 
     @staticmethod
@@ -312,6 +324,9 @@ class TaskGuard:
             if row is None:
                 return {'request_id': rid, 'status': 'NOT_FOUND', 'open': False}
             action, status, created, updated, phase, deadline, after = row
+            if action == 'local_draft_plan':
+                from pablo_work_plans import WorkPlans
+                return WorkPlans(self).view(rid)
             phase = (phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status)
             if status in CLOSED_WORK_STATUSES:
                 next_step, waiting_for = 'none', None
@@ -323,23 +338,37 @@ class TaskGuard:
                 next_step, waiting_for = 'inspect_outcome_without_replay', 'outcome_evidence'
             events = [dict(seq=r[0], phase=r[1], status=r[2], observed_at=r[3]) for r in
                       db.execute('SELECT seq,phase,status,observed_at FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 20', (rid,))]
+            history = db.execute('SELECT archived_at,reason FROM work_history WHERE request_id=?', (rid,)).fetchone()
         return dict(request_id=rid, action=action, status=status, phase=phase, open=status not in CLOSED_WORK_STATUSES,
                     next_step=next_step, waiting_for=waiting_for, created_at=created, updated_at=updated,
                     deadline_at=deadline, deadline_known=deadline is not None,
                     overdue=deadline is not None and deadline < self.clock() and status not in CLOSED_WORK_STATUSES,
-                    observation_after=after, automatic_replay=False, events=list(reversed(events)))
+                    observation_after=after, automatic_replay=False, events=list(reversed(events)),
+                    history_only=history is not None, archived_at=history[0] if history else None,
+                    archive_reason=history[1] if history else None)
 
-    def work_snapshot(self, limit=100, offset=0):
+    def work_snapshot(self, limit=100, offset=0, include_history=False):
         limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
+        selection = "parent_id IS NULL AND status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')"
+        if not include_history:
+            selection += ' AND NOT EXISTS (SELECT 1 FROM work_history h WHERE h.request_id=requests.id)'
         with self.connect() as db:
-            total = db.execute("SELECT count(*) FROM requests WHERE status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION')").fetchone()[0]
-            ids = [r[0] for r in db.execute("SELECT id FROM requests WHERE status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION') ORDER BY coalesce(created_at,0),id LIMIT ? OFFSET ?", (limit, offset))]
+            total = db.execute('SELECT count(*) FROM requests WHERE ' + selection).fetchone()[0]
+            history = db.execute("SELECT count(*) FROM work_history h JOIN requests r ON r.id=h.request_id WHERE r.status NOT IN ('SUCCESS','REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')").fetchone()[0]
+            ids = [r[0] for r in db.execute('SELECT id FROM requests WHERE ' + selection + ' ORDER BY coalesce(created_at,0),id LIMIT ? OFFSET ?', (limit, offset))]
         return {'open_count': total, 'items': [self.work_status(rid) for rid in ids],
                 'next_offset': offset + len(ids) if offset + len(ids) < total else None,
-                'observed_at': self.clock(), 'automatic_replay': False}
+                'observed_at': self.clock(), 'automatic_replay': False, 'history_open_count': history,
+                'total_open_and_history': total if include_history else total + history,
+                'includes_history': bool(include_history)}
 
     def reconcile(self, rid):
         """Observe the immutable local draft only. Never call an action/writer."""
+        with self.connect() as db:
+            kind = db.execute('SELECT action FROM requests WHERE id=?', (rid,)).fetchone()
+        if kind and kind[0] == 'local_draft_plan':
+            from pablo_work_plans import WorkPlans
+            return WorkPlans(self).advance(rid, allow_new=False)
         with self.lock, self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT action,params,digest,status,response,observation_after FROM requests WHERE id=?', (rid,)).fetchone()
@@ -381,7 +410,26 @@ class TaskGuard:
     def recover_pending(self):
         with self.connect() as db:
             ids = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft' AND status='IN_PROGRESS'")]
-        return [self.reconcile(rid) for rid in ids]
+        results = [self.reconcile(rid) for rid in ids]
+        with self.connect() as db:
+            plans = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft_plan' AND status NOT IN ('SUCCESS','CANCELLED') ORDER BY created_at,id")]
+        from pablo_work_plans import WorkPlans
+        return results + [WorkPlans(self).advance(rid) for rid in plans]
+
+    def advance_plan(self, rid):
+        with self.connect() as db:
+            row = db.execute('SELECT action FROM requests WHERE id=?', (rid,)).fetchone()
+        if not row or row[0] != 'local_draft_plan':
+            return self.response(rid, 'NOT_FOUND', error='Unknown draft plan')
+        from pablo_work_plans import WorkPlans
+        return WorkPlans(self).advance(rid)
+
+    def cancel_plan(self, rid):
+        from pablo_work_plans import WorkPlans
+        try:
+            return WorkPlans(self).cancel(rid)
+        except (DraftError, TypeError, ValueError):
+            return self.response(rid, 'RECOVERY_BLOCKED', error='Invalid or unknown plan')
 
     def get(self, rid):
         with self.connect() as db:
@@ -417,7 +465,7 @@ class TaskGuard:
             with self.connect() as db:
                 db.execute('DELETE FROM outbox WHERE id=? AND payload=?', (rid, raw))
 
-    def execute(self, action, params, request_id=None):
+    def execute(self, action, params, request_id=None, parent_id=None):
         rid = request_id or str(uuid.uuid4())
         if not isinstance(rid, str) or not rid or len(rid) > 128 or not isinstance(params, dict):
             return self.response(str(rid)[:128], 'ERROR', error='Invalid request')
@@ -427,6 +475,12 @@ class TaskGuard:
                 expectation(rid, params)
             except (DraftError, TypeError, UnicodeError):
                 return self.response(rid, 'ERROR', error='Invalid local draft contract', outcome_verified=False)
+        if action == 'local_draft_plan':
+            from pablo_work_plans import validate_plan
+            try:
+                validate_plan(rid, params)
+            except (DraftError, TypeError, UnicodeError):
+                return self.response(rid, 'ERROR', error='Invalid local draft plan', outcome_verified=False)
         if action in ANTIGRAVITY_ALIASES:
             action='antigravity'
             try:
@@ -441,12 +495,24 @@ class TaskGuard:
                 if row[0] != digest:
                     return self.response(rid, 'CONFLICT', error='Request ID reused with changed action/params')
                 return json.loads(row[1])
+            if parent_id is not None:
+                from pablo_work_plans import validate_plan, step_id, step_params
+                parent = db.execute("SELECT params,digest,status FROM requests WHERE id=? AND action='local_draft_plan'", (parent_id,)).fetchone()
+                try:
+                    plan = validate_plan(parent_id, json.loads(parent[0])) if parent else None
+                    bound = bool(action == 'local_draft' and plan and parent[2] != 'CANCELLED' and fingerprint('local_draft_plan', plan) == parent[1]
+                                 and any(step_id(parent_id, s['name']) == rid and fingerprint('local_draft', step_params(parent_id, plan, s)) == digest for s in plan['steps']))
+                except (ValueError, TypeError, UnicodeError):
+                    bound = False
+                if not bound:
+                    return self.response(rid, 'CONFLICT', error='Invalid parent step binding')
             result = self.response(rid, 'IN_PROGRESS')
             db.execute('INSERT INTO requests(id,digest,action,params,status,response) VALUES(?,?,?,?,?,?)',
                        (rid, digest, action, json.dumps(params), result['status'], json.dumps(result)))
             db.execute('UPDATE requests SET created_at=? WHERE id=?',(self.clock(),rid))
+            db.execute('UPDATE requests SET parent_id=? WHERE id=?', (parent_id, rid))
             self._phase(db, rid, 'claimed')
-            if action == 'local_draft':
+            if action in ('local_draft', 'local_draft_plan'):
                 db.execute('UPDATE requests SET deadline_at=?,observation_after=? WHERE id=?',
                            (params.get('deadline_at'), self.clock() + 300, rid))
             # Kırmızı Çizgi Kontrolü (Approval Gate)
@@ -466,7 +532,7 @@ class TaskGuard:
                 db.execute('UPDATE requests SET approval=?,expires=? WHERE id=?', (aid, self.clock() + self.ttl, rid))
                 return self.store(db, rid, result)
 
-            if action not in self.actions and action != 'local_draft':
+            if action not in self.actions and action not in ('local_draft', 'local_draft_plan'):
                 return self.store(db, rid, self.response(rid, 'ERROR', error='Unknown action'))
             db.commit()  # Persist claim BEFORE executing anything.
         return self._run(rid, action, params)
@@ -550,6 +616,9 @@ class TaskGuard:
                 return self.store(db, rid, result)
 
     def _run(self, rid, action, params):
+        if action == 'local_draft_plan':
+            from pablo_work_plans import WorkPlans
+            return WorkPlans(self).advance(rid)
         if action == 'local_draft':
             return self._run_local_draft(rid, params)
         # One desktop action at a time; repeat the desktop check at execution time.

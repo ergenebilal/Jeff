@@ -18,6 +18,7 @@ def main(argv=None):
     parser.add_argument('--task-id')
     parser.add_argument('--reconcile', action='store_true')
     parser.add_argument('--offset', type=int, default=0)
+    parser.add_argument('--include-history', action='store_true', help='Include quiet legacy failures; they remain unverified')
     args = parser.parse_args(argv)
     if args.reconcile and not args.task_id:
         parser.error('Reconciliation requires one task-id')
@@ -31,6 +32,8 @@ def main(argv=None):
         return 2
     host = os.environ.get('ALFRED_HOST', '100.89.26.86')
     path = '/work/' + args.task_id if args.task_id else '/work?offset=' + str(args.offset)
+    if args.include_history and not args.task_id:
+        path += '&include_history=1'
     if args.reconcile:
         path += '/reconcile'
     req = Request('http://' + host + ':7788' + path,
