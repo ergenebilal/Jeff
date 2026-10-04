@@ -213,8 +213,17 @@ def attention_line(path=HOME/'logs/attention.db'):
     except sqlite3.Error:return 'Karar bildirimleri: veri alınamadı'
 
 
+def jarvis_line():
+    try:
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+        from scripts.jarvis_snapshot import snapshot,render
+        return render(snapshot())
+    except Exception:return 'Jarvis görev/onay durumu: veri alınamadı'
+
+
 def build_status(now=None, gateway=gateway_line, jobs=hermes_jobs_line, reports=reports_line, dog=watchdog_lines,
-                 model=model_route_line, model_success=model_success_line, model_probe=model_probe_line):
+                 model=model_route_line, model_success=model_success_line, model_probe=model_probe_line,
+                 jarvis=jarvis_line):
     now = now or datetime.now(timezone.utc)
     lines = [f"Jeff durumu, {now.astimezone().strftime('%d.%m.%Y %H:%M')}", '']
     lines.append(gateway())
@@ -225,6 +234,7 @@ def build_status(now=None, gateway=gateway_line, jobs=hermes_jobs_line, reports=
     lines.append(jobs())
     lines.append(reports())
     lines.append(attention_line())
+    lines.append(jarvis())
     lines.append('')
     lines.append('Bu ekrandaki her satır az önce ölçüldü; ölçülemeyen "veri alinamadi" der.')
     return '\n'.join(lines)

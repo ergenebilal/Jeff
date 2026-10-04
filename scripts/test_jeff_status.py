@@ -108,9 +108,11 @@ class BuildTests(unittest.TestCase):
     def test_whole_screen_is_plain_and_free_of_internal_names(self):
         text = js.build_status(datetime(2026, 9, 30, 6, 0, tzinfo=timezone.utc),
                                gateway=lambda: 'Jeff (Telegram): çalışıyor',
-                               jobs=lambda: 'işler', reports=lambda: 'raporlar', dog=lambda: ['bekçi tamam'])
+                               jobs=lambda: 'işler', reports=lambda: 'raporlar', dog=lambda: ['bekçi tamam'],
+                               jarvis=lambda: 'Pablo’da 13 açık iş var')
         self.assertIn('Jeff durumu', text)
-        self.assertNotIn('Pablo', text)
+        self.assertIn('Pablo’da 13 açık iş var', text)
+        self.assertNotIn('request_id', text)
         self.assertNotIn('Traceback', text)
 
 
