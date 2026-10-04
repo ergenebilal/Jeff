@@ -162,6 +162,12 @@ def _model_probe(path):
 
 
 def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes/logs/model_health.json'):
+    try:
+        from scripts.pablo_drift_monitor import read_report
+    except ImportError:
+        # Script entry point on the server still resolves the repository package.
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+        from scripts.pablo_drift_monitor import read_report
     def unit(u, label, impact, grace=0):
         return Check(f'unit:{u}', label, impact, unit_active(u), grace)
     return [
@@ -186,6 +192,8 @@ def default_checks(backup_dir='/home/hermes/backups', model_report='/home/hermes
         # The PC may be asleep at night; only worth a message if it stays gone.
         Check('http:pablo', "Pablo (Bilal'in bilgisayari)", 'Bilgisayardaki isler (WhatsApp, tarayici) yapilamaz',
               http_reachable('http://100.89.26.86:7788/ping', any_answer), 3600),
+        Check('source:pablo', 'Pablo kaynak uyumu', 'Calisan bilgisayar kaynagi onayli sunucu kaynagindan sapmis veya kontrol eski',
+              lambda:read_report('/home/hermes/jeff-artifacts/pablo-drift.json'), 0),
         Check('model', "Jeff'in dusunme yolu", 'Jeff cevap uretemez ya da yedek yolla calisiyor', _model_probe(model_report), 600),
         Check('telegram', 'Telegram baglantisi', 'Jeff iki yerde birden dinliyor olabilir, mesajlar kacabilir',
               telegram_not_fighting(), 0),
