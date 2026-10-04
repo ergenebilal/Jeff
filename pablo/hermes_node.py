@@ -740,37 +740,8 @@ class PabloWorkcopyTaskGuard(TaskGuard):
         return super().execute(action, params, request_id, parent_id=parent_id)
 
     def _run(self, rid, action, params):
-        if action in ('local_draft', 'local_draft_plan'):
-            return super()._run(rid, action, params)
-        with self.lock:
-            try:
-                if action in GUI_ACTIONS and not self.desktop_ready():
-                    result = self.response(rid, 'BLOCKED', error='Desktop locked, active or unavailable')
-                else:
-                    raw = self.actions[action](params)
-                    if not isinstance(raw, dict):
-                        raw = dict(ok=False, error='Invalid action response')
-                    inner = raw.get('result') if isinstance(raw.get('result'), dict) else {}
-                    ok = raw.get('ok') is True and inner.get('ok', True) is not False and inner.get('exit_code', 0) == 0
-
-                    status = raw.get('status')
-                    if not status:
-                        status = 'SUCCESS' if ok else 'ERROR'
-
-                    result = self.response(
-                        rid,
-                        status,
-                        result=raw.get('result'),
-                        error=None if ok else raw.get('error', 'Action failed'),
-                        verified=raw.get('verified', False),
-                        action_verified=raw.get('action_verified', False),
-                        outcome_verified=raw.get('outcome_verified', False),
-                        outcome_evidence=raw.get('outcome_evidence')
-                    )
-            except Exception as exc:
-                result = self.response(rid, 'ERROR', error=f"{type(exc).__name__}: {str(exc)}")
-            with self.connect() as db:
-                return self.store(db, rid, result)
+        # One admission/execution/truth path for direct and Windows requests.
+        return super()._run(rid, action, params)
 
 
 def task_guard():

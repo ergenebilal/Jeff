@@ -686,7 +686,8 @@ class TaskGuard:
                         raw = dict(ok=False, error='Invalid action response')
                     inner = raw.get('result') if isinstance(raw.get('result'), dict) else {}
                     ok = raw.get('ok') is True and inner.get('ok', True) is not False and inner.get('exit_code', 0) == 0
-                    status=raw.get('status') if action=='antigravity' else None
+                    status=raw.get('status') if isinstance(raw.get('status'),str) else None
+                    if not ok and status=='SUCCESS':status='ERROR'
                     result = self.response(rid, status or ('SUCCESS' if ok else 'ERROR'), result=raw.get('result'),
                                            error=None if ok else raw.get('error', 'Action failed'))
                     if self.capability_policy is not None:

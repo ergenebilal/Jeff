@@ -63,3 +63,17 @@ class AdmissionTests(unittest.TestCase):
             with guard.connect() as db:self.assertEqual(db.execute('SELECT consumed,status FROM requests').fetchone(),(0,'APPROVAL_REQUIRED'))
             self.assertEqual(guard.approve('approval',42,42,reject=True)['status'],'REJECTED')
             action.assert_not_called()
+
+    def test_actual_windows_wrapper_uses_shared_admission_and_truth(self):
+        tree=ast.parse(Path(__file__).with_name('hermes_node.py').read_text(encoding='utf-8'))
+        cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='PabloWorkcopyTaskGuard')
+        scope={'TaskGuard':TaskGuard,'get_intent_guard':lambda:None}
+        exec(compile(ast.Module(body=[cls],type_ignores=[]),'actual-windows-wrapper','exec'),scope)
+        with tempfile.TemporaryDirectory() as root:
+            action=Mock(return_value={'ok':True,'verified':True,'outcome_verified':True,'status':'EXECUTION_SUCCEEDED','result':{}})
+            guard=scope['PabloWorkcopyTaskGuard'](Path(root)/'journal',{'shell':action,'future_tool':action},42,lambda:True,capability_policy=admission)
+            result=guard.execute('shell',{},'one')
+            self.assertEqual(result['status'],'EXECUTION_SUCCEEDED')
+            self.assertTrue(result['worker_action_succeeded']);self.assertFalse(result['outcome_verified']);self.assertFalse(result['completion_authority'])
+            self.assertEqual(guard.execute('future_tool',{},'two')['status'],'CAPABILITY_NOT_ADMITTED')
+            self.assertEqual(action.call_count,1)
