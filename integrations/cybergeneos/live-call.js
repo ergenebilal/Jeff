@@ -183,6 +183,10 @@
           if(!this.active||generation!==this.generation||ac.signal.aborted)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();
+          // This bounded reader completes quickly. Keep its figures in one tool
+          // response; several immediately queued sentence responses can be omitted
+          // by the live model while an earlier response is still speaking.
+          if(call.name==='read_jarvis_records')return;
           this.audioAllowed=true;this.consultedAnswer=true;
           this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
             response:{answer:event.answer},willContinue:true,scheduling:streamed?'WHEN_IDLE':'INTERRUPT'}]}}));
@@ -201,7 +205,8 @@
         if(result.authority!=='real_jeff'||!result.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
         timing.answerEndedAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;this.inputOpen=false;
         this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
-          response:streamed?{}:{answer:result.answer},willContinue:false,scheduling:streamed?'SILENT':'INTERRUPT'}]}}));
+          response:call.name==='read_jarvis_records'||!streamed?{answer:result.answer}:{},willContinue:false,
+          scheduling:call.name==='read_jarvis_records'||!streamed?'INTERRUPT':'SILENT'}]}}));
       }catch(e){
         if(e.name!=='AbortError'&&this.active&&generation===this.generation)
           this.fail(e.message||'Jeff yanıtı alınamadı.');

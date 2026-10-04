@@ -162,6 +162,22 @@ test('record tool keeps its operation and interruption response name',async()=>{
  assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_jarvis_records');
  finish({authority:'real_jeff',answer:'Geç yanıt'});await pending;assert.equal(sent.length,1);
 });
+test('bounded record figures are sent together even after progress was spoken',async()=>{
+ const call=fixture();call.active=true;call.session={session:'fixture'};let finish,sent=[];
+ call.ws={send:data=>sent.push(JSON.parse(data))};
+ call.postConsult=(_,__,piece,accepted)=>{
+  accepted({authority:'real_jeff',progress:'Kontrol ediyorum.'});
+  return new Promise(resolve=>finish=()=>{
+   piece({authority:'real_jeff',answer:'16 açık iş. '});piece({authority:'real_jeff',answer:'10 sonuç doğrulanmadı.'});
+   resolve({authority:'real_jeff',answer:'16 açık iş. 10 sonuç doğrulanmadı.'});
+  });
+ };
+ const pending=call.consult({id:'record',name:'read_jarvis_records',args:{text:'Hangi işler bekliyor?'}},call.generation);
+ await new Promise(r=>setTimeout(r,550));assert.equal(sent.length,1);finish();await pending;
+ assert.equal(sent.length,2);const response=sent[1].toolResponse.functionResponses[0];
+ assert.equal(response.response.answer,'16 açık iş. 10 sonuç doğrulanmadı.');
+ assert.equal(response.scheduling,'INTERRUPT');assert.equal(response.willContinue,false);
+});
 test('barge-in preserves the previous utterance without joining it to the next request',()=>{
  const call=fixture();call.active=true;call.inputOpen=true;call.inputText='Önceki soru.';call.outputText='Yarım yanıt.';
  call.sources.add({stop:()=>{}});call.onInputActivity();
