@@ -16,6 +16,7 @@ tire) and much louder when every route is down (Jeff cannot think at all).
 """
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -120,18 +121,41 @@ def run(env, opener=urllib.request.urlopen, now=time.time, conflicts=(), main='p
     return report
 
 
+def _valid_probe_time(value):
+    return type(value) in (int,float) and math.isfinite(value) and value >= 0
+
+
+def _probe_inventory(report):
+    """Accept only explicit boolean results for distinct configured routes."""
+    known=set(PROVIDER_TO_ROUTE.values())
+    if not isinstance(report,dict) or not isinstance(report.get('main'),str) or report['main'] not in known:
+        return None
+    rows=report.get('routes')
+    if not isinstance(rows,list) or any(not isinstance(r,dict) or
+            not isinstance(r.get('route'),str) or r['route'] not in known or
+            type(r.get('ok')) is not bool for r in rows):
+        return None
+    names=[r['route'] for r in rows]
+    if len(set(names))!=len(names) or report['main'] not in names:
+        return None
+    conflicts=report.get('env_conflicts',[])
+    if not isinstance(conflicts,list) or any(name not in
+            ('ANTIGRAVITY_API_KEY','OPENCODE_GO_API_KEY','GOOGLE_API_KEY','OPENROUTER_API_KEY') for name in conflicts):
+        return None
+    return rows
+
+
 def health_snapshot(report, max_age_seconds=30 * 60, now=time.time):
     """Probe availability is distinct from the route used by a real session."""
+    report=report if isinstance(report,dict) else {}
     preferred = report.get('main', 'unknown')
     observed = report.get('checked_at')
-    rows = report.get('routes', [])
-    if not isinstance(rows, list):
-        rows = []
-    available = [r.get('route') for r in rows if isinstance(r, dict) and r.get('ok') is True]
-    by = {r.get('route'): r for r in rows if isinstance(r, dict)}
-    fresh = isinstance(observed, (int, float)) and 0 <= now() - observed <= max_age_seconds
-    primary = by.get(preferred)
-    if not fresh or primary is None or report.get('env_conflicts'):
+    rows = _probe_inventory(report)
+    available = [r['route'] for r in rows or [] if r['ok'] is True]
+    fresh = _valid_probe_time(observed) and 0 <= now() - observed <= max_age_seconds
+    primary = next((r for r in rows or [] if r['route']==preferred),None)
+    reliable = fresh and primary is not None and not report.get('env_conflicts')
+    if not reliable:
         status = 'unknown'
     elif primary.get('ok') is True:
         status = 'healthy'
@@ -139,17 +163,20 @@ def health_snapshot(report, max_age_seconds=30 * 60, now=time.time):
         status = 'degraded'
     else:
         status = 'unavailable'
-    return {'preferred_route': preferred, 'preferred_status': 'healthy' if primary and primary.get('ok') is True and fresh else
-            'unavailable' if primary and fresh else 'unknown', 'available_routes': available if fresh else [],
+    return {'preferred_route': preferred, 'preferred_status': 'unknown' if not reliable else
+            'healthy' if primary['ok'] is True else 'unavailable', 'available_routes': available if reliable else [],
             'observed_at': observed, 'health_status': status, 'actual_session_route': 'unknown',
             'last_success_at': report.get('last_success_at', {})}
 
 
 def summarize(report):
-    """('all_ok' | 'spare_tire' | 'blind', plain-language sentence)"""
-    by = {r['route']: r for r in report['routes']}
-    main = report.get('main', 'proxy')
-    working = [r['route'] for r in report['routes'] if r['ok']]
+    """('all_ok' | 'spare_tire' | 'blind' | 'unknown', plain-language sentence)"""
+    rows=_probe_inventory(report)
+    if rows is None or report.get('env_conflicts'):
+        return 'unknown','model kontrol sonucu bilinmiyor'
+    by = {r['route']: r for r in rows}
+    main = report['main']
+    working = [r['route'] for r in rows if r['ok'] is True]
     if not working:
         return 'blind', 'Jeff hicbir yoldan dusunemiyor (ana kopru ve yedek yollar cevap vermiyor)'
     if by.get(main, {}).get('ok'):
@@ -185,8 +212,15 @@ def watchdog_probe(path, max_age_seconds=30 * 60, now=time.time):
                 report = json.load(f)
         except (OSError, ValueError):
             return False, 'model kontrol kaydi okunamadi'
-        if now() - report.get('checked_at', 0) > max_age_seconds:
+        if not isinstance(report,dict) or not _valid_probe_time(report.get('checked_at')):
+            return False, 'model kontrol zamani bilinmiyor'
+        age=now()-report['checked_at']
+        if age < 0:
+            return False, 'model kontrol zamani gelecekte; sonuc bilinmiyor'
+        if age > max_age_seconds:
             return False, 'model kontrolu eskidi (calismiyor olabilir)'
+        if _probe_inventory(report) is None:
+            return False, 'model kontrol sonucu bilinmiyor'
         if report.get('env_conflicts'):
             return False, 'iki ayar dosyasinda FARKLI anahtar: ' + ', '.join(report['env_conflicts']) + ' (Jeff .env dosyasindakini kullanir)'
         state, sentence = summarize(report)

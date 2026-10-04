@@ -122,7 +122,7 @@ class RunAndSummaryTests(unittest.TestCase):
 class WatchdogAdapterTests(unittest.TestCase):
     def report_file(self, d, routes, checked_at):
         p = Path(d) / 'model_health.json'
-        p.write_text(json.dumps({'checked_at': checked_at, 'routes': routes}))
+        p.write_text(json.dumps({'checked_at': checked_at, 'main':'proxy', 'routes': routes}))
         return p
 
     def test_ok_spare_tire_blind_stale_and_missing(self):
