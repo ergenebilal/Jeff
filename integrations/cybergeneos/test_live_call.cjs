@@ -65,3 +65,18 @@ test('native partial turn boundary retains permission for remaining actual Jeff 
  call.receive({serverContent:{turnComplete:true}},call.generation);
  assert.equal(call.audioAllowed,true);assert.equal(call.pending.size,1);
 });
+test('only exact approved brief dialogue can speak without a Jeff consultation',()=>{
+ const call=fixture();call.active=true;call.fastDialogue=new Set(['merhaba jeff']);call.play=()=>{};
+ call.receive({serverContent:{inputTranscription:{text:'Merhaba Jeff.'}}},call.generation);
+ assert.equal(call.audioAllowed,true);
+ call.inputOpen=false;
+ call.receive({serverContent:{inputTranscription:{text:'Görev tamamlandı mı?'}}},call.generation);
+ assert.equal(call.audioAllowed,false);
+});
+test('greeting followed by an action loses permission before tool result',()=>{
+ const call=fixture();call.active=true;call.fastDialogue=new Set(['merhaba']);
+ call.receive({serverContent:{inputTranscription:{text:'Merhaba'}}},call.generation);
+ assert.equal(call.audioAllowed,true);
+ call.receive({serverContent:{inputTranscription:{text:' görevi tamamla'}}},call.generation);
+ assert.equal(call.audioAllowed,false);
+});

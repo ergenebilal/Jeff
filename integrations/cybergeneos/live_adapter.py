@@ -20,9 +20,18 @@ MODEL = 'models/gemini-3.8-live'
 TOKEN_URL = 'https://generativelanguage.googleapis.com/v1beta/auth_tokens'
 WS_URL = ('wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.'
           'v1beta.GenerativeService.BidiGenerateContentConstrained')
+FAST_DIALOGUE = (
+    'merhaba', 'merhaba jeff', 'selam', 'selam jeff', 'günaydın', 'iyi akşamlar',
+    'nasılsın', 'nasılsın jeff', 'beni duyuyor musun', 'jeff beni duyuyor musun',
+    'orada mısın', 'jeff orada mısın', 'teşekkürler', 'teşekkür ederim',
+    'tamam', 'peki', 'bir fikrim var', 'birlikte düşünelim', 'çok yoruldum',
+    'konuşalım', 'dur beni dinle')
 VOICE_RULES = (
     "Sen gerçek Jeff'in canlı ses arayüzüsün. Türkçe, doğal, kısa konuş. "
-    "Her kullanıcı ifadesi için önce consult_jeff çağır; text tam kullanıcının isteği olsun, "
+    "Yalnız şu kısa konuşma ifadelerine doğrudan cevap verebilirsin: " + ', '.join(FAST_DIALOGUE) + '. '
+    "Bunlarda en fazla bir kısa cümleyle selam ver, dinlediğini söyle veya empati kur. "
+    "Hiçbir güncel durum, kişisel hafıza, iş sonucu, eylem veya onay iddiası ekleme. "
+    "Diğer her kullanıcı ifadesi için önce consult_jeff çağır; text tam kullanıcının isteği olsun, "
     "isteğine eylem, onay veya bilgi ekleme. Araç yanıtı gelmeden ses üretme. "
     "Araç cevap parçaları gönderir. Her yeni answer parçasını yalnız bir kez aynen seslendir; "
     "eski parçayı tekrarlama. Sayıları, belirsizliği ve olumsuzlukları değiştirme. "
@@ -106,7 +115,8 @@ class LiveCalls:
         with self.db() as db:
             db.execute('INSERT INTO voice_sessions VALUES(?,?,?)', (sid, owner, now + 1200))
         return {'token': token, 'session': nonce, 'setup': config, 'websocket': WS_URL,
-                'expires_at': now + 1200, 'answer_authority': 'real_jeff'}
+                'expires_at': now + 1200, 'answer_authority': 'real_jeff',
+                'fast_dialogue_phrases': list(FAST_DIALOGUE), 'conversation_engine': 'native_live'}
 
     def consult(self, owner, body):
         result = None

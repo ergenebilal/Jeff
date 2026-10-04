@@ -22,11 +22,11 @@
         this.stream=stream;this.muted=false;
         this.session=await this.post('session',{voice:this.voice()});
         if(!current())return;
-        const session=this.session;
+        const session=this.session;this.fastDialogue=new Set(session.fast_dialogue_phrases||[]);
         if(session.answer_authority!=='real_jeff')throw new Error('Gerçek Jeff bağlantısı doğrulanamadı.');
         const ws=this.ws=new WebSocket(session.websocket+'?access_token='+encodeURIComponent(session.token));
         delete session.token; // Only the active connection needs the short-lived credential.
-        this.audioAllowed=false;this.next=0;this.inputText='';this.outputText='';
+        this.audioAllowed=false;this.consultedAnswer=false;this.next=0;this.inputText='';this.outputText='';
         this.inputOpen=false;this.lastCall=null;
         let received=Promise.resolve();
         await new Promise((resolve,reject)=>{
@@ -57,7 +57,11 @@
         node.port.onmessage=e=>{
           if(!current()||this.muted||ws.readyState!==WebSocket.OPEN)return;
           if(e.data?.activity==='start'){this.onInputActivity();return;}
-          if(e.data?.activity==='end'){this.speechEndedAt=performance.now();return;}
+          if(e.data?.activity==='end'){
+            this.speechEndedAt=performance.now();
+            if(this.voiceTurn?.kind==='quick_dialogue'&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.speechEndedAt=this.speechEndedAt;
+            return;
+          }
           if(ws.bufferedAmount>64000){this.fail('Ses bağlantısı yetişemedi. Görüşme kapatıldı.');return;}
           const bytes=new Uint8Array(e.data);let binary='';
           for(let i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
@@ -88,6 +92,16 @@
         // Input transcription has no guaranteed ordering relative to tool replies.
         if(!this.inputOpen){this.inputText='';this.inputOpen=true;}
         this.inputText+=heard;this.transcript('user',this.inputText,false);
+        const phrase=this.inputText.normalize('NFC').toLocaleLowerCase('tr-TR').replace(/[.!?,]+$/g,'').trim().replace(/\s+/g,' ');
+        if(!this.pending.size&&!this.consultedAnswer){
+          const allowed=this.fastDialogue?.has(phrase)===true;
+          if(this.audioAllowed&&!allowed)this.flushAudio();
+          this.audioAllowed=allowed;
+          if(allowed&&this.voiceTurn?.kind!=='quick_dialogue'){
+            this.voiceTurn={kind:'quick_dialogue',speechEndedAt:this.speechEndedAt,firstAudioAt:null};
+            this.timings.push(this.voiceTurn);
+          }
+        }
       }
       for(const call of event.toolCall?.functionCalls||[])this.consult(call,generation);
       const spoken=content.outputTranscription?.text;
@@ -112,6 +126,7 @@
     onInputActivity(){
       if(!this.active||this.muted)return;
       this.audioAllowed=false;
+      this.consultedAnswer=false;this.voiceTurn=null;this.speechEndedAt=null;
       if(!this.pending.size&&!this.sources.size)return;
       this.stats.interruptions++;this.stats.localInterruptions++;this.flushAudio();this.audioAllowed=false;
       const cancelled=[];
@@ -142,14 +157,14 @@
           if(!this.active||generation!==this.generation||ac.signal.aborted)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();
-          this.audioAllowed=true;
+          this.audioAllowed=true;this.consultedAnswer=true;
           this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
             response:{answer:event.answer},willContinue:true,scheduling:streamed?'WHEN_IDLE':'INTERRUPT'}]}}));
           streamed=true;
         });
         if(!this.active||generation!==this.generation||ac.signal.aborted)return;
         if(result.authority!=='real_jeff'||!result.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
-        timing.answerEndedAt=performance.now();this.audioAllowed=true;this.inputOpen=false;
+        timing.answerEndedAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;this.inputOpen=false;
         this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
           response:streamed?{}:{answer:result.answer},willContinue:false,scheduling:streamed?'SILENT':'INTERRUPT'}]}}));
       }catch(e){
