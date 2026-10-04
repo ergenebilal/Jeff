@@ -873,6 +873,18 @@ def focus_shield_bring_to_front(hwnd: int, maximize: bool = True) -> bool:
 
 # ── ACTION OPERATORS ─────────────────────────────────────────────────────────
 
+def human_behavior_snapshot():
+    try:
+        if _human_behavior is None:
+            return {'known':False,'disabled_verified':False,'reason':'module_unavailable'}
+        modes={target:_human_behavior.get_mode(None if target=='default' else target)
+               for target in ('default','instagram.com','x.com','linkedin.com')}
+        return {'known':True,'disabled_verified':all(mode=='FAST' for mode in modes.values()),
+                'modes':modes,'loaded_private_source_sha256':HUMAN_BEHAVIOR_SOURCE_SHA256}
+    except Exception as exc:
+        return {'known':False,'disabled_verified':False,'reason':type(exc).__name__}
+
+
 def action_ping(params: dict) -> dict:
     return {
         "ok": True,
@@ -884,6 +896,7 @@ def action_ping(params: dict) -> dict:
             "process_started_at": PROCESS_STARTED_AT,
             "source_commit": SOURCE_RELEASE,
             "loaded_source_sha256": LOADED_SOURCE_SHA256,
+            "human_behavior": human_behavior_snapshot(),
             "timestamp": time.time()
         }
     }
@@ -1506,8 +1519,10 @@ except Exception as _os_err:
 try:
     from pablo_human_behavior import get_human_behavior
     _human_behavior = get_human_behavior()
+    HUMAN_BEHAVIOR_SOURCE_SHA256 = hashlib.sha256((NODE_DIR / 'pablo_human_behavior.py').read_bytes().replace(b'\r\n',b'\n')).hexdigest()
 except Exception as _hb_err:
     _human_behavior = None
+    HUMAN_BEHAVIOR_SOURCE_SHA256 = None
     log("WARN", f"Human Behavior Engine yüklenemedi: {_hb_err}")
 
 
