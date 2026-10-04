@@ -2831,6 +2831,12 @@ def main():
     print("  Auto-Healing: Tailscale Watchdog + Telegram Approval Buttons")
     print("=" * 70)
 
+    # Reserve the single node listener before recording restart receipts or
+    # starting any executor. A duplicate process must fail without task changes.
+    server = ThreadingHTTPServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
+    server.daemon_threads = True
+    task_guard().note_restart(PROCESS_STARTED_AT)
+
     # 1. Bridge thread başlat
     bridge_thread = threading.Thread(target=run_bridge_worker, daemon=True)
     bridge_thread.start()
@@ -2844,8 +2850,6 @@ def main():
     ts_watchdog_thread.start()
 
     # 4. HTTP server başlat
-    server = ThreadingHTTPServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
-    server.daemon_threads = True
     log("INFO", f"Pablo REST API aktif: {CONFIG['listen_host']}:{CONFIG['listen_port']}")
     log("INFO", "Pablo interaktif ön plan modunda hazır. Çıkış için Ctrl+C.")
 

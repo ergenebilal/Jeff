@@ -78,7 +78,22 @@ Varsayılan liste hem görünür açık sayıyı hem geçmişteki doğrulanmamı
 gösterir. Geçmişi görmek için `pablo_work_status.py --include-history`; tek görev
 kimliğiyle eski kaydı okumak hâlâ mümkündür. Bildirim veya yeniden yürütme yok.
 
-Kabul: `PYTHONPATH=pablo:. python -m unittest pablo.test_work_plans scripts.test_pablo_work_plan`.
+Kesinti kaydı (P21b): tek Node önce HTTP dinleyicisini bağlar; ancak sonra
+yeniden açılış kaydını ve işçi süreçlerini başlatır. Önceki çalışmaya ait tarihli
+genel IN_PROGRESS kayıtları ayrı, değiştirilemez makbuzla OUTCOME_UNKNOWN
+gösterilir. Kaynak görev satırı korunur; işlem tekrarlanmaz. Tarihsiz üç eski
+kaydın hangi çalışmaya ait olduğu uydurulmaz. Yerel taslak/planlar kendi dosya
+gözlem sözleşmesiyle toparlanır.
+
+Kurulumda son boşluk kontrolü ile süreç kapatma arasındaki yarış kapatılmalıdır:
+doğrulanmış Node'un bütün iş parçacıkları önce askıya alınır; sonra defter,
+teslim kuyruğu ve alt süreçler okunur. Canlı iş, kilit veya hata varsa süreç
+mutlaka devam ettirilir ve kurulum yapılmaz. Yalnız askıda ve boş olduğu
+kanıtlanan Node kapatılır. Salt kontrol edip daha sonra kapatmak yeterli değildir.
+Kurulum yardımcısındaki psutil işletim bağımlılığı Node'un çalışma bağımlılığı
+değildir; özel, gizli test sürecinde durdurma/devam sınanır.
+
+Kabul: `PYTHONPATH=pablo:. python -m unittest pablo.test_work_plans scripts.test_pablo_work_plan pablo.test_runtime_interruption`.
 Gerçek süreç çıkışıyla adım sonrası, dosya yayımı sonrası ve ana sonuç kaydı
 öncesi kesintiler sınanır. İki günlük bekleme saati testte açıkça ilerletilir;
 bu iki gün gerçek kullanım yapılmış demek değildir. Canlı prova ayrıca gerçek

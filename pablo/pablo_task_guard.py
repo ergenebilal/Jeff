@@ -2,6 +2,7 @@
 import hashlib
 import ipaddress
 import json
+import math
 import re
 import sqlite3
 import threading
@@ -257,10 +258,11 @@ class TaskGuard:
             db.execute('CREATE TABLE IF NOT EXISTS work_events (seq INTEGER PRIMARY KEY, request_id TEXT NOT NULL, phase TEXT NOT NULL, status TEXT NOT NULL, observed_at REAL NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS work_plan_signals (request_id TEXT NOT NULL,step_name TEXT NOT NULL,input_digest TEXT NOT NULL,signal_key TEXT NOT NULL,actor_kind TEXT NOT NULL,source TEXT NOT NULL,recorded_at REAL NOT NULL,PRIMARY KEY(request_id,step_name))')
             db.execute('CREATE TABLE IF NOT EXISTS work_history (request_id TEXT PRIMARY KEY,archived_at REAL NOT NULL,reason TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS work_interruptions (request_id TEXT PRIMARY KEY,process_started_at REAL NOT NULL,detected_at REAL NOT NULL)')
             # Quiet legacy terminal failures; their outcome remains unverified.
             # Do not infer their age, archive pending authority or hide ambiguity.
             db.execute("INSERT OR IGNORE INTO work_history SELECT id,?,'legacy_terminal_failure_outcome_unverified' FROM requests r WHERE created_at IS NULL AND status IN ('ERROR','BLOCKED','FAILED') AND coalesce(approval,'')='' AND coalesce(canonical_claim,'')='' AND parent_id IS NULL AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.id=r.id)", (self.clock(),))
-            for table in ('work_events', 'work_plan_signals', 'work_history'):
+            for table in ('work_events', 'work_plan_signals', 'work_history', 'work_interruptions'):
                 for operation in ('UPDATE', 'DELETE'):
                     db.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_{operation.lower()} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'work history is append-only'); END")
 
@@ -275,6 +277,28 @@ class TaskGuard:
 
     def response(self, rid, status, **kw):
         return dict(request_id=rid, task_id=rid, status=status, ok=status == 'SUCCESS', **kw)
+
+    def note_restart(self, process_started_at):
+        """Called only by the sole bound node before any executor starts.
+
+        Preserve original rows. An old generic claim has no result contract;
+        publish uncertainty, never replay or assert it is still executing.
+        Undated legacy records cannot be assigned to a runtime this way.
+        """
+        if (type(process_started_at) not in (int,float) or not math.isfinite(process_started_at)
+                or not 0 < process_started_at <= self.clock()):
+            raise ValueError('Invalid node startup instant')
+        with self.connect() as db:
+            db.execute("INSERT OR IGNORE INTO work_interruptions SELECT id,?,? FROM requests WHERE status='IN_PROGRESS' AND action NOT IN ('local_draft','local_draft_plan') AND created_at IS NOT NULL AND created_at<?",(process_started_at,self.clock(),process_started_at))
+
+    def _recorded(self, db, rid, raw):
+        result=json.loads(raw)
+        receipt=db.execute('SELECT process_started_at,detected_at FROM work_interruptions WHERE request_id=?',(rid,)).fetchone()
+        if receipt and result['status']=='IN_PROGRESS':
+            result.update(recorded_status='IN_PROGRESS',status='OUTCOME_UNKNOWN',ok=False,outcome_verified=False,
+                          error='Previous runtime ended without an outcome receipt; do not replay',
+                          runtime_interruption={'process_started_at':receipt[0],'detected_at':receipt[1]})
+        return result
 
     def store(self, db, rid, result):
         row = db.execute('SELECT action,status,response FROM requests WHERE id=?', (rid,)).fetchone()
@@ -327,7 +351,11 @@ class TaskGuard:
             if action == 'local_draft_plan':
                 from pablo_work_plans import WorkPlans
                 return WorkPlans(self).view(rid)
-            phase = (phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status)
+            interruption=db.execute('SELECT process_started_at,detected_at FROM work_interruptions WHERE request_id=?',(rid,)).fetchone()
+            recorded_status=status
+            if interruption and status=='IN_PROGRESS':
+                status,phase='OUTCOME_UNKNOWN','outcome_unknown_after_restart'
+            phase = phase if interruption and recorded_status=='IN_PROGRESS' else ((phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status))
             if status in CLOSED_WORK_STATUSES:
                 next_step, waiting_for = 'none', None
             elif status == 'APPROVAL_REQUIRED':
@@ -345,7 +373,10 @@ class TaskGuard:
                     overdue=deadline is not None and deadline < self.clock() and status not in CLOSED_WORK_STATUSES,
                     observation_after=after, automatic_replay=False, events=list(reversed(events)),
                     history_only=history is not None, archived_at=history[0] if history else None,
-                    archive_reason=history[1] if history else None)
+                    archive_reason=history[1] if history else None,
+                    recorded_status=recorded_status,
+                    runtime_interruption=({'process_started_at':interruption[0],'detected_at':interruption[1]}
+                                          if interruption and recorded_status=='IN_PROGRESS' else None))
 
     def work_snapshot(self, limit=100, offset=0, include_history=False):
         limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
@@ -376,7 +407,7 @@ class TaskGuard:
                 return self.response(rid, 'NOT_FOUND', error='Unknown request')
             action, raw, digest, status, saved, after = row
             if action != 'local_draft' or status == 'SUCCESS':
-                return json.loads(saved)
+                return self._recorded(db,rid,saved)
             try:
                 params = json.loads(raw)
                 if fingerprint(action, params) != digest:
@@ -434,7 +465,7 @@ class TaskGuard:
     def get(self, rid):
         with self.connect() as db:
             row = db.execute('SELECT response FROM requests WHERE id=?', (rid,)).fetchone()
-            return json.loads(row[0]) if row else self.response(rid, 'NOT_FOUND', error='Unknown request')
+            return self._recorded(db,rid,row[0]) if row else self.response(rid, 'NOT_FOUND', error='Unknown request')
 
     def approval_snapshot(self):
         """No messages or params are exposed; expired approvals need renewal."""
@@ -494,7 +525,7 @@ class TaskGuard:
             if row:
                 if row[0] != digest:
                     return self.response(rid, 'CONFLICT', error='Request ID reused with changed action/params')
-                return json.loads(row[1])
+                return self._recorded(db,rid,row[1])
             if parent_id is not None:
                 from pablo_work_plans import validate_plan, step_id, step_params
                 parent = db.execute("SELECT params,digest,status FROM requests WHERE id=? AND action='local_draft_plan'", (parent_id,)).fetchone()
