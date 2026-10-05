@@ -10,6 +10,7 @@
       this.inputText='';this.outputText='';
       this.heldAudio=[];this.heldBytes=0;this.heldText='';this.completedCalls=new Set();
       this.background=new Map();this.resultAnnouncements=[];this.socketEpoch=0;
+      this.inputActive=false;this.lastInputAt=0;
     }
     async start(){
       if(this.active)return;
@@ -56,6 +57,7 @@
           if(!current()||this.muted||!ws||ws.readyState!==WebSocket.OPEN)return;
           if(e.data?.activity==='start'){this.onInputActivity();return;}
           if(e.data?.activity==='end'){
+            this.inputActive=false;this.lastInputAt=performance.now();
             this.speechEndedAt=performance.now();
             this.armReplyWatch();
             if(['quick_dialogue','native_conversation'].includes(this.voiceTurn?.kind)&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.speechEndedAt=this.speechEndedAt;
@@ -106,6 +108,7 @@
       if(!this.resumeHandle){this.fail('Ses bağlantısı koptu. Başlatılmış işler yeniden çalıştırılmadı; sonuç kayıtları korunuyor.');return;}
       this.reconnecting=true;this.state('connecting','Ses bağlantısı yenileniyor');
       const generation=this.generation;
+      this.announcement?.abort();
       this.flushAudio();this.clearHeldAudio();clearTimeout(this.replyWatch);
       const old=this.ws;if(old){old.onclose=old.onmessage=old.onerror=null;old.close();}
       try{
@@ -156,6 +159,7 @@
       }
       const content=event.serverContent||{};
       if(content.interrupted){
+        this.announcement?.abort();
         if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
         if(this.outputText)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
         this.inputOpen=false;
@@ -218,6 +222,7 @@
     }
     onInputActivity(){
       if(!this.active||this.muted)return;
+      this.inputActive=true;this.lastInputAt=performance.now();this.announcement?.abort();
       clearTimeout(this.replyWatch);this.clearHeldAudio();
       if(this.durableRequests&&this.pending.size){
         // Local energy is not proof of an interruption (it can be speaker echo).
@@ -297,7 +302,8 @@
         if(ac.detached||this.reconnecting){
           const answer='Önceki isteğinin sonucu: '+result.answer;
           this.transcript('jeff',answer,true);this.remember('assistant',answer);
-          this.notice('Önceki isteğinin sonucu konuşmaya eklendi.');return;
+          this.notice('Önceki isteğinin sonucu konuşmaya eklendi.');
+          this.enqueueResultSpeech(answer,generation);return;
         }
         timing.answerEndedAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;this.inputOpen=false;
         this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
@@ -313,6 +319,52 @@
           }
         }
       }finally{clearTimeout(progressTimer);if(this.pending.get(call.id)===ac)this.pending.delete(call.id);this.background.delete(call.id);}
+    }
+    enqueueResultSpeech(answer,generation){
+      this.resultAnnouncements.push({answer,generation});
+      this.scheduleResultSpeech();
+    }
+    scheduleResultSpeech(){
+      clearTimeout(this.announcementTimer);
+      if(!this.active||!this.resultAnnouncements.length)return;
+      this.announcementTimer=setTimeout(()=>this.drainResultSpeech(),1000);this.announcementTimer?.unref?.();
+    }
+    async drainResultSpeech(){
+      if(!this.active||this.announcement||!this.resultAnnouncements.length)return;
+      if(this.reconnecting||this.inputActive||this.pending.size||this.sources.size||performance.now()-this.lastInputAt<750){
+        this.scheduleResultSpeech();return;
+      }
+      const item=this.resultAnnouncements.shift();if(item.generation!==this.generation){this.scheduleResultSpeech();return;}
+      const ac=this.announcement=new AbortController();
+      try{await this.streamCanonicalSpeech(item.answer,ac.signal,item.generation);}
+      catch(e){if(e.name!=='AbortError'&&this.active)this.notice('Sonuç konuşmaya yazıldı, ancak seslendirilemedi. İş tekrar çalıştırılmadı.');}
+      finally{if(this.announcement===ac)this.announcement=null;this.scheduleResultSpeech();}
+    }
+    async streamCanonicalSpeech(answer,signal,generation){
+      // Speak the journalled answer directly; no second agent can rewrite it.
+      // The existing speech endpoint accepts at most 700 characters per request.
+      const chunks=[];let rest=answer;
+      while(rest.length){let end=Math.min(650,rest.length);if(end<rest.length){const space=rest.lastIndexOf(' ',end);if(space>0)end=space+1;}chunks.push(rest.slice(0,end));rest=rest.slice(end);}
+      let started=false;
+      for(const text of chunks){
+        if(signal.aborted||this.reconnecting||!this.active||generation!==this.generation)return;
+        const controller=new AbortController(),abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});
+        const timeout=setTimeout(abort,30000);let reader;
+        try{
+          const response=await fetch('/api/tts/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice:this.voice()}),signal:controller.signal});
+          if(!response.ok||Number(response.headers.get('X-Sample-Rate'))!==24000)throw new Error('result_speech_unavailable');
+          reader=response.body.getReader();let carry=new Uint8Array(0);
+          while(true){
+            const {done,value}=await reader.read();if(done){if(carry.length)throw new Error('incomplete_result_audio');break;}
+            if(signal.aborted||this.reconnecting||!this.active||generation!==this.generation)return;
+            const bytes=new Uint8Array(carry.length+value.length);bytes.set(carry);bytes.set(value,carry.length);
+            const even=bytes.length-bytes.length%2;carry=bytes.slice(even);if(!even)continue;
+            let raw='';for(let i=0;i<even;i++)raw+=String.fromCharCode(bytes[i]);
+            if(!started){started=true;this.stats.backgroundSpeechStarted=(this.stats.backgroundSpeechStarted||0)+1;}
+            this.play({data:btoa(raw),mimeType:'audio/pcm;rate=24000'});
+          }
+        }finally{clearTimeout(timeout);signal.removeEventListener('abort',abort);if(reader){await reader.cancel().catch(()=>{});reader.releaseLock();}}
+      }
     }
     play(inline){
       clearTimeout(this.replyWatch);
@@ -341,6 +393,7 @@
     mute(){
       if(!this.active||!this.stream)return false;
       this.muted=!this.muted;
+      if(this.muted){this.inputActive=false;this.lastInputAt=performance.now();}
       this.stream.getAudioTracks().forEach(t=>t.enabled=!this.muted);
       if(this.muted&&this.ws?.readyState===WebSocket.OPEN)this.ws.send(JSON.stringify({realtimeInput:{audioStreamEnd:true}}));
       this.state('listening',this.muted?'Mikrofon kapalı':'Dinliyorum');return this.muted;
@@ -412,6 +465,7 @@
       if(this.inputText){this.remember('user',this.inputText);this.inputText='';}
       if(this.outputText){this.remember('assistant','[Görüşme kapanırken kesilen yanıt] '+this.outputText);this.outputText='';}
       const session=this.session?.session;this.active=false;++this.generation;clearTimeout(this.expiry);
+      clearTimeout(this.announcementTimer);this.announcement?.abort();this.resultAnnouncements=[];
       clearTimeout(this.replyWatch);this.clearHeldAudio();this.resumeHandle=null;
       this.reconnecting=false;
       for(const ac of this.pending.values())ac.abort();this.pending.clear();this.flushAudio();

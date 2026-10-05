@@ -71,6 +71,57 @@ test('same pending question under a new provider ID does not call Jeff or announ
  assert.equal(sends.length,2);assert.equal(call.stats.duplicateRequestsSuppressed,1);
 });
 
+test('a completed detached answer is queued as exact speech without asking Jeff again',async()=>{
+ const call=fixture();call.active=true;call.lastInputAt=-1000;let spoken;
+ call.scheduleResultSpeech=()=>{};call.streamCanonicalSpeech=async text=>spoken=text;
+ call.enqueueResultSpeech('Önceki isteğinin sonucu: Deneme hazır.',0);
+ call.pending.set('busy',{});await call.drainResultSpeech();assert.equal(spoken,undefined);
+ call.pending.clear();await call.drainResultSpeech();assert.equal(spoken,'Önceki isteğinin sonucu: Deneme hazır.');
+ assert.equal(call.resultAnnouncements.length,0);assert.equal(call.announcement,null);
+});
+test('input activity immediately stops a result announcement without stopping its job',()=>{
+ const call=fixture();call.active=true;call.durableRequests=true;const ac=call.announcement=new AbortController();
+ let stops=0;call.sources.add({stop:()=>stops++});call.onInputActivity();
+ assert.equal(ac.signal.aborted,true);assert.equal(stops,1);assert.equal(call.active,true);
+});
+test('muting during input leaves completed result delivery unblocked',()=>{
+ global.WebSocket={OPEN:1};
+ const call=fixture();call.active=true;call.inputActive=true;call.stream={getAudioTracks:()=>[{enabled:true}]};
+ assert.equal(call.mute(),true);assert.equal(call.inputActive,false);
+});
+test('old call generation results are not spoken in a new conversation',async()=>{
+ const call=fixture();call.active=true;call.generation=2;call.lastInputAt=-1000;call.scheduleResultSpeech=()=>{};
+ call.streamCanonicalSpeech=()=>assert.fail('stale speech');call.enqueueResultSpeech('Eski sonuç.',1);
+ await call.drainResultSpeech();assert.equal(call.resultAnnouncements.length,0);
+});
+test('canonical speech preserves odd network boundaries and never sends a new Jeff request',async()=>{
+ const call=fixture();call.active=true;const ac=new AbortController();let sent=[],played=[],index=0,cancelled=0;
+ const original=global.fetch;global.fetch=async(url,options)=>{
+  assert.equal(url,'/api/tts/stream');sent.push(JSON.parse(options.body).text);
+  const parts=[new Uint8Array([1]),new Uint8Array([2,3,4])];
+  return {ok:true,headers:{get:()=> '24000'},body:{getReader:()=>({read:async()=>index<parts.length?{done:false,value:parts[index++]}:{done:true},cancel:async()=>cancelled++,releaseLock:()=>{}})}};
+ };
+ try{call.play=x=>played.push([...Buffer.from(x.data,'base64')]);await call.streamCanonicalSpeech('Sonuç aynen korunur.',ac.signal,0);
+  assert.deepEqual(sent,['Sonuç aynen korunur.']);assert.deepEqual(played,[[1,2,3,4]]);assert.equal(cancelled,1);
+ }finally{global.fetch=original;}
+});
+test('an interrupted speech response cannot play late chunks',async()=>{
+ const call=fixture();call.active=true;const ac=new AbortController();const original=global.fetch;
+ global.fetch=async()=>({ok:true,headers:{get:()=> '24000'},body:{getReader:()=>({read:async()=>{ac.abort();return {done:false,value:new Uint8Array([1,2])};},cancel:async()=>{},releaseLock:()=>{}})}});
+ try{call.play=()=>assert.fail('late chunk');await call.streamCanonicalSpeech('Sonuç.',ac.signal,0);}finally{global.fetch=original;}
+});
+test('reconnecting aborts announcement before opening a fresh socket',async()=>{
+ const call=fixture();call.active=true;call.resumeHandle='handle';call.session={session:'test'};
+ const ac=call.announcement=new AbortController();call.ws={close:()=>{}};
+ call.post=async()=>({expires_at:Date.now()/1000+1200});call.openSocket=async()=>assert.equal(ac.signal.aborted,true);
+ await call.recoverConnection();clearTimeout(call.expiry);
+});
+test('incomplete final PCM is reported rather than treated as successful speech',async()=>{
+ const call=fixture();call.active=true;const ac=new AbortController();const original=global.fetch;let n=0;
+ global.fetch=async()=>({ok:true,headers:{get:()=> '24000'},body:{getReader:()=>({read:async()=>n++?{done:true}:{done:false,value:new Uint8Array([1])},cancel:async()=>{},releaseLock:()=>{}})}});
+ try{await assert.rejects(call.streamCanonicalSpeech('Sonuç.',ac.signal,0),/incomplete_result_audio/);}finally{global.fetch=original;}
+});
+
 test('owner work agenda has its own operation and one complete grounded response',async()=>{
  const call=fixture();call.active=true;let sent=[],body;
  call.session={session:'fixture'};call.ws={send:text=>sent.push(JSON.parse(text))};
