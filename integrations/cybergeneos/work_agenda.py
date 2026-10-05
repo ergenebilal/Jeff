@@ -70,7 +70,7 @@ def render(data):
     parts = []
     if panel['known']:
         if panel['actionable_count']:
-            parts.append(f"Panelde senden bir adım bekleyen {panel['actionable_count']} kayıt var.")
+            parts.append('İş listende öne çıkan adımlar şunlar:')
             parts.extend(f"{item['name']}: {item['next_step']}." for item in panel['items'])
         else:
             parts.append('Panelde senden bir adım bekleyen kayıt görünmüyor.')

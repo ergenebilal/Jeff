@@ -31,6 +31,7 @@ def test_actual_panel_order_and_steps_without_constructor_or_worker(tmp_path):
         return {'a':{'list':'sira','rank':4,'text':'Taslağı incele'},'b':{'list':'sira','rank':0,'text':'Gelen yanıtı oku'}}
     result=read(store,steps,plan);answer=render(result)
     assert result['panel']['known'] and result['panel']['actionable_count']==2
+    assert 'öne çıkan adımlar' in answer and '2 kayıt' not in answer and 'onay bekleyen' not in answer
     assert result['panel']['items'][0]['name']=='Beta'
     assert answer.index('Gelen yanıtı oku')<answer.index('Taslağı incele')
     assert 'Private draft' not in answer and 'tamamlandığını doğrulamaz' in answer
