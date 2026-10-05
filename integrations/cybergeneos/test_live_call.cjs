@@ -122,6 +122,33 @@ test('incomplete final PCM is reported rather than treated as successful speech'
  try{await assert.rejects(call.streamCanonicalSpeech('Sonuç.',ac.signal,0),/incomplete_result_audio/);}finally{global.fetch=original;}
 });
 
+test('lost accepted response reads its journal and never submits the question twice',async()=>{
+ const call=fixture();call.active=true;let requests=0,pieces=[],reads=0;const original=global.fetch;
+ global.fetch=async(url)=>{
+  assert.equal(url,'/api/voice/consult');requests++;
+  return {ok:true,body:{getReader:()=>({read:async()=>{if(reads++)throw new TypeError('network');return {done:false,value:Buffer.from('{"t":"accepted"}\n{"t":"piece","answer":"İlk cümle. ","authority":"real_jeff"}\n')};},cancel:async()=>{},releaseLock:()=>{}})}};
+ };
+ call.post=async(action,body)=>{assert.equal(action,'result');assert.equal(body.call_id,'one');return {state:'ANSWERED',authority:'real_jeff',answer:'İlk cümle. Son cümle.'};};
+ try{const answer=await call.postConsult({session:'s',call_id:'one'},new AbortController().signal,e=>pieces.push(e.answer));
+  assert.equal(requests,1);assert.deepEqual(pieces,['İlk cümle. ','Son cümle.']);assert.equal(answer.completion_verified,false);
+ }finally{global.fetch=original;}
+});
+test('an unknown journal outcome is reported and cannot cause a new execution',async()=>{
+ const call=fixture();call.active=true;let reads=0;call.post=async action=>{assert.equal(action,'result');reads++;return {state:'OUTCOME_UNKNOWN',authority:'real_jeff'};};
+ await assert.rejects(call.recoverConsultResult({session:'s',call_id:'one'},new AbortController().signal),/Tekrar çalıştırmadım/);
+ assert.equal(reads,1);
+});
+test('closing a lost response cancels result recovery promptly',async()=>{
+ const call=fixture();call.active=true;const ac=new AbortController();call.post=async()=>({state:'RUNNING'});
+ const task=call.recoverConsultResult({session:'s',call_id:'one'},ac.signal);setTimeout(()=>ac.abort(),10);
+ await assert.rejects(task,e=>e.name==='AbortError');
+});
+test('unaccepted network errors cannot query or replay a nonexistent job',async()=>{
+ const call=fixture();call.active=true;const original=global.fetch;call.post=()=>assert.fail('not admitted');
+ global.fetch=async()=>{throw new TypeError('network');};
+ try{await assert.rejects(call.postConsult({},new AbortController().signal,()=>{}),/network/);}finally{global.fetch=original;}
+});
+
 test('owner work agenda has its own operation and one complete grounded response',async()=>{
  const call=fixture();call.active=true;let sent=[],body;
  call.session={session:'fixture'};call.ws={send:text=>sent.push(JSON.parse(text))};

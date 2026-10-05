@@ -209,6 +209,7 @@
       if(content.turnComplete){
         // Tool-request boundaries also emit turnComplete; they are not answer completion.
         if(!this.pending.size && this.outputText){
+          clearTimeout(this.replyWatch);
           if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
           this.remember('assistant',this.outputText);
           // A non-blocking response can have more than one spoken turn. All
@@ -441,7 +442,7 @@
           jeff_halen_dusunuyor:'Jeff önceki isteği değerlendiriyor. İsteği yeniden çalıştırmadım.'};
         throw new Error(reasons[data.error]||'Jeff yanıtı alınamadı.');
       }
-      const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='',result=null;
+      const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='',result=null,accepted=false,received='';
       try{
         while(true){
           const {done,value}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
@@ -449,16 +450,42 @@
           while((end=buffer.indexOf('\n'))>=0){
             const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;
             const event=JSON.parse(line);
-            if(event.t==='accepted')onAccepted?.(event);
+            if(event.t==='accepted'){accepted=true;onAccepted?.(event);}
             if(event.t==='err')throw new Error('Jeff cevabı tamamlanamadı. Sonuç doğrulanmadı.');
-            if(event.t==='piece')onPiece(event);
+            if(event.t==='piece'){received+=event.answer||'';onPiece(event);}
             if(event.t==='end')result=event;
           }
           if(done)break;
         }
         if(buffer.trim()||!result)throw new Error('Jeff cevabı yarım kaldı. Sonuç doğrulanmadı.');
         return result;
+      }catch(e){
+        if(!accepted||signal?.aborted||e.name==='AbortError')throw e;
+        const recovered=await this.recoverConsultResult(body,signal);
+        const tail=recovered.answer.startsWith(received)?recovered.answer.slice(received.length):'Son doğrulanmış cevap: '+recovered.answer;
+        if(tail)onPiece({authority:'real_jeff',answer:tail,completion_verified:false});
+        return recovered;
       }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
+    }
+    async recoverConsultResult(body,signal){
+      // Only inspect the journal; never submit the question again after a lost stream.
+      const deadline=performance.now()+90000;
+      while(!signal?.aborted&&this.active&&performance.now()<deadline){
+        const result=await this.post('result',{session:body.session,call_id:body.call_id},signal);
+        if(result.state==='ANSWERED'&&result.authority==='real_jeff'&&result.answer){
+          this.stats.resultRecoveries=(this.stats.resultRecoveries||0)+1;
+          return {t:'end',...result,cached:true,completion_verified:false};
+        }
+        if(result.state!=='RUNNING')throw new Error('İsteğin sonucu doğrulanamadı. Tekrar çalıştırmadım.');
+        await new Promise((resolve,reject)=>{
+          const finish=()=>{signal?.removeEventListener('abort',abort);resolve();};
+          const timer=setTimeout(finish,2000);
+          const abort=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);reject(new DOMException('Görüşme kapandı.','AbortError'));};
+          signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+        });
+      }
+      if(signal?.aborted)throw new DOMException('Görüşme kapandı.','AbortError');
+      throw new Error('Sonuç henüz alınamadı. Başlatılmış işi tekrar çalıştırmadım.');
     }
     fail(message){this.stop();this.notice(message);}
     stop(){

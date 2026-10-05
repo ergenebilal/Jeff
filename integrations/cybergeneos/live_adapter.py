@@ -566,6 +566,26 @@ def install(app):
     app._live_installed = True
 
 
+def brain_route(data):
+    """Voice-only transport selection. The Hermes identity, history and tools stay.
+
+    Absent configuration uses the standing Jeff route. An invalid file fails
+    visibly rather than silently selecting another provider or accepting secrets.
+    """
+    route={'model':'jeff','stream':True,'model_options':{'reasoning_effort':'low'}}
+    path=Path(data)/'voice-brain-route.json'
+    if not path.exists():return route
+    try:
+        configured=json.loads(path.read_text())
+        if (set(configured)!={'model','provider','reasoning_effort'} or
+            configured['model']!='gemini-3.8-flash' or configured['provider']!='custom:jeff-voice-google' or
+            configured['reasoning_effort'] not in {'low','medium','high'}):raise ValueError()
+    except (OSError,ValueError,TypeError,KeyError):raise Refused(503,'ses_beyin_yolu_gecersiz') from None
+    route.update(model=configured['model'],provider=configured['provider'],
+                 model_options={'reasoning_effort':configured['reasoning_effort']})
+    return route
+
+
 def brain_reply(app,text,context):
     """The configured Hermes Jeff, with its existing tools and private memory.
 
@@ -584,13 +604,9 @@ def brain_reply(app,text,context):
            "Özet veya durum sorusu yeni iş başlatma talimatı değildir. İş başlatmak, sonucu tamamlamak ve "
            "sonucu kullanıcıya bildirmek farklıdır. Kanıt olmadan tamamlandı deme. "
            "Sözünün kesilmesi bir işi iptal etme talimatı değildir. Mevcut onay ve gizlilik kurallarını koru. ")
-    # This channel is interactive speech. The same agent, memory and tools remain;
-    # don't force an invisible reasoning preamble ahead of every short exchange.
-    # Explicit deep analysis keeps deliberation, without changing gateway defaults.
-    deliberate=bool(re.search(r'ayrınt|detay|derin|analiz|mimari|kanıtla|hesapla|strateji',text,re.I))
-    body={'model':'jeff','stream':True,'model_options':{'reasoning_effort':'low' if deliberate else 'none'},
-          'messages':[{'role':'system','content':rules+app.jeff.DATA_RULES},
-                      {'role':'user','content':app.jeff.pack_request(text,context)}]}
+    body=brain_route(app.DATA)
+    body['messages']=[{'role':'system','content':rules+app.jeff.DATA_RULES},
+                      {'role':'user','content':app.jeff.pack_request(text,context)}]
     request=urllib.request.Request(app.jeff.hermes_url()+'/v1/chat/completions',data=json.dumps(body).encode(),
         headers={'Authorization':'Bearer '+os.environ['HERMES_API_KEY'],'Content-Type':'application/json',
                  'X-Hermes-Session-Id':session,'X-Hermes-Session-Key':'cybergeneos-bilal-voice'})

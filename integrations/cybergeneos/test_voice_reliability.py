@@ -2,7 +2,7 @@ import json,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls,Refused,brain_reply
+from integrations.cybergeneos.live_adapter import LiveCalls,Refused,brain_reply,brain_route
 
 
 class ReliabilityTests(unittest.TestCase):
@@ -76,9 +76,25 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(requests[0].headers['X-hermes-session-id'],requests[1].headers['X-hermes-session-id'])
         body=json.loads(requests[0].data)
         self.assertEqual(body['model'],'jeff');self.assertIn('yeteneklerinin sınırı değildir',body['messages'][0]['content'])
-        self.assertEqual(body['model_options']['reasoning_effort'],'none')
+        self.assertEqual(body['model_options']['reasoning_effort'],'low')
         self.assertNotIn('en çok 3',body['messages'][0]['content'])
         self.assertFalse(self.session['native_conversation']);self.assertTrue(self.session['single_brain'])
+
+    def test_voice_transport_selection_does_not_change_global_configuration(self):
+        route=Path(self.tmp.name)/'voice-brain-route.json'
+        route.write_text(json.dumps({'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}))
+        selected=brain_route(self.tmp.name)
+        self.assertEqual(selected['provider'],'custom:jeff-voice-google');self.assertEqual(selected['model'],'gemini-3.8-flash')
+        self.assertNotIn('api_key',selected)
+        route.unlink();self.assertEqual(brain_route(self.tmp.name)['model'],'jeff')
+
+    def test_invalid_voice_route_never_silently_falls_back_or_accepts_secrets(self):
+        route=Path(self.tmp.name)/'voice-brain-route.json'
+        for value in ['broken',json.dumps({'model':'unknown','provider':'gemini','reasoning_effort':'low'}),
+                      json.dumps({'model':'gemini-3.8-flash','provider':'gemini','reasoning_effort':'low','api_key':'secret'})]:
+            with self.subTest(value=value):
+                route.write_text(value)
+                with self.assertRaises(Refused):brain_route(self.tmp.name)
 
 
 if __name__=='__main__':unittest.main()
