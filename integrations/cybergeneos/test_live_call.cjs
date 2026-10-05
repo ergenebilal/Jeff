@@ -148,6 +148,47 @@ test('unaccepted network errors cannot query or replay a nonexistent job',async(
  global.fetch=async()=>{throw new TypeError('network');};
  try{await assert.rejects(call.postConsult({},new AbortController().signal,()=>{}),/network/);}finally{global.fetch=original;}
 });
+
+test('lost admission headers recover the exact recorded answer without another submission',async()=>{
+ const call=fixture();call.active=true;let submissions=0,lookups=0,pieces=[];const original=global.fetch;
+ global.fetch=async()=>{submissions++;throw new TypeError('lost headers');};
+ call.post=async(action,body)=>{assert.equal(action,'result');assert.equal(body.session,'s');assert.equal(body.call_id,'owned');lookups++;return {state:'ANSWERED',authority:'real_jeff',answer:'Kaydedilmiş cevap.'};};
+ try{const result=await call.postConsult({session:'s',call_id:'owned'},new AbortController().signal,e=>pieces.push(e.answer));
+  assert.equal(submissions,1);assert.equal(lookups,1);assert.deepEqual(pieces,['Kaydedilmiş cevap.']);assert.equal(result.cached,true);
+ }finally{global.fetch=original;}
+});
+
+test('reconnection detaches running work and cannot send its old tool ID into the new socket',async()=>{
+ const call=fixture();call.active=true;call.durableRequests=true;call.session={session:'s'};call.resumeHandle='handle';
+ let finish,oldSends=0,newSends=0,announced=[];call.ws={send:()=>oldSends++,close:()=>{}};
+ call.postConsult=()=>new Promise(resolve=>finish=resolve);
+ const work=call.consult({id:'old-tool',name:'consult_jeff',args:{text:'Bir fikri düşün.'}},0);
+ const ac=call.pending.get('old-tool');call.post=async()=>({expires_at:Date.now()/1000+1200});
+ call.openSocket=async()=>{call.ws={send:()=>newSends++};};call.enqueueResultSpeech=answer=>announced.push(answer);
+ await call.recoverConnection();assert.equal(ac.signal.aborted,false);assert.equal(call.pending.size,0);assert.equal(call.background.size,1);
+ finish({authority:'real_jeff',answer:'Asıl cevap.'});await work;clearTimeout(call.expiry);
+ assert.equal(oldSends,0);assert.equal(newSends,0);assert.deepEqual(announced,['Önceki isteğinin sonucu: Asıl cevap.']);
+});
+
+test('temporary renewal failure retries connection only and keeps the same voice journal',async()=>{
+ const call=fixture();call.active=true;call.session={session:'s'};call.resumeHandle='handle';call.ws={close:()=>{}};
+ let attempts=0;call.post=async(action,body)=>{assert.equal(action,'renew');assert.equal(body.session,'s');if(++attempts===1)throw new TypeError('temporary network');return {expires_at:Date.now()/1000+1200};};
+ call.openSocket=async()=>{};await call.recoverConnection();clearTimeout(call.expiry);
+ assert.equal(attempts,2);assert.equal(call.active,true);assert.equal(call.stats.reconnections,1);
+});
+
+test('revoked renewal authorization is never retried',async()=>{
+ const call=fixture();call.active=true;call.session={session:'s'};call.resumeHandle='handle';call.ws={close:()=>{}};
+ let attempts=0;call.post=async()=>{attempts++;throw Object.assign(new Error('revoked'),{status:403});};
+ call.fail=()=>call.active=false;await call.recoverConnection();assert.equal(attempts,1);assert.equal(call.active,false);
+});
+
+test('temporary journal failure retries reads and never submits another request',async()=>{
+ const call=fixture();call.active=true;let reads=0;
+ call.post=async(action)=>{assert.equal(action,'result');if(++reads===1)throw new TypeError('temporary connection');return {state:'ANSWERED',authority:'real_jeff',answer:'Kayıtlı cevap.'};};
+ const result=await call.recoverConsultResult({session:'s',call_id:'owned'},new AbortController().signal);
+ assert.equal(reads,2);assert.equal(result.answer,'Kayıtlı cevap.');
+});
 test('late input-end after a spoken reply does not announce a missing answer',()=>{
  const call=fixture();call.active=true;call.replyReceived=true;call.armReplyWatch();
  assert.equal(call.replyWatch,undefined);

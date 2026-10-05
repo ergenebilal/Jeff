@@ -109,14 +109,28 @@
       if(!this.resumeHandle){this.fail('Ses bağlantısı koptu. Başlatılmış işler yeniden çalıştırılmadı; sonuç kayıtları korunuyor.');return;}
       this.reconnecting=true;this.state('connecting','Ses bağlantısı yenileniyor');
       const generation=this.generation;
+      // A resumed socket has a different provider tool context. Keep accepted
+      // work alive, but deliver its canonical result rather than an old tool ID.
+      for(const [id,ac] of this.pending){ac.detached=true;this.background.set(id,ac);}
+      this.pending.clear();
       this.announcement?.abort();
       this.flushAudio();this.clearHeldAudio();clearTimeout(this.replyWatch);
       const old=this.ws;if(old){old.onclose=old.onmessage=old.onerror=null;old.close();}
       try{
-        const next=await this.post('renew',{session:this.session.session,voice:this.voice(),handle:this.resumeHandle});
-        if(!this.active||this.generation!==generation)return;
-        this.session.expires_at=next.expires_at;
-        await this.openSocket(next,generation);
+        for(let attempt=0;attempt<3;attempt++){
+          if(!this.active||this.generation!==generation)return;
+          try{
+            const next=await this.post('renew',{session:this.session.session,voice:this.voice(),handle:this.resumeHandle});
+            if(!this.active||this.generation!==generation)return;
+            this.session.expires_at=next.expires_at;
+            await this.openSocket(next,generation);break;
+          }catch(e){
+            if((e.status&&e.status<500)||attempt===2)throw e;
+            if(!this.active||this.generation!==generation)return;
+            const failed=this.ws;if(failed){failed.onclose=failed.onmessage=failed.onerror=null;failed.close();}
+            await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)));
+          }
+        }
         if(!this.active||this.generation!==generation)return;
         this.stats.reconnections=(this.stats.reconnections||0)+1;
         this.armExpiry();this.state('listening','Dinliyorum');
@@ -405,19 +419,19 @@
       this.state('listening',this.muted?'Mikrofon kapalı':'Dinliyorum');return this.muted;
     }
     async post(action,body,signal){
-      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),25000);
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),['renew','result'].includes(action)?10000:25000);
       const abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});
       if(signal?.aborted)controller.abort();
       try{
       const r=await fetch('/api/voice/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
-      if(r.status===401)throw new Error('Panel oturumu kapandı. Yeniden giriş yapın.');
+      if(r.status===401)throw Object.assign(new Error('Panel oturumu kapandı. Yeniden giriş yapın.'),{status:r.status});
       const result=await r.json();
       if(!r.ok){
         const reasons={onceki_konusmanin_sonucu_bilinmiyor:'Önceki isteğin sonucu bilinmiyor. Yeniden çalıştırmadım.',
           jeff_halen_dusunuyor:'Jeff önceki isteği değerlendiriyor. İsteği yeniden çalıştırmadım.',
           gercek_jeff_bagli_degil:'Gerçek Jeff bağlantısı açık değil.',gorusme_suresi_doldu:'Görüşme süresi doldu.',
           cok_sik:'Çok sık görüşme açıldı. Biraz bekleyin.'};
-        throw new Error(reasons[result.error]||'Görüşme bağlantısı kurulamadı.');
+        throw Object.assign(new Error(reasons[result.error]||'Görüşme bağlantısı kurulamadı.'),{status:r.status});
       }
       return result;
       }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort);}
@@ -439,8 +453,16 @@
       }
     }
     async postConsult(body,signal,onPiece,onAccepted){
-      const r=await fetch('/api/voice/consult',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({...body,stream:true}),signal});
+      let r;
+      try{r=await fetch('/api/voice/consult',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...body,stream:true}),signal});}
+      catch(e){
+        // Lost headers do not prove the server never admitted the request.
+        // Inspect only this owner's exact journal entry. Never resubmit it.
+        if(signal?.aborted||e.name==='AbortError'||!body.session||!body.call_id)throw e;
+        const result=await this.recoverConsultResult(body,signal);
+        onPiece({authority:'real_jeff',answer:result.answer,completion_verified:false});return result;
+      }
       if(!r.ok){
         const data=await r.json().catch(()=>({}));
         const reasons={onceki_konusmanin_sonucu_bilinmiyor:'Önceki isteğin sonucu bilinmiyor. Yeniden çalıştırmadım.',
@@ -476,12 +498,16 @@
       // Only inspect the journal; never submit the question again after a lost stream.
       const deadline=performance.now()+90000;
       while(!signal?.aborted&&this.active&&performance.now()<deadline){
-        const result=await this.post('result',{session:body.session,call_id:body.call_id},signal);
+        let result;
+        try{result=await this.post('result',{session:body.session,call_id:body.call_id},signal);}
+        catch(e){if(signal?.aborted||(e.status&&e.status<500))throw e;}
+        if(result){
         if(result.state==='ANSWERED'&&result.authority==='real_jeff'&&result.answer){
           this.stats.resultRecoveries=(this.stats.resultRecoveries||0)+1;
           return {t:'end',...result,cached:true,completion_verified:false};
         }
         if(result.state!=='RUNNING')throw new Error('İsteğin sonucu doğrulanamadı. Tekrar çalıştırmadım.');
+        }
         await new Promise((resolve,reject)=>{
           const finish=()=>{signal?.removeEventListener('abort',abort);resolve();};
           const timer=setTimeout(finish,2000);
