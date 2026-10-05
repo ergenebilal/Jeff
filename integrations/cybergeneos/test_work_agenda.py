@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 import pytest
-from integrations.cybergeneos.work_agenda import read, render
+from integrations.cybergeneos.work_agenda import read, render, read_radar, render_radar
 
 
 class Store:
@@ -83,3 +83,28 @@ def test_legacy_send_label_never_grants_current_authority(tmp_path):
         result=read(store,lambda *_:{'a':{'list':'sira','text':label},'b':{'list':'bekle'}},plan)
         assert 'ayrı geçerli onay gerekir' in render(result)
         assert label not in render(result) and not result['panel']['worker_completion_verified']
+
+
+@pytest.mark.parametrize('state,result,expected',[
+ ('done',{'news':2,'opps':1,'sources_ok':3,'sources_down':1},'1 kaynağa erişilemedi'),
+ ('done',None,'sonuç sayıları doğrulanamadı'),
+ ('running',None,'hâlâ sürüyor'),
+ ('failed',None,'başarılı tamamlanma göstermiyor'),
+])
+def test_radar_saved_results_are_read_only_and_done_is_not_empty_success(tmp_path,state,result,expected):
+    store=object.__new__(Store);store.path=str(tmp_path/'radar.db')
+    import time
+    with sqlite3.connect(store.path) as db:
+        db.executescript('CREATE TABLE jobs(kind,status,finished_at,result,created_at);CREATE TABLE news(title,why,src,published_at,stars);')
+        db.execute('INSERT INTO jobs VALUES(?,?,?,?,?)',('radar',state,time.time(),json.dumps(result),time.time()))
+        db.execute('INSERT INTO news VALUES(?,?,?,?,?)',('Stored item','Recorded explanation','Source',time.time(),5))
+    before=Path(store.path).read_bytes();data=read_radar(store);answer=render_radar(data)
+    assert data['known'] and not data['new_scan_started'] and Path(store.path).read_bytes()==before
+    assert expected in answer and 'Stored item: Recorded explanation' in answer
+
+
+def test_radar_unreadable_source_does_not_create_database_or_report_no_news(tmp_path):
+    store=object.__new__(Store);store.path=str(tmp_path/'missing')
+    data=read_radar(store);answer=render_radar(data)
+    assert not data['known'] and not Path(store.path).exists()
+    assert 'sonuç yok diyemem' in answer and 'yeni haber yok' not in answer

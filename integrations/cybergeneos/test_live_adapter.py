@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply, owner_briefing
+from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply, owner_briefing, radar_read_request
 
 
 class LiveTests(unittest.TestCase):
@@ -108,6 +108,22 @@ class LiveTests(unittest.TestCase):
             with self.assertRaises(Refused):self.service.consult('owner',self.body)
         finally:leave.set();t.join()
         self.assertEqual(len(self.calls),1)
+    def test_radar_summary_bypasses_running_agent_without_replaying_it(self):
+        stream=self.service.consult_stream('owner',self.body);next(stream)
+        seen=[];self.service.radar_reply=lambda text:seen.append(text) or iter(['Kayıtlı haber: Alpha.'])
+        try:
+            for index,text in enumerate(['Haber özeti istiyorum','Haber taraması ne durumda?','Radar sonuçlarını anlat']):
+                body=dict(self.body,call_id='read-'+str(index),text=text,operation='consult')
+                self.assertEqual(self.service.consult('owner',body)['answer'],'Kayıtlı haber: Alpha.')
+                with self.assertRaises(Refused):self.service.consult('other-owner',body)
+            self.assertEqual(len(seen),3);self.assertEqual(self.calls,[])
+            self.assertTrue(self.service.lock.locked())
+        finally:stream.close()
+        self.assertFalse(self.service.lock.locked());self.assertFalse(self.service.read_lock.locked())
+    def test_radar_read_intent_never_claims_an_action_was_admitted(self):
+        for text in ['Haber özeti ver ve taramayı başlat','Haber tara','Radar taraması yap','Haber özetini müşteriye gönder']:
+            self.assertFalse(radar_read_request(text))
+        self.assertIn('read_radar_summary',json.dumps(setup()))
     def test_invalid_or_truncated_speech_not_executed(self):
         for value in ['',{},'x'*1201]:
             with self.subTest(value_type=type(value).__name__):

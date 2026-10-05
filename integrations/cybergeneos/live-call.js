@@ -163,7 +163,7 @@
       this.state('listening','Dinliyorum');
     }
     async consult(call,generation){
-      if(!['consult_jeff','read_jarvis_records','read_work_agenda'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
+      if(!['consult_jeff','read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
         this.fail('Sesli istek doğrulanamadı.');return;
       }
       if(this.lastCall===call.id || this.pending.has(call.id))return;
@@ -176,11 +176,11 @@
       const ac=new AbortController();ac.toolName=call.name;this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
       let progressTimer=null;
-      const boundedReader=['read_jarvis_records','read_work_agenda'].includes(call.name);
+      const boundedReader=['read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name);
       try{
         let streamed=false;
         const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue,
-          operation:call.name==='read_jarvis_records'?'records':call.name==='read_work_agenda'?'agenda':'consult'},ac.signal,event=>{
+          operation:call.name==='read_jarvis_records'?'records':call.name==='read_work_agenda'?'agenda':call.name==='read_radar_summary'?'radar':'consult'},ac.signal,event=>{
           if(!this.active||generation!==this.generation||ac.signal.aborted)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();

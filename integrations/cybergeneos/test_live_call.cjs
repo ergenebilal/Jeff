@@ -12,6 +12,17 @@ test('owner work agenda has its own operation and one complete grounded response
  assert.match(sent[0].toolResponse.functionResponses[0].response.answer,/Alpha.*Sonraki adım/);
  assert.equal(sent[0].toolResponse.functionResponses[0].willContinue,false);
 });
+
+test('saved radar summary is a bounded read and not an agent action',async()=>{
+ const call=fixture();call.active=true;let sent=[],body;
+ call.session={session:'fixture'};call.ws={send:text=>sent.push(JSON.parse(text))};
+ call.postConsult=async(request,signal,onPiece)=>{body=request;onPiece({authority:'real_jeff',answer:'Son tarama kaydı tamamlandı. '});return {authority:'real_jeff',answer:'Son tarama kaydı tamamlandı. Kayıtlı haber: Alpha.'};};
+ await call.consult({id:'radar',name:'read_radar_summary',args:{text:'Haber özeti'}},call.generation);
+ assert.equal(body.operation,'radar');assert.equal(sent.length,1);
+ assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_radar_summary');
+ assert.match(sent[0].toolResponse.functionResponses[0].response.answer,/tamamlandı.*Alpha/);
+ assert.equal(sent[0].toolResponse.functionResponses[0].willContinue,false);
+});
 test('interruption stops output but leaves microphone running',()=>{
  const call=fixture();call.active=true;let stopped=0,trackStops=0,aborted=0;
  call.sources.add({stop:()=>stopped++});call.stream={getTracks:()=>[{stop:()=>trackStops++}]};
