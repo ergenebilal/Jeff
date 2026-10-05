@@ -65,6 +65,7 @@ CORE_SOURCE_PATHS = (
     '.venv/lib/python3.12/site-packages/aiosqlite/__init__.py',
 )
 CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
+REQUIRED_DATA_PATHS = ('raporlar/JEFF_TO_JARVIS.md',)
 # Directory names that are skipped anywhere inside a backed-up tree.
 SKIP_DIRS = {'node_modules', '__pycache__', '.git', 'venv', '.venv', '.cache', 'cache', 'logs', 'backups',
              '.playwright-mcp', 'lsp', 'node', 'hermes-agent', 'tests', 'site', 'checkpoints', 'dist-packages'}
@@ -82,6 +83,7 @@ def trees(home, opt_trees=OPT_TREES):
             h / '.alert.env', h / '.config', h / 'jeff_repo',
             h / 'jeff-v0.21.5' / 'live_ext', h / 'jeff-v0.21.5' / 'site',
             h / '.local/share/beyin-v3',
+            *[h / name for name in REQUIRED_DATA_PATHS],
             *sorted((h / '.local/lib').glob('python*/site-packages')),
             *sorted((h / '.venv/lib').glob('python*/site-packages')), *opt_trees]
 
@@ -511,7 +513,7 @@ def REQUIRED_FOR(home):
             out.append(item.replace('home__hermes', prefix.replace('/', '__'), 1))
         else:
             out.append(item)
-    return out + [prefix + '/' + name for name in CORE_SOURCE_PATHS] + [
+    return out + [prefix + '/' + name for name in CORE_SOURCE_PATHS + REQUIRED_DATA_PATHS] + [
         'db/' + flat_name(Path(home) / name) for name in CORE_DATABASE_PATHS] + ['etc/CORE-SOURCES.json']
 
 

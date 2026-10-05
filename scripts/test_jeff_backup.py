@@ -38,7 +38,7 @@ class Fixture:
         (h / 'debug.log').write_text('noise')
         (self.home / 'jeff_cognitive').mkdir()
         (self.home / 'jeff_cognitive' / 'core.py').write_text('print(1)')
-        for name in jb.CORE_SOURCE_PATHS:
+        for name in jb.CORE_SOURCE_PATHS + jb.REQUIRED_DATA_PATHS:
             path = self.home / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture core source ' + name)
@@ -62,6 +62,13 @@ class Fixture:
 
 
 class BackupTests(unittest.TestCase):
+    def test_agenda_plan_is_required_data_without_becoming_mutable_core_source(self):
+        self.assertNotIn('raporlar/JEFF_TO_JARVIS.md', jb.CORE_SOURCE_PATHS)
+        self.assertEqual(self.fx.run()[0], 0)
+        self.assertIn(self.prefix+'/raporlar/JEFF_TO_JARVIS.md', self.fx.names())
+        (self.fx.home/'raporlar/JEFF_TO_JARVIS.md').unlink()
+        self.assertNotEqual(self.fx.run()[0], 0)
+
     def setUp(self):
         self._d = tempfile.TemporaryDirectory()
         self.fx = Fixture(self._d.name)

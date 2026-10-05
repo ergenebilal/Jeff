@@ -34,7 +34,7 @@ def test_actual_panel_order_and_steps_without_constructor_or_worker(tmp_path):
     assert result['panel']['items'][0]['name']=='Beta'
     assert answer.index('Gelen yanıtı oku')<answer.index('Taslağı incele')
     assert 'Private draft' not in answer and 'tamamlandığını doğrulamaz' in answer
-    assert 'Ses bağlamını doğrula' in answer and 'Pablo' not in answer
+    assert result['plan']['known'] and 'Ses bağlamını doğrula' not in answer and 'Pablo' not in answer
     assert path.read_bytes()==before
 
 

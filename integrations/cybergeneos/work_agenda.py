@@ -81,7 +81,9 @@ def render(data):
             parts.append('Bu kayıt, işin tamamlandığını doğrulamaz.')
     else:
         parts.append('Panelin yapılacak iş listesine şu anda erişemiyorum.')
-    if plan['known']:
+    # An explicit work question gets the owner's concrete next steps. Routine
+    # infrastructure maintenance must not crowd them out or become a new task.
+    if plan['known'] and (not panel['known'] or not panel['actionable_count']):
         parts.append('Jarvis planında sıradaki adım: '+plan['next_step'])
     elif not panel['known'] or not panel['actionable_count']:
         parts.append('Jarvis planını da okuyamadım; sana iş yok diyemem.')
