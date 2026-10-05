@@ -74,3 +74,11 @@ def test_no_private_contact_or_draft_fields_escape(tmp_path):
     store,plan,path=fixture(tmp_path)
     result=read(store,lambda *_:{'a':{'list':'sira','text':'Taslağı incele','email':'secret@example.com'},'b':{'list':'bekle'}},plan)
     assert 'secret@example.com' not in json.dumps(result)
+
+
+def test_legacy_send_label_never_grants_current_authority(tmp_path):
+    store,plan,path=fixture(tmp_path)
+    for label in ['Mesaj hazır, gönderin','Onaylı metin gönderilmedi','Gönderip işaretleyin']:
+        result=read(store,lambda *_:{'a':{'list':'sira','text':label},'b':{'list':'bekle'}},plan)
+        assert 'ayrı geçerli onay gerekir' in render(result)
+        assert label not in render(result) and not result['panel']['worker_completion_verified']

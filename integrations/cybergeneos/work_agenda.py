@@ -16,6 +16,16 @@ def clip(value, size):
     return re.sub(r'\s+', ' ', str(value or '')).strip()[:size]
 
 
+def spoken_step(step):
+    text=clip(step['text'],160)
+    lowered=text.replace('İ','i').casefold()
+    # A legacy panel button label is neither a current authorization nor a
+    # customer delivery. Only the presentation changes; panel rules stay intact.
+    if 'gönder' in lowered or 'onaylı' in lowered:
+        return 'Mesaj kaydını ve taslağı incele; gönderim için ayrı geçerli onay gerekir'
+    return text
+
+
 def read(store, steps, plan=PLAN):
     result = {'observed_at': time.time(), 'read_only': True,
               'scope': 'panel_next_steps_and_recorded_jarvis_plan',
@@ -36,7 +46,7 @@ def read(store, steps, plan=PLAN):
             mine.sort(key=lambda pair: pair[1].get('rank', 9))
             jobs = view.q("SELECT title,status FROM jobs WHERE status IN ('queued','running') ORDER BY created_at DESC,rowid DESC")
             result['panel'] = {'known': True, 'actionable_count': len(mine),
-                'items': [{'name': clip(lead['name'], 80), 'next_step': clip(step['text'], 160)} for lead, step in mine[:3]],
+                'items': [{'name': clip(lead['name'], 80), 'next_step': spoken_step(step)} for lead, step in mine[:3]],
                 'active_job_count': len(jobs),
                 'active_jobs': [{'title': clip(job['title'], 100), 'recorded_status': job['status']} for job in jobs[:2]],
                 'ranking': 'unchanged_panel_step_rank', 'worker_completion_verified': False}
