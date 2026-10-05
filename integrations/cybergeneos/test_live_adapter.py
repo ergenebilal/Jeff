@@ -156,11 +156,11 @@ class LiveTests(unittest.TestCase):
             jeff=SimpleNamespace(stream_reply=lambda text,context:seen.append(text) or received.append(context) or iter(['fixture'])),
             briefing=SimpleNamespace(jeff_context=lambda *a:contexts.append('panel') or 'Recorded panel background; not completion evidence.'),
             _jarvis_snapshot=lambda:contexts.append('read') or {'read_only':True},store=None)
-        with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service:
+        with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service, patch('integrations.cybergeneos.live_adapter.brain_reply',side_effect=lambda app,text,context: app.jeff.stream_reply(text,context)):
             install(app);reply=service.call_args.args[2]
             list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))
         self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
-        self.assertEqual(contexts,['read','panel'])
+        self.assertEqual(contexts,['panel'])
         self.assertEqual(received[0],'')
         self.assertIn('Recorded panel background',json.loads(received[1])['panel_recorded_context'])
 

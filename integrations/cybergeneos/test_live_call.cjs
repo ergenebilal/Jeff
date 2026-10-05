@@ -2,6 +2,65 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {JeffLiveCall}=require('./live-call.js');
 function fixture(){return new JeffLiveCall({state:()=>{},transcript:()=>{},notice:()=>{},voice:()=> 'Charon',worklet:'fixture'});}
 
+test('audio arriving before its Turkish greeting transcript is buffered then played once',()=>{
+ const call=fixture();call.active=true;call.fastDialogue=new Set(['merhaba jeff']);let played=0;
+ call.play=()=>played++;
+ call.receive({serverContent:{modelTurn:{parts:[{inlineData:{data:'AAAA',mimeType:'audio/pcm;rate=24000'}}]},outputTranscription:{text:'Merhaba.'}}},0);
+ assert.equal(played,0);
+ call.receive({serverContent:{inputTranscription:{text:'Merhaba Jeff.'}}},0);
+ assert.equal(played,1);assert.equal(call.outputText,'Merhaba.');assert.equal(call.heldAudio.length,0);
+});
+test('unverified buffered audio never leaks when a real tool answer arrives',async()=>{
+ const call=fixture();call.active=true;call.session={session:'fixture'};call.ws={send:()=>{}};
+ call.play=()=>assert.fail('ungrounded pre-tool audio');
+ call.receive({serverContent:{modelTurn:{parts:[{inlineData:{data:'AAAA'}}]}}},0);
+ call.postConsult=async()=>({authority:'real_jeff',answer:'Sonuç doğrulanmadı.'});
+ await call.consult({id:'x',name:'consult_jeff',args:{text:'Tamamlandı mı?'}},0);
+ assert.equal(call.heldAudio.length,0);assert.equal(call.audioAllowed,true);
+});
+test('unclear Turkish speech receives a narrow clarification without duplicating transcript',()=>{
+ const call=fixture();call.active=true;call.singleBrain=true;let played=0;call.play=()=>played++;
+ call.receive({serverContent:{modelTurn:{parts:[{inlineData:{data:'AAAA'}}]}}},0);
+ const text='Son söylediğini anlayamadım, Türkçe tekrar eder misin?';
+ call.receive({serverContent:{outputTranscription:{text}}},0);
+ assert.equal(played,1);assert.equal(call.outputText,text);
+});
+test('local noise while Jeff is thinking does not cancel a durable request',async()=>{
+ const call=fixture();call.active=true;call.durableRequests=true;call.session={session:'fixture'};
+ let finish,sends=0;call.ws={send:()=>sends++};call.postConsult=()=>new Promise(r=>finish=r);
+ const task=call.consult({id:'x',name:'consult_jeff',args:{text:'Bir fikrim var.'}},0);
+ call.onInputActivity();assert.equal(call.pending.size,1);assert.equal(call.pending.get('x').signal.aborted,false);
+ finish({authority:'real_jeff',answer:'Birlikte düşünelim.'});await task;assert.equal(sends,1);
+});
+test('confirmed interruption keeps the job and delivers its eventual result without old audio',async()=>{
+ const call=fixture();call.active=true;call.durableRequests=true;call.session={session:'fixture'};
+ let finish,sends=0,shown=[];call.ws={send:()=>sends++};call.transcript=(role,text)=>shown.push(text);
+ call.postConsult=()=>new Promise(r=>finish=r);
+ const task=call.consult({id:'x',name:'consult_jeff',args:{text:'Bir fikrim var.'}},0);
+ const ac=call.pending.get('x');call.receive({toolCallCancellation:{ids:['x']}},0);
+ assert.equal(ac.signal.aborted,false);assert.equal(call.pending.size,0);
+ finish({authority:'real_jeff',answer:'Önce küçük bir deneme yap.'});await task;
+ assert.equal(sends,0);assert.match(shown.join(' '),/küçük bir deneme/);assert.equal(call.background.size,0);
+});
+test('recovering idle audio connection uses new token and never replays microphone or tools',async()=>{
+ const call=fixture();call.active=true;call.resumeHandle='private-handle';call.session={session:'original',expires_at:Date.now()/1000+1200};
+ let oldClosed=0,renewed=0,opened=0;call.ws={close:()=>oldClosed++};call.post=async(action,body)=>{
+  assert.equal(action,'renew');assert.equal(body.session,'original');renewed++;return {expires_at:Date.now()/1000+1200};};
+ call.openSocket=async()=>opened++;await call.recoverConnection();
+ assert.equal(oldClosed,1);assert.equal(renewed,1);assert.equal(opened,1);assert.equal(call.active,true);
+ assert.equal(call.session.session,'original');clearTimeout(call.expiry);
+});
+test('a stale resumption token is discarded when provider declares session not resumable',()=>{
+ const call=fixture();call.resumeHandle='old';call.receive({sessionResumptionUpdate:{resumable:false}},0);
+ assert.equal(call.resumeHandle,null);
+});
+test('provider replay of a completed tool ID cannot execute the request twice',async()=>{
+ const call=fixture();call.active=true;call.session={session:'fixture'};call.ws={send:()=>{}};let executions=0;
+ call.postConsult=async()=>{executions++;return {authority:'real_jeff',answer:'Yanıt.'};};
+ const request={id:'same',name:'consult_jeff',args:{text:'Fikrimi değerlendir.'}};
+ await call.consult(request,0);call.lastCall='another';await call.consult(request,0);assert.equal(executions,1);
+});
+
 test('owner work agenda has its own operation and one complete grounded response',async()=>{
  const call=fixture();call.active=true;let sent=[],body;
  call.session={session:'fixture'};call.ws={send:text=>sent.push(JSON.parse(text))};
@@ -33,7 +92,7 @@ test('interruption stops output but leaves microphone running',()=>{
 test('voice model cannot play unconsulted audio',()=>{
  const call=fixture();call.active=true;call.audioAllowed=false;call.play=()=>assert.fail('must not play');
  call.receive({serverContent:{modelTurn:{parts:[{inlineData:{data:'AAAA',mimeType:'audio/pcm;rate=24000'}}]}}},call.generation);
- assert.equal(call.stats.unconsultedAudioDropped,1);
+ assert.equal(call.heldAudio.length,1);assert.equal(call.stats.outputChunks,0);
 });
 test('cancelled consultation cannot send late result',async()=>{
  const call=fixture();call.active=true;let done,sends=0;
