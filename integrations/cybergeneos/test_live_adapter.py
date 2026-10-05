@@ -161,13 +161,31 @@ class LiveTests(unittest.TestCase):
             _jarvis_snapshot=lambda:reads.append(True) or data)
         with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service:
             install(app);reply=service.call_args.args[2]
-            answer=''.join(reply('Bugün ne var?'))
+            answer=''.join(reply('Pablo ne durumda?'))
             self.assertIn('16 açık iş',answer);self.assertIn('10 tanesinin sonucu',answer)
-            self.assertIn('takvimini ve genel sistem sağlığını bu yanıtla doğrulamadım',answer)
             data['work']={'known':False}
-            self.assertIn('iş durumu okunamadı',''.join(reply('Bekleyen iş var mı?')))
-            self.assertNotIn('0 açık iş',''.join(reply('Bekleyen iş var mı?')))
+            self.assertIn('iş durumu okunamadı',''.join(reply('Pablo ne durumda?')))
+            self.assertNotIn('0 açık iş',''.join(reply('Pablo ne durumda?')))
         self.assertEqual(len(reads),3)
+
+    def test_actual_work_question_uses_agenda_even_if_native_chooses_old_counter(self):
+        seen=[]
+        self.service.agenda_reply=lambda text:seen.append(text) or iter(['Alpha: taslağı incele.'])
+        self.service.records_reply=lambda _:self.fail('Owner agenda cannot use the Pablo counter')
+        body=dict(self.body,text='Ne iş var?',operation='records')
+        first=self.service.consult('owner',body);second=self.service.consult('owner',body)
+        self.assertEqual(first['answer'],'Alpha: taslağı incele.')
+        self.assertTrue(second['cached']);self.assertEqual(seen,['Ne iş var?'])
+        with self.assertRaises(Refused):self.service.consult('owner',dict(body,operation='agenda'))
+        self.assertIn('read_work_agenda',json.dumps(setup()))
+
+    def test_typed_agenda_cannot_use_another_owner_or_run_real_agent(self):
+        seen=[];self.service.agenda_reply=lambda text:seen.append(text) or iter(['Jarvis planındaki sonraki adım.'])
+        body=dict(self.body,text='Sıradaki işler neler?',operation='agenda')
+        with self.assertRaises(Refused):self.service.consult('other',body)
+        answer=self.service.consult('owner',body)
+        self.assertIn('sonraki adım',answer['answer']);self.assertEqual(self.calls,[])
+        self.assertEqual(seen,['Sıradaki işler neler?'])
 
 
     def test_persistent_dialogue_is_owner_only_bounded_and_compare_and_swap(self):

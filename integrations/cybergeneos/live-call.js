@@ -163,7 +163,7 @@
       this.state('listening','Dinliyorum');
     }
     async consult(call,generation){
-      if(!['consult_jeff','read_jarvis_records'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
+      if(!['consult_jeff','read_jarvis_records','read_work_agenda'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
         this.fail('Sesli istek doğrulanamadı.');return;
       }
       if(this.lastCall===call.id || this.pending.has(call.id))return;
@@ -176,17 +176,18 @@
       const ac=new AbortController();ac.toolName=call.name;this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
       let progressTimer=null;
+      const boundedReader=['read_jarvis_records','read_work_agenda'].includes(call.name);
       try{
         let streamed=false;
         const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue,
-          operation:call.name==='read_jarvis_records'?'records':'consult'},ac.signal,event=>{
+          operation:call.name==='read_jarvis_records'?'records':call.name==='read_work_agenda'?'agenda':'consult'},ac.signal,event=>{
           if(!this.active||generation!==this.generation||ac.signal.aborted)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();
           // This bounded reader completes quickly. Keep its figures in one tool
           // response; several immediately queued sentence responses can be omitted
           // by the live model while an earlier response is still speaking.
-          if(call.name==='read_jarvis_records')return;
+          if(boundedReader)return;
           this.audioAllowed=true;this.consultedAnswer=true;
           this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
             response:{answer:event.answer},willContinue:true,scheduling:streamed?'WHEN_IDLE':'INTERRUPT'}]}}));
@@ -205,8 +206,8 @@
         if(result.authority!=='real_jeff'||!result.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
         timing.answerEndedAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;this.inputOpen=false;
         this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
-          response:call.name==='read_jarvis_records'||!streamed?{answer:result.answer}:{},willContinue:false,
-          scheduling:call.name==='read_jarvis_records'||!streamed?'INTERRUPT':'SILENT'}]}}));
+          response:boundedReader||!streamed?{answer:result.answer}:{},willContinue:false,
+          scheduling:boundedReader||!streamed?'INTERRUPT':'SILENT'}]}}));
       }catch(e){
         if(e.name!=='AbortError'&&this.active&&generation===this.generation)
           this.fail(e.message||'Jeff yanıtı alınamadı.');

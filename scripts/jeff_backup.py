@@ -54,6 +54,7 @@ CORE_SOURCE_PATHS = (
     'cybergeneos/docs/cybergeneos/server/jarvis_adapter.py',
     'cybergeneos/docs/cybergeneos/server/approval_adapter.py',
     'cybergeneos/docs/cybergeneos/server/live_adapter.py',
+    'cybergeneos/docs/cybergeneos/server/work_agenda.py',
     'cybergeneos/docs/cybergeneos/server/app.py',
     'cybergeneos/docs/cybergeneos/live-call.js',
     'cybergeneos/docs/cybergeneos/mic-capture.js',

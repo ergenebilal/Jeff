@@ -1,6 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
 const {JeffLiveCall}=require('./live-call.js');
 function fixture(){return new JeffLiveCall({state:()=>{},transcript:()=>{},notice:()=>{},voice:()=> 'Charon',worklet:'fixture'});}
+
+test('owner work agenda has its own operation and one complete grounded response',async()=>{
+ const call=fixture();call.active=true;let sent=[],body;
+ call.session={session:'fixture'};call.ws={send:text=>sent.push(JSON.parse(text))};
+ call.postConsult=async(request,signal,onPiece)=>{body=request;onPiece({authority:'real_jeff',answer:'Alpha: taslağı incele. '});return {authority:'real_jeff',answer:'Alpha: taslağı incele. Sonraki adım ses bağlamı.'};};
+ await call.consult({id:'agenda',name:'read_work_agenda',args:{text:'Ne iş var?'}},call.generation);
+ assert.equal(body.operation,'agenda');assert.equal(sent.length,1);
+ assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_work_agenda');
+ assert.match(sent[0].toolResponse.functionResponses[0].response.answer,/Alpha.*Sonraki adım/);
+ assert.equal(sent[0].toolResponse.functionResponses[0].willContinue,false);
+});
 test('interruption stops output but leaves microphone running',()=>{
  const call=fixture();call.active=true;let stopped=0,trackStops=0,aborted=0;
  call.sources.add({stop:()=>stopped++});call.stream={getTracks:()=>[{stop:()=>trackStops++}]};
