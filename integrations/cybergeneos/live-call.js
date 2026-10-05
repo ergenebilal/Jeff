@@ -11,6 +11,7 @@
       this.heldAudio=[];this.heldBytes=0;this.heldText='';this.completedCalls=new Set();
       this.background=new Map();this.resultAnnouncements=[];this.socketEpoch=0;
       this.inputActive=false;this.lastInputAt=0;
+      this.replyReceived=false;
     }
     async start(){
       if(this.active)return;
@@ -125,13 +126,15 @@
     }
     armReplyWatch(){
       clearTimeout(this.replyWatch);const generation=this.generation;
+      if(this.replyReceived)return;
       this.replyWatch=setTimeout(()=>{
         if(!this.active||this.generation!==generation||this.sources.size)return;
         this.stats.replyTimeouts=(this.stats.replyTimeouts||0)+1;
-        this.notice(this.pending.size?'Jeff isteğini hâlâ değerlendiriyor. Sonuç hazır olduğunda burada görünecek.':
+        const waiting=this.pending.size||this.background.size;
+        this.notice(waiting?'Jeff isteğini hâlâ değerlendiriyor. Sonuç hazır olduğunda burada görünecek.':
           this.inputText?'Sözlerini aldım, ancak sesli yanıt oluşmadı. İsteği kendiliğimden tekrarlamadım.':
           'Mikrofondan ses geliyor, ancak sözlerini anlayamadım. Türkçe tekrar eder misin?');
-        this.state(this.pending.size?'thinking':'listening',this.pending.size?'Jeff yanıtı bekleniyor · sizi dinliyorum':'Dinliyorum');
+        this.state(waiting?'thinking':'listening',waiting?'Jeff yanıtı bekleniyor · sizi dinliyorum':'Dinliyorum');
       },10000);this.replyWatch?.unref?.();
     }
     clearHeldAudio(){this.heldAudio=[];this.heldBytes=0;this.heldText='';}
@@ -223,6 +226,7 @@
     }
     onInputActivity(){
       if(!this.active||this.muted)return;
+      this.replyReceived=false;
       this.inputActive=true;this.lastInputAt=performance.now();this.announcement?.abort();
       clearTimeout(this.replyWatch);this.clearHeldAudio();
       if(this.durableRequests&&this.pending.size){
@@ -368,6 +372,7 @@
       }
     }
     play(inline){
+      this.replyReceived=true;
       clearTimeout(this.replyWatch);
       if(this.voiceTurn&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.firstAudioAt=performance.now();
       const rate=Number(/rate=(\d+)/.exec(inline.mimeType||'')?.[1]);

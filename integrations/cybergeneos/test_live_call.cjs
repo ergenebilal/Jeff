@@ -148,6 +148,11 @@ test('unaccepted network errors cannot query or replay a nonexistent job',async(
  global.fetch=async()=>{throw new TypeError('network');};
  try{await assert.rejects(call.postConsult({},new AbortController().signal,()=>{}),/network/);}finally{global.fetch=original;}
 });
+test('late input-end after a spoken reply does not announce a missing answer',()=>{
+ const call=fixture();call.active=true;call.replyReceived=true;call.armReplyWatch();
+ assert.equal(call.replyWatch,undefined);
+ call.onInputActivity();assert.equal(call.replyReceived,false);
+});
 
 test('owner work agenda has its own operation and one complete grounded response',async()=>{
  const call=fixture();call.active=true;let sent=[],body;
