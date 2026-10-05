@@ -60,6 +60,16 @@ test('provider replay of a completed tool ID cannot execute the request twice',a
  const request={id:'same',name:'consult_jeff',args:{text:'Fikrimi değerlendir.'}};
  await call.consult(request,0);call.lastCall='another';await call.consult(request,0);assert.equal(executions,1);
 });
+test('same pending question under a new provider ID does not call Jeff or announce failure twice',async()=>{
+ const call=fixture();call.active=true;call.session={session:'fixture'};let finish,executions=0,sends=[];
+ call.ws={send:data=>sends.push(JSON.parse(data))};call.postConsult=()=>{executions++;return new Promise(r=>finish=r);};
+ const first=call.consult({id:'original',name:'consult_jeff',args:{text:'Karar yorgunluğunu açıkla.'}},0);
+ await call.consult({id:'different',name:'consult_jeff',args:{text:'Karar yorgunluğunu açıkla.'}},0);
+ assert.equal(executions,1);assert.equal(call.pending.size,1);
+ assert.equal(sends[0].toolResponse.functionResponses[0].scheduling,'SILENT');
+ finish({authority:'real_jeff',answer:'Seçim yaptıkça zihinsel yorgunluk oluşur.'});await first;
+ assert.equal(sends.length,2);assert.equal(call.stats.duplicateRequestsSuppressed,1);
+});
 
 test('owner work agenda has its own operation and one complete grounded response',async()=>{
  const call=fixture();call.active=true;let sent=[],body;

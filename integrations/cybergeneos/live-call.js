@@ -247,6 +247,14 @@
         this.fail('Sesli istek doğrulanamadı.');return;
       }
       if(this.completedCalls.has(call.id)||this.lastCall===call.id || this.pending.has(call.id)||this.background.has(call.id))return;
+      const requestKey=call.name+'|'+call.args.text.normalize('NFC').toLocaleLowerCase('tr-TR').trim().replace(/\s+/g,' ');
+      const equivalent=[...this.pending.values(),...this.background.values()].find(ac=>ac.requestKey===requestKey&&!ac.signal.aborted);
+      if(equivalent){
+        this.completedCalls.add(call.id);this.stats.duplicateRequestsSuppressed=(this.stats.duplicateRequestsSuppressed||0)+1;
+        this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,willContinue:false,scheduling:'SILENT',
+          response:{status:'already_running',answer:'Aynı isteğin asıl çağrısı sürüyor. Yeni bir istek açma; onun sonucunu bekle.'}}]}}));
+        return;
+      }
       this.clearHeldAudio();
       this.lastCall=call.id;this.audioAllowed=false;this.outputText='';
       const timing={consultStartedAt:performance.now(),speechEndedAt:this.speechEndedAt,
@@ -254,7 +262,7 @@
       this.timings.push(timing);this.voiceTurn=timing;
       const dialogue=this.dialogue.map(m=>({...m}));
       if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
-      const ac=new AbortController();ac.toolName=call.name;this.pending.set(call.id,ac);
+      const ac=new AbortController();ac.toolName=call.name;ac.requestKey=requestKey;this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
       let progressTimer=null;
       const boundedReader=['read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name);

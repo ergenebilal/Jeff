@@ -76,6 +76,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(requests[0].headers['X-hermes-session-id'],requests[1].headers['X-hermes-session-id'])
         body=json.loads(requests[0].data)
         self.assertEqual(body['model'],'jeff');self.assertIn('yeteneklerinin sınırı değildir',body['messages'][0]['content'])
+        self.assertEqual(body['model_options']['reasoning_effort'],'none')
         self.assertNotIn('en çok 3',body['messages'][0]['content'])
         self.assertFalse(self.session['native_conversation']);self.assertTrue(self.session['single_brain'])
 
