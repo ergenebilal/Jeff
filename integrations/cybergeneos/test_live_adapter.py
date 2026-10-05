@@ -166,12 +166,13 @@ class LiveTests(unittest.TestCase):
 
     def test_panel_data_selection_preserves_followups_without_restricting_general_topics(self):
         self.assertFalse(needs_panel_background('Karar yorgunluğunu açıkla.',[]))
+        self.assertFalse(needs_panel_background('Pazarlama dışına çıkalım. Karar yorgunluğunu açıkla.',[]))
         self.assertTrue(needs_panel_background('Taslağı nasıl geliştirelim?',[]))
         self.assertTrue(needs_panel_background('Buna göre hangisi?',[
             {'role':'user','content':'Paneldeki fırsatları karşılaştır.'},
             {'role':'assistant','content':'İki seçenek var.'}]))
         self.assertFalse(needs_panel_background('Buna göre bir öneri ver.',[
-            {'role':'user','content':'Karar yorgunluğunu açıkla.'}]))
+            {'role':'user','content':'Pazarlama dışına çıkalım. Karar yorgunluğunu açıkla.'}]))
 
     def test_general_consultation_keeps_recent_bridge_without_reading_panel(self):
         from unittest.mock import patch

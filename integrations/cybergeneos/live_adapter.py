@@ -51,10 +51,13 @@ def needs_panel_background(text, dialogue):
     include fresh panel data if the preceding user turn concerned the panel.
     """
     panel = r'(?i)(panel|radar|haber|fırsat|müşteri|firma|klinik|lead|pazarlama|tasla[kğ]|kampanya|onay|pablo|görev|\biş(?:ler|leri|im|in|i|e)?\b)'
-    if re.search(panel, text):return True
+    def relevant(value):
+        value=re.sub(r'(?i)pazarlama\s+dış\w*','',value)
+        return bool(re.search(panel,value))
+    if relevant(text):return True
     if re.search(r'(?i)\b(bu\w*|o|onu\w*|onlar\w*|hangisi\w*|devam)\b',text):
         previous=next((m['content'] for m in reversed(dialogue or []) if m.get('role')=='user'), '')
-        return bool(re.search(panel,previous))
+        return relevant(previous)
     return False
 
 VOICE_RULES = (
