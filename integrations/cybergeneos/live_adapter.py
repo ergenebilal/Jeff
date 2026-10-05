@@ -43,6 +43,20 @@ def radar_read_request(text):
                 re.search(r'özet|durum|bitti|bitmiş|sonuç|neler|ne var|oku|anlat|rapor',text) and
                 not re.search(r'\b(tara|başlat\w*|çalıştır\w*|yenile\w*|yap|aç|gönder\w*|sil\w*|öde\w*)\b',text))
 
+
+def needs_panel_background(text, dialogue):
+    """Select supporting data, never the agent's available topics or tools.
+
+    The core retains the complete conversation. For a referential follow-up,
+    include fresh panel data if the preceding user turn concerned the panel.
+    """
+    panel = r'(?i)(panel|radar|haber|fırsat|müşteri|firma|klinik|lead|pazarlama|tasla[kğ]|kampanya|onay|pablo|görev|\biş(?:ler|leri|im|in|i|e)?\b)'
+    if re.search(panel, text):return True
+    if re.search(r'(?i)\b(bu\w*|o|onu\w*|onlar\w*|hangisi\w*|devam)\b',text):
+        previous=next((m['content'] for m in reversed(dialogue or []) if m.get('role')=='user'), '')
+        return bool(re.search(panel,previous))
+    return False
+
 VOICE_RULES = (
     "Sen Bilal'in Jeff'inin canlı ses arayüzüsün. Asıl düşünen ve iş yapan ajan Telegram'daki aynı Jeff'tir. "
     "DİNLEME DİLİ: Bilal Türkçe konuşur. Türkçe ekleri, kısa sözleri ve özel adları Türkçe bağlamında anla. "
@@ -486,13 +500,18 @@ def install(app):
         # The real Jeff needs the same recorded panel background as a typed
         # conversation. Read it only for an actual consultation, not every utterance.
         panel_reader=getattr(app,'_jarvis_panel_context',app.briefing.jeff_context)
-        panel_context=panel_reader(app.store)
+        panel_context=(panel_reader(app.store) if needs_panel_background(text,dialogue) else
+            {'status':'not_loaded_for_this_question','available':True,
+             'read_only_records':'/home/hermes/cybergeneos-data/cgos.db',
+             'rule':'Gerekirse mevcut araçlarınla güncel panel kaydını oku. Veri yüklenmemesi boş iş veya haber kanıtı değildir.'})
         from scripts.jarvis_snapshot import render
         pieces=brain_reply(app,text, json.dumps({'live_voice': True,
             'jarvis_snapshot':current,
             'panel_recorded_context':panel_context,
             'owner_context':owner_briefing(app.DATA),
-            'voice_dialogue': dialogue or [],
+            # Hermes already loads the full persisted dialogue. These two turns
+            # bridge native greetings/clarifications that did not reach the core.
+            'voice_dialogue': (dialogue or [])[-2:],
             'rule': 'Bu güncel kayıtla çelişme. Panel arka planı kayıtlı veri; done/yapıldı yazması bağımsız sonuç kanıtı değildir. Açık iş veya kanıtsız sonuç varken işleri boş veya sistemi sağlıklı sayma. Genel sağlık kanıtı bu mesajda yok.'},ensure_ascii=False))
         return guarded_reply(pieces,current,render)
     calls = LiveCalls(Path(app.DATA)/'voice-calls.sqlite3', lambda:app.llm._key, reply, context_reply=reply,
@@ -566,6 +585,22 @@ def install(app):
     app._live_installed = True
 
 
+def bounded_brain_lines(lines,started,clock=time.monotonic,initial_seconds=45):
+    """Keepalives are not an answer. Never cancel work after a tool has started."""
+    tool_started=answer_started=False
+    for raw in lines:
+        line=raw.decode('utf-8','replace').strip() if isinstance(raw,bytes) else raw.strip()
+        if line=='event: hermes.tool.progress':tool_started=True
+        if line.startswith('data:'):
+            try:data=json.loads(line[5:].strip())
+            except ValueError:data={}
+            if isinstance(data,dict):
+                answer_started=answer_started or any((c.get('delta') or {}).get('content') for c in data.get('choices',[]) if isinstance(c,dict))
+        if not tool_started and not answer_started and clock()-started>initial_seconds:
+            raise Refused(504,'model_ilk_yanit_zaman_asimi')
+        yield raw
+
+
 def brain_route(data):
     """Voice-only transport selection. The Hermes identity, history and tools stay.
 
@@ -614,7 +649,7 @@ def brain_reply(app,text,context):
     try:
         with urllib.request.urlopen(request,timeout=90) as response:
             headers_at=time.monotonic()-started
-            for piece in app.jeff.sse_deltas(response):
+            for piece in app.jeff.sse_deltas(bounded_brain_lines(response,started)):
                 if first_at is None:first_at=time.monotonic()-started
                 yield piece
     finally:

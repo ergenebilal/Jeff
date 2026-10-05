@@ -2,7 +2,7 @@ import json,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls,Refused,brain_reply,brain_route
+from integrations.cybergeneos.live_adapter import LiveCalls,Refused,brain_reply,brain_route,bounded_brain_lines
 
 
 class ReliabilityTests(unittest.TestCase):
@@ -95,6 +95,18 @@ class ReliabilityTests(unittest.TestCase):
             with self.subTest(value=value):
                 route.write_text(value)
                 with self.assertRaises(Refused):brain_route(self.tmp.name)
+
+    def test_keepalives_cannot_extend_the_initial_answer_deadline(self):
+        times=iter([1,20,46])
+        with self.assertRaises(Refused):list(bounded_brain_lines([b': keepalive\n']*3,0,clock=lambda:next(times)))
+
+    def test_started_tools_are_not_cancelled_by_the_initial_reply_deadline(self):
+        lines=[b'event: hermes.tool.progress\n',b'data: {"status":"running"}\n',b': keepalive\n']
+        self.assertEqual(list(bounded_brain_lines(lines,0,clock=lambda:1000)),lines)
+
+    def test_after_real_text_arrives_the_whole_answer_is_allowed_to_finish(self):
+        lines=[b'data: {"choices":[{"delta":{"content":"Gercek cevap"}}]}\n',b': keepalive\n']
+        self.assertEqual(list(bounded_brain_lines(lines,0,clock=lambda:1000)),lines)
 
 
 if __name__=='__main__':unittest.main()

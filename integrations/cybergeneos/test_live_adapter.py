@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply, owner_briefing, radar_read_request
+from integrations.cybergeneos.live_adapter import LiveCalls, Refused, setup, patch_app, install, guarded_reply, owner_briefing, radar_read_request, needs_panel_background
 
 
 class LiveTests(unittest.TestCase):
@@ -158,11 +158,41 @@ class LiveTests(unittest.TestCase):
             _jarvis_snapshot=lambda:contexts.append('read') or {'read_only':True},store=None)
         with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service, patch('integrations.cybergeneos.live_adapter.brain_reply',side_effect=lambda app,text,context: app.jeff.stream_reply(text,context)):
             install(app);reply=service.call_args.args[2]
-            list(reply('Altyapı durumu.'));list(reply('Bir fikrim var.'))
-        self.assertEqual(seen,['altyapı durumu','Bir fikrim var.'])
+            list(reply('Altyapı durumu.'));list(reply('Panelde bir fikrim var.'))
+        self.assertEqual(seen,['altyapı durumu','Panelde bir fikrim var.'])
         self.assertEqual(contexts,['panel'])
         self.assertEqual(received[0],'')
         self.assertIn('Recorded panel background',json.loads(received[1])['panel_recorded_context'])
+
+    def test_panel_data_selection_preserves_followups_without_restricting_general_topics(self):
+        self.assertFalse(needs_panel_background('Karar yorgunluğunu açıkla.',[]))
+        self.assertTrue(needs_panel_background('Taslağı nasıl geliştirelim?',[]))
+        self.assertTrue(needs_panel_background('Buna göre hangisi?',[
+            {'role':'user','content':'Paneldeki fırsatları karşılaştır.'},
+            {'role':'assistant','content':'İki seçenek var.'}]))
+        self.assertFalse(needs_panel_background('Buna göre bir öneri ver.',[
+            {'role':'user','content':'Karar yorgunluğunu açıkla.'}]))
+
+    def test_general_consultation_keeps_recent_bridge_without_reading_panel(self):
+        from unittest.mock import patch
+        class H:
+            _json=lambda *a:None
+            def route(self,p,b):return 404,{}
+        app=SimpleNamespace(DATA=self.tmp.name,H=H,llm=SimpleNamespace(_key='fixture'),
+            briefing=SimpleNamespace(jeff_context=lambda *a:self.fail('Unrelated panel read')),
+            jeff=SimpleNamespace(),store=None)
+        contexts=[]
+        dialogue=[{'role':'user','content':'Eski sohbet'}]*10+[
+            {'role':'user','content':'Karar yorgunluğu nedir?'},
+            {'role':'assistant','content':'Çok karar vermekten yorulmaktır.'}]
+        with patch('integrations.cybergeneos.live_adapter.LiveCalls') as service,patch(
+            'integrations.cybergeneos.live_adapter.brain_reply',side_effect=lambda a,t,c:contexts.append(json.loads(c)) or iter(['Bir karar seç.'])):
+            install(app);reply=service.call_args.args[2]
+            self.assertEqual(''.join(reply('Buna göre bir öneri ver.',dialogue)),'Bir karar seç.')
+        self.assertEqual(contexts[0]['voice_dialogue'],dialogue[-2:])
+        self.assertEqual(contexts[0]['panel_recorded_context']['status'],'not_loaded_for_this_question')
+        self.assertTrue(contexts[0]['panel_recorded_context']['available'])
+        self.assertFalse(contexts[0]['jarvis_snapshot']['work']['known'])
 
     def test_common_record_question_reads_current_source_without_agent_wait(self):
         from unittest.mock import patch
