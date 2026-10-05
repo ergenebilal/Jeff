@@ -63,7 +63,17 @@ def patch_front(source):
 
 
 def patch_html(source):
+    import hashlib
+    from pathlib import Path
+    import re
+    version=hashlib.sha256(Path(__file__).with_name('live-call.js').read_bytes()).hexdigest()[:16]
+    script='<script src="live-call.js?v='+version+'"></script>'
+    previous=r'<script src="live-call\.js(?:\?v=[A-Za-z0-9_-]+)?"></script>'
+    matches=list(re.finditer(previous,source))
+    if matches:
+        if len(matches)!=1:raise ValueError('Duplicate live call script')
+        return re.sub(previous,lambda _:script,source,count=1)
     marker='<script src="app.js"></script>'
     if source.count(marker)!=1:
         raise ValueError('Panel script anchor changed')
-    return source.replace(marker,'<script src="live-call.js"></script>\n'+marker)
+    return source.replace(marker,script+'\n'+marker)
