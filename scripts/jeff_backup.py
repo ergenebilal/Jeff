@@ -55,6 +55,9 @@ CORE_SOURCE_PATHS = (
     'cybergeneos/docs/cybergeneos/server/approval_adapter.py',
     'cybergeneos/docs/cybergeneos/server/live_adapter.py',
     'cybergeneos/docs/cybergeneos/server/work_agenda.py',
+    'cybergeneos/docs/cybergeneos/server/opportunity_context.py',
+    'cybergeneos/docs/cybergeneos/server/context_boundary.py',
+    'cybergeneos/docs/cybergeneos/server/jeff.py',
     'cybergeneos/docs/cybergeneos/server/app.py',
     'cybergeneos/docs/cybergeneos/live-call.js',
     'cybergeneos/docs/cybergeneos/mic-capture.js',
@@ -65,7 +68,9 @@ CORE_SOURCE_PATHS = (
     '.venv/lib/python3.12/site-packages/aiosqlite/__init__.py',
 )
 CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
-REQUIRED_DATA_PATHS = ('raporlar/JEFF_TO_JARVIS.md',)
+REQUIRED_DATA_PATHS = ('raporlar/JEFF_TO_JARVIS.md',
+                       'cybergeneos-data/voice-brain-route.json',
+                       'cybergeneos-data/voice-owner-context.json')
 # Directory names that are skipped anywhere inside a backed-up tree.
 SKIP_DIRS = {'node_modules', '__pycache__', '.git', 'venv', '.venv', '.cache', 'cache', 'logs', 'backups',
              '.playwright-mcp', 'lsp', 'node', 'hermes-agent', 'tests', 'site', 'checkpoints', 'dist-packages'}

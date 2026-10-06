@@ -62,6 +62,23 @@ class Fixture:
 
 
 class BackupTests(unittest.TestCase):
+    def test_missing_opportunity_context_cannot_pass_current_voice_backup(self):
+        name='cybergeneos/docs/cybergeneos/server/opportunity_context.py'
+        self.assertIn(name,jb.CORE_SOURCE_PATHS)
+        (self.fx.home/name).unlink()
+        self.assertNotEqual(self.fx.run()[0],0)
+        self.assertEqual(list(self.fx.dest.glob('jeff-backup-*.tar.gz')),[])
+
+    def test_voice_provider_and_owner_context_must_be_restorable_data(self):
+        names=('cybergeneos-data/voice-brain-route.json','cybergeneos-data/voice-owner-context.json')
+        for name in names:
+            self.assertIn(name,jb.REQUIRED_DATA_PATHS)
+            self.assertNotIn(name,jb.CORE_SOURCE_PATHS)
+        self.assertEqual(self.fx.run()[0],0)
+        for name in names:self.assertIn(self.prefix+'/'+name,self.fx.names())
+        (self.fx.home/names[0]).unlink()
+        self.assertNotEqual(self.fx.run()[0],0)
+
     def test_agenda_plan_is_required_data_without_becoming_mutable_core_source(self):
         self.assertNotIn('raporlar/JEFF_TO_JARVIS.md', jb.CORE_SOURCE_PATHS)
         self.assertEqual(self.fx.run()[0], 0)
