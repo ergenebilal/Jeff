@@ -661,9 +661,16 @@ def verified_session_reply(lines,selected,started,clock=time.monotonic):
             if event in {'error','run.failed','run.cancelled'}:raise Refused(502,'jeff_yaniti_dogrulanamadi')
             if event=='run.completed':
                 runtime=payload.get('runtime') or {}
-                if (not isinstance(runtime,dict) or runtime.get('provider')!=selected['provider'] or
+                provider_ok=isinstance(runtime,dict) and runtime.get('provider')==selected['provider']
+                # Hermes resolves a named custom provider to the runtime id
+                # "custom". Its confirmed lock validates that resolution;
+                # require the exact requested identity as additional evidence.
+                if (isinstance(runtime,dict) and selected['provider']=='custom:jeff-voice-google' and
+                        runtime.get('provider')=='custom' and runtime.get('requested')==
+                        {'provider':selected['provider'],'model':selected['model']}):provider_ok=True
+                if (not provider_ok or
                         runtime.get('model')!=selected['model'] or runtime.get('model_lock')!='confirmed' or
-                        payload.get('failed') or payload.get('partial')):
+                        payload.get('failed') or payload.get('partial') or payload.get('completed') is False):
                     raise Refused(502,'jeff_model_yolu_dogrulanamadi')
                 completed=True
             event=''

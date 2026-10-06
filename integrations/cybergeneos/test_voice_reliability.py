@@ -169,6 +169,16 @@ class ReliabilityTests(unittest.TestCase):
         proof=json.loads(Path(self.tmp.name,'voice-brain-route-last.json').read_text())
         self.assertFalse(proof['completion_verified']);self.assertFalse(proof['failed_request_replayed'])
 
+    def test_named_gemini_runtime_requires_exact_confirmed_identity(self):
+        selected={'provider':'custom:jeff-voice-google','model':'gemini-3.8-flash'}
+        runtime={'provider':'custom','model':selected['model'],'requested':selected,'model_lock':'confirmed'}
+        def stream(r):return ['event: assistant.completed','data: '+json.dumps({'content':'Yedi.'}),
+                              'event: run.completed','data: '+json.dumps({'runtime':r})]
+        self.assertEqual(list(verified_session_reply(stream(runtime),selected,0,clock=lambda:1)),['Yedi.'])
+        for bad in [dict(runtime,requested={'provider':'custom:other','model':selected['model']}),
+                    dict(runtime,model_lock='accepted'),dict(runtime,requested={})]:
+            with self.assertRaises(Refused):list(verified_session_reply(stream(bad),selected,0,clock=lambda:1))
+
     def test_keepalives_cannot_extend_the_initial_answer_deadline(self):
         times=iter([1,20,46])
         with self.assertRaises(Refused):list(bounded_brain_lines([b': keepalive\n']*3,0,clock=lambda:next(times)))
