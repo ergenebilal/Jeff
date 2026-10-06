@@ -1,7 +1,7 @@
 /* One continuous, interruptible call. No recognition restart or per-turn send button. */
 (function(root){
   class JeffLiveCall {
-    constructor({state,transcript,notice,voice,worklet}){
+    constructor({state,transcript,notice,voice,worklet,routeUtterances=true}){
       Object.assign(this,{state,transcript,notice,voice,worklet});
       this.active=false; this.generation=0; this.sources=new Set(); this.pending=new Map();
       this.stats={inputFrames:0,outputChunks:0,interruptions:0,localInterruptions:0,unconsultedAudioDropped:0};
@@ -12,6 +12,10 @@
       this.background=new Map();this.resultAnnouncements=[];this.socketEpoch=0;
       this.inputActive=false;this.lastInputAt=0;
       this.replyReceived=false;
+      this.callResults=new Map();this.inputCommitted=false;this.canonicalOutput=false;this.answerCall=null;
+      this.turnOutcomes=new Map();
+      this.routeUtterances=routeUtterances;this.utterance=null;this.utteranceCounter=0;
+      this.unboundCalls=[];this.providerBindings=new Map();this.brainQueue=Promise.resolve();
     }
     async start(){
       if(this.active)return;
@@ -37,6 +41,9 @@
         if(session.answer_authority!=='real_jeff')throw new Error('Gerçek Jeff bağlantısı doğrulanamadı.');
         this.audioAllowed=false;this.consultedAnswer=false;this.next=0;this.inputText='';this.outputText='';
         this.inputOpen=false;this.lastCall=null;
+        this.inputCommitted=false;this.canonicalOutput=false;this.answerCall=null;
+        this.turnOutcomes.clear();
+        this.utterance=null;this.unboundCalls=[];this.providerBindings.clear();this.brainQueue=Promise.resolve();
         await this.openSocket(session,generation);
         if(!current())return;
         this.connectionTiming.socketAt=performance.now();
@@ -61,6 +68,7 @@
             this.inputActive=false;this.lastInputAt=performance.now();
             this.speechEndedAt=performance.now();
             this.armReplyWatch();
+            if(this.routeUtterances)this.scheduleUtterance();
             if(['quick_dialogue','native_conversation'].includes(this.voiceTurn?.kind)&&this.voiceTurn.firstAudioAt===null)this.voiceTurn.speechEndedAt=this.speechEndedAt;
             return;
           }
@@ -171,15 +179,19 @@
       }
       if(event.goAway){this.recoverConnection();return;}
       for(const id of event.toolCallCancellation?.ids||[]){
+        const bound=this.providerBindings.get(id);
+        if(bound)for(const call of bound.calls)if(call.id===id)call.cancelled=true;
         this.detachCall(id);this.audioAllowed=false;this.clearHeldAudio();
         this.consultedAnswer=false;
       }
       const content=event.serverContent||{};
       if(content.interrupted){
         this.announcement?.abort();
-        if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
-        if(this.outputText)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
-        this.inputOpen=false;
+        if(this.inputText&&!this.routeUtterances){this.commitInput();this.transcript('user',this.inputText,true);this.inputText='';}
+        if(this.outputText&&!this.canonicalOutput)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
+        this.answerCall=null;this.inputCommitted=false;this.canonicalOutput=false;
+        this.turnOutcomes.clear();
+        if(!this.routeUtterances)this.inputOpen=false;
         this.stats.interruptions++;this.flushAudio();this.audioAllowed=false;this.clearHeldAudio();
         this.consultedAnswer=false;
         for(const id of [...this.pending.keys()])this.detachCall(id);
@@ -188,8 +200,27 @@
       const heard=content.inputTranscription?.text;
       if(heard){
         // Input transcription has no guaranteed ordering relative to tool replies.
-        if(!this.inputOpen){this.inputText='';this.inputOpen=true;}
+        if(!this.inputOpen){
+          if(this.routeUtterances&&this.utterance?.done&&!this.answerCall?.awaiting)this.utterance=null;
+          this.inputText='';this.inputOpen=true;
+          // Local VAD can miss quiet speech. A fresh provider utterance must not
+          // inherit the previous answer's permission, even without local activity.
+          // Late transcription of an outstanding tool turn is still that same turn.
+          if(!this.pending.size&&!this.answerCall?.awaiting){
+            const previousAnswer=this.consultedAnswer||this.canonicalOutput;
+            this.audioAllowed=false;this.consultedAnswer=false;
+            this.inputCommitted=false;this.canonicalOutput=false;if(previousAnswer)this.clearHeldAudio();
+            this.turnOutcomes.clear();
+          }
+        }
         this.inputText+=heard;this.transcript('user',this.inputText,false);
+        if(this.routeUtterances){
+          if(!this.utterance){
+            this.utterance={text:this.inputText,calls:this.unboundCalls.splice(0),dispatched:false};
+            for(const call of this.utterance.calls)this.providerBindings.set(call.id,this.utterance);
+          }else if(!this.utterance.dispatched)this.utterance.text=this.inputText;
+          this.scheduleUtterance();
+        }
         const phrase=this.inputText.normalize('NFC').toLocaleLowerCase('tr-TR').replace(/[.!?,]+$/g,'').trim().replace(/\s+/g,' ');
         if(!this.pending.size&&!this.consultedAnswer){
           const allowed=this.fastDialogue?.has(phrase)===true||
@@ -203,17 +234,24 @@
           }
         }
       }
-      for(const call of event.toolCall?.functionCalls||[])this.consult(call,generation);
+      for(const call of event.toolCall?.functionCalls||[]){
+        if(this.routeUtterances)this.bindProviderCall(call);
+        else this.consult(call,generation);
+      }
       const spoken=content.outputTranscription?.text;
       const spokenWasHeld=!!spoken&&!this.audioAllowed;
-      if(spoken&&!this.audioAllowed)this.heldText+=spoken;
+      if(spoken&&!this.audioAllowed&&!this.canonicalOutput&&!this.routeUtterances)this.heldText+=spoken;
       if(this.singleBrain&&!this.pending.size&&!this.consultedAnswer&&
           /^Son söylediğini anlayamadım, Türkçe tekrar eder misin\??$/.test(this.heldText.trim())){
         this.audioAllowed=true;this.releaseHeldAudio();
       }
-      if(spoken&&this.audioAllowed&&!spokenWasHeld){this.outputText+=spoken;this.transcript('jeff',this.outputText,false);}
+      if(spoken&&this.audioAllowed&&!this.canonicalOutput&&!this.routeUtterances&&!spokenWasHeld){this.outputText+=spoken;this.transcript('jeff',this.outputText,false);}
       for(const part of content.modelTurn?.parts||[]){
         if(!part.inlineData?.data)continue;
+        // A tool result can cause the native model to paraphrase, invent a cached
+        // answer or speak despite SILENT scheduling. Only canonical Jeff TTS is
+        // authorized during a consulted turn, including unknown-outcome errors.
+        if(this.canonicalOutput||this.routeUtterances){this.stats.unconsultedAudioDropped++;continue;}
         if(!this.audioAllowed){
           // Transcription can arrive after audio. Quarantine rather than lose it.
           // Only a permitted greeting/clarification can release pre-tool audio.
@@ -227,20 +265,25 @@
         // Tool-request boundaries also emit turnComplete; they are not answer completion.
         if(!this.pending.size && this.outputText){
           clearTimeout(this.replyWatch);
-          if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
-          this.remember('assistant',this.outputText);
+          if(this.inputText){this.commitInput();this.transcript('user',this.inputText,true);this.inputText='';}
+          if(!this.canonicalOutput)this.remember('assistant',this.outputText);
           // A non-blocking response can have more than one spoken turn. All
           // pieces have already come from Jeff; the next microphone activity
           // removes permission before any new answer can be heard.
           this.transcript('jeff',this.outputText,true);this.outputText='';
+          if(this.answerCall)this.answerCall.awaiting=false;
         }
-        this.inputOpen=false;
+        if(!this.routeUtterances)this.inputOpen=false;
         if(!this.pending.size)this.afterPlayback();
       }
     }
     onInputActivity(){
       if(!this.active||this.muted)return;
       this.replyReceived=false;
+      clearTimeout(this.utteranceTimer);
+      if(this.routeUtterances&&this.utterance?.dispatched){
+        this.utterance=null;this.inputText='';this.inputOpen=false;
+      }
       this.inputActive=true;this.lastInputAt=performance.now();this.announcement?.abort();
       clearTimeout(this.replyWatch);this.clearHeldAudio();
       if(this.durableRequests&&this.pending.size){
@@ -250,97 +293,196 @@
       }
       this.audioAllowed=false;
       this.consultedAnswer=false;this.voiceTurn=null;this.speechEndedAt=null;
-      if(!this.pending.size&&!this.sources.size)return;
-      if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
+      this.answerCall=null;
+      if(!this.pending.size&&!this.sources.size){this.inputCommitted=false;this.canonicalOutput=false;this.turnOutcomes.clear();return;}
+      if(this.inputText){this.commitInput();this.transcript('user',this.inputText,true);this.inputText='';}
       this.inputOpen=false;
       this.stats.interruptions++;this.stats.localInterruptions++;this.flushAudio();this.audioAllowed=false;
       const cancelled=[];
       for(const [id,ac] of this.pending){
-        ac.abort();cancelled.push({id,name:ac.toolName||'consult_jeff',willContinue:false,scheduling:'SILENT',response:{cancelled:true,
+        ac.abort();cancelled.push({id,name:ac.toolName||'consult_jeff',response:{cancelled:true,scheduling:'SILENT',
           answer:'Kullanıcı araya girdi. Bu cevabı seslendirme; yeni isteği dinle.'}});
       }
       this.pending.clear();
-      if(this.outputText)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
+      if(this.outputText&&!this.canonicalOutput)this.remember('assistant','[Sözü kesilen yanıt] '+this.outputText);
       this.outputText='';
+      this.inputCommitted=false;this.canonicalOutput=false;
+      this.turnOutcomes.clear();
       if(cancelled.length&&this.ws?.readyState===WebSocket.OPEN)
         this.ws.send(JSON.stringify({toolResponse:{functionResponses:cancelled}}));
       this.state('listening','Dinliyorum');
+    }
+    bindProviderCall(call){
+      if(!call.id||!['consult_jeff','read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name)){
+        this.fail('Sesli istek doğrulanamadı.');return;
+      }
+      call.boundEpoch=this.socketEpoch;
+      const bound=this.providerBindings.get(call.id);
+      if(bound){
+        if(bound.result)this.sendProviderResult(call,bound.result,'SILENT');
+        else if(!bound.calls.some(c=>c.id===call.id&&c.boundEpoch===call.boundEpoch))bound.calls.push(call);
+        return;
+      }
+      const utterance=this.utterance;
+      if(!utterance){this.unboundCalls.push(call);return;}
+      this.providerBindings.set(call.id,utterance);utterance.calls.push(call);
+      if(utterance.result)this.sendProviderResult(call,utterance.result,'SILENT');
+      // A native model tool decision is only a transport binding. It cannot
+      // submit, rewrite or replay the user's request. The transcript does that.
+    }
+    scheduleUtterance(){
+      clearTimeout(this.utteranceTimer);
+      const utterance=this.utterance,generation=this.generation;
+      if(!utterance||utterance.dispatched||!utterance.text?.trim())return;
+      this.utteranceTimer=setTimeout(()=>{
+        if(!this.active||generation!==this.generation||this.utterance!==utterance)return;
+        if(this.inputActive){this.scheduleUtterance();return;}
+        this.dispatchUtterance(utterance,generation);
+      },700);this.utteranceTimer?.unref?.();
+    }
+    dispatchUtterance(utterance,generation){
+      if(utterance.dispatched)return utterance.task;
+      utterance.dispatched=true;
+      const text=utterance.text.trim(),clean=text.normalize('NFC').toLocaleLowerCase('tr-TR').replace(/[.!?,]+$/g,'').trim();
+      this.transcript('user',text,true);
+      if(this.utterance===utterance){this.inputText='';this.inputOpen=false;}
+      if(this.fastDialogue?.has(clean)){
+        this.remember('user',text);this.inputCommitted=true;
+        const answer=/teşekkür/u.test(clean)?'Rica ederim Bilal.':/duyuyor/u.test(clean)?'Sözlerini alıyorum Bilal.':'Buradayım Bilal, seni dinliyorum.';
+        utterance.result={answer};utterance.done=true;this.remember('assistant',answer);
+        for(const providerCall of utterance.calls)this.sendProviderResult(providerCall,utterance.result,'SILENT');
+        this.transcript('jeff',answer,true);this.enqueueResultSpeech(answer,generation);return Promise.resolve();
+      }
+      // These are infrastructure-only reads of existing records. All other
+      // requests go to the same unrestricted Hermes Jeff and his existing tools.
+      const action=/\b(tara|başlat\w*|çalıştır\w*|yenile\w*|yap|aç|gönder\w*|sil\w*|öde\w*)\b/u;
+      let name='consult_jeff';
+      if(/^(?:(?:jeff\s+)?(?:ne iş var|bugün ne var|bekleyen iş var mı|işler ne durumda)(?:\s+jeff)?)$/u.test(clean))name='read_work_agenda';
+      else if(/\b(haber\w*|radar\w*)\b/u.test(clean)&&/özet|durum|bitti|sonuç|neler|ne var|oku|anlat|rapor/u.test(clean)&&!action.test(clean))name='read_radar_summary';
+      else if(/^(?:pablo ne durumda|pablo kaç açık iş var|onay bekleyen var mı|bekleyen onay var mı)$/u.test(clean))name='read_jarvis_records';
+      const call={id:'jeff-utterance-'+(++this.utteranceCounter)+'-'+Math.random().toString(36).slice(2),
+        name,args:{text},clientManaged:true,utterance};
+      const execute=async()=>{
+        if(!this.active||generation!==this.generation)return;
+        // Capture context when this question starts, after the preceding Jeff
+        // answer has completed. A queued follow-up must include that answer.
+        utterance.dialogue=this.dialogue.map(m=>({...m}));
+        this.remember('user',text);this.inputCommitted=true;
+        try{await this.consult(call,generation);}finally{utterance.done=true;}
+      };
+      // Long Jeff consultations are serialised; speaking again does not turn
+      // an admitted job into a second execution or a competing core request.
+      utterance.task=name==='consult_jeff'?this.brainQueue.then(execute):execute();
+      if(name==='consult_jeff')this.brainQueue=utterance.task.catch(()=>{});
+      return utterance.task;
     }
     async consult(call,generation){
       if(!['consult_jeff','read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
         this.fail('Sesli istek doğrulanamadı.');return;
       }
-      if(this.completedCalls.has(call.id)||this.lastCall===call.id || this.pending.has(call.id)||this.background.has(call.id))return;
       const requestKey=call.name+'|'+call.args.text.normalize('NFC').toLocaleLowerCase('tr-TR').trim().replace(/\s+/g,' ');
+      const completed=this.callResults.get(call.id);
+      if(completed){
+        if(completed.requestKey===requestKey)this.sendToolResult(call,completed.response,'SILENT');
+        else this.sendToolResult(call,{answer:'Bu istek kimliği önceki soruyla uyuşmuyor. Yeni iş çalıştırmadım.',completion_verified:false},'WHEN_IDLE');
+        return;
+      }
+      const previousOutcome=!call.clientManaged&&this.turnOutcomes.get(requestKey);
+      const unknownOutcome=!call.clientManaged&&[...this.turnOutcomes.values()].find(r=>r.completion_verified===false);
+      if(previousOutcome||unknownOutcome){
+        // A provider retry with a new ID is still the same user utterance.
+        // In particular, an unknown outcome cannot authorize another execution.
+        const response=previousOutcome||unknownOutcome;
+        this.callResults.set(call.id,{requestKey,response});
+        this.completedCalls.add(call.id);this.sendToolResult(call,response,'SILENT');return;
+      }
+      if(this.completedCalls.has(call.id)||this.lastCall===call.id || this.pending.has(call.id)||this.background.has(call.id))return;
       const equivalent=[...this.pending.values(),...this.background.values()].find(ac=>ac.requestKey===requestKey&&!ac.signal.aborted);
       if(equivalent){
         this.completedCalls.add(call.id);this.stats.duplicateRequestsSuppressed=(this.stats.duplicateRequestsSuppressed||0)+1;
-        this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,willContinue:false,scheduling:'SILENT',
-          response:{status:'already_running',answer:'Aynı isteğin asıl çağrısı sürüyor. Yeni bir istek açma; onun sonucunu bekle.'}}]}}));
+        this.sendToolResult(call,{status:'already_running',answer:'Aynı isteğin asıl çağrısı sürüyor. Yeni bir istek açma; onun sonucunu bekle.'},'SILENT');
         return;
       }
       this.clearHeldAudio();
-      this.lastCall=call.id;this.audioAllowed=false;this.outputText='';
+      this.lastCall=call.id;this.audioAllowed=false;this.outputText='';this.canonicalOutput=true;
       const timing={consultStartedAt:performance.now(),speechEndedAt:this.speechEndedAt,
         firstPieceAt:null,firstAudioAt:null,answerEndedAt:null,progressSentAt:null};
       this.timings.push(timing);this.voiceTurn=timing;
-      const dialogue=this.dialogue.map(m=>({...m}));
-      if(this.inputText){this.remember('user',this.inputText);this.transcript('user',this.inputText,true);this.inputText='';}
+      const dialogue=call.clientManaged?call.utterance.dialogue:this.dialogue.map(m=>({...m}));
+      if(!call.clientManaged){
+        this.commitInput(call.args.text);
+        if(this.inputText){this.transcript('user',this.inputText,true);this.inputText='';}
+      }
       const ac=new AbortController();ac.toolName=call.name;ac.requestKey=requestKey;this.pending.set(call.id,ac);
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
-      let progressTimer=null;
-      const boundedReader=['read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name);
       try{
-        let streamed=false;
         const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue,
           operation:call.name==='read_jarvis_records'?'records':call.name==='read_work_agenda'?'agenda':call.name==='read_radar_summary'?'radar':'consult'},ac.signal,event=>{
           if(!this.active||generation!==this.generation||ac.signal.aborted||ac.detached||this.reconnecting)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
           if(timing.firstPieceAt===null)timing.firstPieceAt=performance.now();
-          // This bounded reader completes quickly. Keep its figures in one tool
-          // response; several immediately queued sentence responses can be omitted
-          // by the live model while an earlier response is still speaking.
-          if(boundedReader)return;
-          this.audioAllowed=true;this.consultedAnswer=true;
-          this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
-            response:{answer:event.answer},willContinue:true,scheduling:streamed?'WHEN_IDLE':'INTERRUPT'}]}}));
-          streamed=true;
+          // Pipecat's Gemini adapter sends one complete FunctionResponse per call.
+          // Partial SSE sentences are transport progress, not new tool completions.
         },event=>{
           if(event.authority!=='real_jeff'||typeof event.progress!=='string')return;
-          progressTimer=setTimeout(()=>{
-            if(!this.active||generation!==this.generation||ac.signal.aborted||ac.detached||this.reconnecting||timing.firstPieceAt!==null)return;
-            timing.progressSentAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;
-            this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
-              response:{answer:event.progress,progress_only:true,completion_verified:false},willContinue:true,scheduling:'INTERRUPT'}]}}));
-            streamed=true;
-          },500);
+          timing.progressShownAt=performance.now();this.notice(event.progress);
         });
         if(!this.active||generation!==this.generation||ac.signal.aborted)return;
         if(result.authority!=='real_jeff'||!result.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
         this.completedCalls.add(call.id);
+        this.callResults.set(call.id,{requestKey,response:{answer:result.answer}});
+        this.turnOutcomes.set(requestKey,{answer:result.answer});
         if(ac.detached||this.reconnecting){
+          if(call.clientManaged)this.sendToolResult(call,{answer:result.answer},'SILENT');
           const answer='Önceki isteğinin sonucu: '+result.answer;
           this.transcript('jeff',answer,true);this.remember('assistant',answer);
           this.notice('Önceki isteğinin sonucu konuşmaya eklendi.');
           this.enqueueResultSpeech(answer,generation);return;
         }
-        timing.answerEndedAt=performance.now();this.audioAllowed=true;this.consultedAnswer=true;this.inputOpen=false;
-        this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,
-          response:boundedReader||!streamed?{answer:result.answer}:{},willContinue:false,
-          scheduling:boundedReader||!streamed?'INTERRUPT':'SILENT'}]}}));
+        timing.answerEndedAt=performance.now();this.audioAllowed=false;this.consultedAnswer=true;this.inputOpen=false;
+        // The canonical Jeff answer, not the voice model's paraphrase or filler,
+        // is the context bridge for the next user question.
+        this.remember('assistant',result.answer);this.canonicalOutput=true;
+        this.answerCall={id:call.id,text:call.args.text,awaiting:true};
+        this.transcript('jeff',result.answer,true);
+        this.sendToolResult(call,{answer:result.answer},'SILENT');
+        this.enqueueResultSpeech(result.answer,generation);
       }catch(e){
         if(e.name!=='AbortError'&&this.active&&generation===this.generation){
           this.notice(e.message||'Jeff yanıtı alınamadı.');
+          const response={answer:'Bu isteğin sonucunu doğrulayamadım. İsteği tekrar çalıştırmadım.',completion_verified:false};
+          this.completedCalls.add(call.id);this.callResults.set(call.id,{requestKey,response});
+          this.turnOutcomes.set(requestKey,response);
+          this.remember('assistant',response.answer);
           if(!ac.detached&&this.ws?.readyState===WebSocket.OPEN){
-            this.audioAllowed=true;this.consultedAnswer=true;this.clearHeldAudio();
-            this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,willContinue:false,scheduling:'INTERRUPT',
-              response:{answer:'Bu isteğin sonucunu doğrulayamadım. İsteği tekrar çalıştırmadım.',completion_verified:false}}]}}));
+            this.audioAllowed=false;this.consultedAnswer=true;this.canonicalOutput=true;this.clearHeldAudio();
+            this.transcript('jeff',response.answer,true);
+            this.sendToolResult(call,response,'SILENT');
+            this.enqueueResultSpeech(response.answer,generation);
           }
         }
-      }finally{clearTimeout(progressTimer);if(this.pending.get(call.id)===ac)this.pending.delete(call.id);this.background.delete(call.id);}
+      }finally{if(this.pending.get(call.id)===ac)this.pending.delete(call.id);this.background.delete(call.id);}
+    }
+    sendToolResult(call,response,scheduling){
+      // Gemini 3.8 reads scheduling inside response. No legacy willContinue or
+      // scheduling fields are placed on FunctionResponse itself.
+      if(call.clientManaged){
+        call.utterance.result=response;
+        for(const providerCall of call.utterance.calls)this.sendProviderResult(providerCall,response,scheduling);
+      }else this.sendProviderResult(call,response,scheduling);
+    }
+    sendProviderResult(call,response,scheduling){
+      if(call.cancelled||(call.boundEpoch!==undefined&&call.boundEpoch!==this.socketEpoch))return;
+      if(!this.active||!this.ws)return;
+      this.ws.send(JSON.stringify({toolResponse:{functionResponses:[{id:call.id,name:call.name,response:{...response,scheduling}}]}}));
+    }
+    commitInput(fallback){
+      if(this.inputCommitted)return;
+      const text=this.inputText||fallback;
+      if(text?.trim()){this.remember('user',text);this.inputCommitted=true;}
     }
     enqueueResultSpeech(answer,generation){
-      this.resultAnnouncements.push({answer,generation});
+      this.resultAnnouncements.push({answer,generation,callId:this.answerCall?.id});
       this.scheduleResultSpeech();
     }
     scheduleResultSpeech(){
@@ -357,7 +499,7 @@
       const ac=this.announcement=new AbortController();
       try{await this.streamCanonicalSpeech(item.answer,ac.signal,item.generation);}
       catch(e){if(e.name!=='AbortError'&&this.active)this.notice('Sonuç konuşmaya yazıldı, ancak seslendirilemedi. İş tekrar çalıştırılmadı.');}
-      finally{if(this.announcement===ac)this.announcement=null;this.scheduleResultSpeech();}
+      finally{if(this.announcement===ac)this.announcement=null;if(this.answerCall&&this.answerCall.id===item.callId)this.answerCall.awaiting=false;this.scheduleResultSpeech();}
     }
     async streamCanonicalSpeech(answer,signal,generation){
       // Speak the journalled answer directly; no second agent can rewrite it.
@@ -520,14 +662,17 @@
     }
     fail(message){this.stop();this.notice(message);}
     stop(){
-      if(this.inputText){this.remember('user',this.inputText);this.inputText='';}
-      if(this.outputText){this.remember('assistant','[Görüşme kapanırken kesilen yanıt] '+this.outputText);this.outputText='';}
+      if(this.inputText){this.commitInput();this.inputText='';}
+      if(this.outputText){if(!this.canonicalOutput)this.remember('assistant','[Görüşme kapanırken kesilen yanıt] '+this.outputText);this.outputText='';}
       const session=this.session?.session;this.active=false;++this.generation;clearTimeout(this.expiry);
       clearTimeout(this.announcementTimer);this.announcement?.abort();this.resultAnnouncements=[];
       clearTimeout(this.replyWatch);this.clearHeldAudio();this.resumeHandle=null;
       this.reconnecting=false;
       for(const ac of this.pending.values())ac.abort();this.pending.clear();this.flushAudio();
       for(const ac of this.background.values())ac.abort();this.background.clear();this.completedCalls.clear();
+      this.callResults.clear();this.answerCall=null;
+      this.turnOutcomes.clear();
+      clearTimeout(this.utteranceTimer);this.utterance=null;this.unboundCalls=[];this.providerBindings.clear();
       if(this.ws){this.ws.onclose=this.ws.onmessage=this.ws.onerror=null;this.ws.close();this.ws=null;}
       this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;
       this.capture?.disconnect();this.input?.disconnect();this.silent?.disconnect();

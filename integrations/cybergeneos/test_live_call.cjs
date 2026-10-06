@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
 const {JeffLiveCall}=require('./live-call.js');
-function fixture(){return new JeffLiveCall({state:()=>{},transcript:()=>{},notice:()=>{},voice:()=> 'Charon',worklet:'fixture'});}
+function fixture(){return new JeffLiveCall({state:()=>{},transcript:()=>{},notice:()=>{},voice:()=> 'Charon',worklet:'fixture',routeUtterances:false});}
 
 test('audio arriving before its Turkish greeting transcript is buffered then played once',()=>{
  const call=fixture();call.active=true;call.fastDialogue=new Set(['merhaba jeff']);let played=0;
@@ -16,7 +16,7 @@ test('unverified buffered audio never leaks when a real tool answer arrives',asy
  call.receive({serverContent:{modelTurn:{parts:[{inlineData:{data:'AAAA'}}]}}},0);
  call.postConsult=async()=>({authority:'real_jeff',answer:'Sonuç doğrulanmadı.'});
  await call.consult({id:'x',name:'consult_jeff',args:{text:'Tamamlandı mı?'}},0);
- assert.equal(call.heldAudio.length,0);assert.equal(call.audioAllowed,true);
+ assert.equal(call.heldAudio.length,0);assert.equal(call.audioAllowed,false);
 });
 test('unclear Turkish speech receives a narrow clarification without duplicating transcript',()=>{
  const call=fixture();call.active=true;call.singleBrain=true;let played=0;call.play=()=>played++;
@@ -66,7 +66,7 @@ test('same pending question under a new provider ID does not call Jeff or announ
  const first=call.consult({id:'original',name:'consult_jeff',args:{text:'Karar yorgunluğunu açıkla.'}},0);
  await call.consult({id:'different',name:'consult_jeff',args:{text:'Karar yorgunluğunu açıkla.'}},0);
  assert.equal(executions,1);assert.equal(call.pending.size,1);
- assert.equal(sends[0].toolResponse.functionResponses[0].scheduling,'SILENT');
+ assert.equal(sends[0].toolResponse.functionResponses[0].response.scheduling,'SILENT');
  finish({authority:'real_jeff',answer:'Seçim yaptıkça zihinsel yorgunluk oluşur.'});await first;
  assert.equal(sends.length,2);assert.equal(call.stats.duplicateRequestsSuppressed,1);
 });
@@ -203,7 +203,7 @@ test('owner work agenda has its own operation and one complete grounded response
  assert.equal(body.operation,'agenda');assert.equal(sent.length,1);
  assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_work_agenda');
  assert.match(sent[0].toolResponse.functionResponses[0].response.answer,/Alpha.*Sonraki adım/);
- assert.equal(sent[0].toolResponse.functionResponses[0].willContinue,false);
+ assert.equal(sent[0].toolResponse.functionResponses[0].response.scheduling,'SILENT');
 });
 
 test('saved radar summary is a bounded read and not an agent action',async()=>{
@@ -214,7 +214,7 @@ test('saved radar summary is a bounded read and not an agent action',async()=>{
  assert.equal(body.operation,'radar');assert.equal(sent.length,1);
  assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_radar_summary');
  assert.match(sent[0].toolResponse.functionResponses[0].response.answer,/tamamlandı.*Alpha/);
- assert.equal(sent[0].toolResponse.functionResponses[0].willContinue,false);
+ assert.equal(sent[0].toolResponse.functionResponses[0].response.scheduling,'SILENT');
 });
 test('interruption stops output but leaves microphone running',()=>{
  const call=fixture();call.active=true;let stopped=0,trackStops=0,aborted=0;
@@ -264,16 +264,16 @@ test('local speech start cancels thinking without stopping microphone or replayi
  assert.equal(call.stats.localInterruptions,1);assert.equal(sends.length,1);
  assert.equal(sends[0].toolResponse.functionResponses[0].response.cancelled,true);
 });
-test('actual Jeff first sentence is sent before the answer finishes',async()=>{
+test('partial Jeff sentences do not prematurely complete the provider call',async()=>{
  const call=fixture();call.active=true;let done,sends=[];
  call.session={session:'fixture'};call.ws={send:text=>sends.push(JSON.parse(text))};
  call.postConsult=(_,__,onPiece)=>{onPiece({authority:'real_jeff',answer:'Kanıt yok. '});return new Promise(r=>done=r);};
  const task=call.consult({id:'streaming',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
- assert.equal(sends.length,1);assert.equal(sends[0].toolResponse.functionResponses[0].willContinue,true);
- assert.equal(call.pending.size,1);assert.equal(call.audioAllowed,true);
+ assert.equal(sends.length,0);
+ assert.equal(call.pending.size,1);assert.equal(call.audioAllowed,false);
  done({authority:'real_jeff',answer:'Kanıt yok. İş tamamlanmadı.'});await task;
- assert.equal(sends.length,2);assert.equal(sends[1].toolResponse.functionResponses[0].scheduling,'SILENT');
- assert.equal(sends[1].toolResponse.functionResponses[0].willContinue,false);
+ assert.equal(sends.length,1);assert.equal(sends[0].toolResponse.functionResponses[0].response.scheduling,'SILENT');
+ assert.equal(sends[0].toolResponse.functionResponses[0].response.answer,'Kanıt yok. İş tamamlanmadı.');
 });
 test('native partial turn boundary retains permission for remaining actual Jeff pieces',()=>{
  const call=fixture();call.active=true;call.audioAllowed=true;call.outputText='İlk cümle.';call.pending.set('streaming',{});
@@ -335,16 +335,16 @@ test('ordinary conversation speaks directly but current records need Jeff',()=>{
  call.inputOpen=false;call.receive({serverContent:{inputTranscription:{text:'Bugün ne var?'}}},call.generation);
  assert.equal(call.audioAllowed,false);
 });
-test('slow admitted consultation speaks progress without claiming completion',async()=>{
+test('slow admitted consultation displays progress without completing the provider tool',async()=>{
  const call=fixture();call.active=true;let done,piece,sends=[];
  call.session={session:'fixture'};call.ws={send:text=>sends.push(JSON.parse(text))};
  call.postConsult=(_,__,onPiece,onAccepted)=>{piece=onPiece;onAccepted({authority:'real_jeff',progress:'Kontrol ediyorum.'});return new Promise(r=>done=r);};
  const task=call.consult({id:'slow',name:'consult_jeff',args:{text:'Durum?'}},call.generation);
  await new Promise(r=>setTimeout(r,550));
- assert.equal(sends.length,1);assert.equal(sends[0].toolResponse.functionResponses[0].response.completion_verified,false);
- assert.equal(call.timings[0].firstPieceAt,null);assert.ok(call.timings[0].progressSentAt);
+ assert.equal(sends.length,0);
+ assert.equal(call.timings[0].firstPieceAt,null);assert.ok(call.timings[0].progressShownAt);
  piece({authority:'real_jeff',answer:'Sonuç doğrulanmadı.'});done({authority:'real_jeff',answer:'Sonuç doğrulanmadı.'});await task;
- assert.equal(sends.length,3);assert.equal(sends[1].toolResponse.functionResponses[0].response.answer,'Sonuç doğrulanmadı.');
+ assert.equal(sends.length,1);assert.equal(sends[0].toolResponse.functionResponses[0].response.answer,'Sonuç doğrulanmadı.');
 });
 test('recent dialogue stays bounded and never supplies a system role',()=>{
  const call=fixture();for(let i=0;i<30;i++)call.remember('user','x'.repeat(1500));
@@ -377,7 +377,7 @@ test('record tool keeps its operation and interruption response name',async()=>{
  assert.equal(sent[0].toolResponse.functionResponses[0].name,'read_jarvis_records');
  finish({authority:'real_jeff',answer:'Geç yanıt'});await pending;assert.equal(sent.length,1);
 });
-test('bounded record figures are sent together even after progress was spoken',async()=>{
+test('bounded record figures are sent together after progress was displayed',async()=>{
  const call=fixture();call.active=true;call.session={session:'fixture'};let finish,sent=[];
  call.ws={send:data=>sent.push(JSON.parse(data))};
  call.postConsult=(_,__,piece,accepted)=>{
@@ -388,10 +388,10 @@ test('bounded record figures are sent together even after progress was spoken',a
   });
  };
  const pending=call.consult({id:'record',name:'read_jarvis_records',args:{text:'Hangi işler bekliyor?'}},call.generation);
- await new Promise(r=>setTimeout(r,550));assert.equal(sent.length,1);finish();await pending;
- assert.equal(sent.length,2);const response=sent[1].toolResponse.functionResponses[0];
+ await new Promise(r=>setTimeout(r,550));assert.equal(sent.length,0);finish();await pending;
+ assert.equal(sent.length,1);const response=sent[0].toolResponse.functionResponses[0];
  assert.equal(response.response.answer,'16 açık iş. 10 sonuç doğrulanmadı.');
- assert.equal(response.scheduling,'INTERRUPT');assert.equal(response.willContinue,false);
+ assert.equal(response.response.scheduling,'SILENT');assert.equal(response.willContinue,undefined);
 });
 test('barge-in preserves the previous utterance without joining it to the next request',()=>{
  const call=fixture();call.active=true;call.inputOpen=true;call.inputText='Önceki soru.';call.outputText='Yarım yanıt.';
