@@ -2,6 +2,7 @@
 import argparse
 from collections import Counter
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -50,13 +51,64 @@ def read_work():
 
 
 def assessment(started,now,observations):
-    if type(started) not in (int,float) or not 0<=started<=now:raise ValueError('Invalid observation start')
-    relevant=[o for o in observations if started<=o.get('observed_at',-1)<=now]
+    if (type(started) not in (int,float) or type(now) not in (int,float)
+            or not math.isfinite(started) or not math.isfinite(now)
+            or not 0<=started<=now):raise ValueError('Invalid observation start')
+    relevant=[];invalid=0;outside=0
+    for observation in observations:
+        stamp=observation.get('observed_at') if isinstance(observation,dict) else None
+        if type(stamp) not in (int,float) or not math.isfinite(stamp):
+            invalid+=1;continue
+        if started<=stamp<=now and stamp<started+DURATION:
+            relevant.append(observation)
+        else:outside+=1
+    relevant.sort(key=lambda o:o['observed_at'])
+    automatic=[o for o in relevant if o.get('kind')=='automatic']
     days={int((o['observed_at']-started)//86400) for o in relevant if o.get('kind')=='automatic'}
     elapsed=now-started
     human=[o for o in relevant if o.get('kind')=='owner_report']
+    completed=min(7,int(elapsed//86400))
+    reached=min(7,int(elapsed//86400)+1)
+    sources={}
+    for name in ('pending_approvals','expired_visible_approvals','approval_expirations_total',
+                 'server_notifications_sent_total','server_notifications_unknown_total','open_work'):
+        known=0;known_days=set();failures=Counter();latest=None;last_known=None
+        for observation in automatic:
+            metrics=observation.get('metrics')
+            metric=metrics.get(name) if isinstance(metrics,dict) else None
+            good=(isinstance(metric,dict) and metric.get('known') is True
+                  and type(metric.get('value')) is int and metric['value']>=0)
+            latest={'observed_at':observation['observed_at'],'known':good,
+                    'value':metric['value'] if good else None}
+            if good:
+                known+=1;known_days.add(int((observation['observed_at']-started)//86400))
+                last_known=dict(latest)
+            else:
+                reason=metric.get('failure_class') if isinstance(metric,dict) else None
+                # Only classifier names, never arbitrary payloads or exception text.
+                reason=reason if isinstance(reason,str) and reason.isidentifier() and len(reason)<=64 else 'MissingOrInvalidMetric'
+                failures[reason]+=1
+        sources[name]={'known_samples':known,'unknown_samples':len(automatic)-known,
+                       'failure_classes':dict(failures),'days_with_known_data':sorted(known_days),
+                       'latest_sample':latest,'last_known_sample':last_known,
+                       'all_recorded_samples_known':bool(automatic) and known==len(automatic)}
+    complete_work=sum(isinstance(o.get('metrics'),dict)
+                      and o['metrics'].get('all_open_work_statuses_sampled') is True
+                      and isinstance(o['metrics'].get('open_work'),dict)
+                      and o['metrics']['open_work'].get('known') is True
+                      and type(o['metrics']['open_work'].get('value')) is int
+                      and o['metrics']['open_work']['value']>=0 for o in automatic)
     return {'started_at':started,'due_at':started+DURATION,'elapsed_seconds':elapsed,
             'seven_days_elapsed':elapsed>=DURATION,'days_with_observations':len(days),
+            'completed_window_days':completed,'window_day_indices_with_observations':sorted(days),
+            'completed_days_without_observations':sorted(set(range(completed))-days),
+            'reached_days_without_observations':sorted(set(range(reached))-days),
+            'days_not_started':list(range(reached,7)),
+            'automatic_observation_samples':len(automatic),'sources':sources,
+            'work_samples_with_complete_status_list':complete_work,
+            'work_samples_without_complete_status_list':len(automatic)-complete_work,
+            'invalid_timestamp_records':invalid,'records_outside_acceptance_window':outside,
+            'measurement_scope':'Scheduled point observations, not continuous availability, unique verified work outcomes or human effort.',
             'owner_reports':len(human),'pre_change_human_baseline_known':False,
             'burden_reduction_proven':False,'reason':'Real elapsed time, comparable owner baseline and successful work outcomes are required; automated counts alone do not prove reduced burden.'}
 
