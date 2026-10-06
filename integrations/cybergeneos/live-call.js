@@ -482,6 +482,10 @@
       if(text?.trim()){this.remember('user',text);this.inputCommitted=true;}
     }
     enqueueResultSpeech(answer,generation){
+      // The current question has a canonical answer. Waiting for its PCM audio
+      // cannot mean that Turkish recognition failed. An older detached answer
+      // must not clear the watchdog of a newer unanswered human utterance.
+      if(this.routeUtterances&&this.utterance?.result?.answer===answer)clearTimeout(this.replyWatch);
       this.resultAnnouncements.push({answer,generation,callId:this.answerCall?.id});
       this.scheduleResultSpeech();
     }

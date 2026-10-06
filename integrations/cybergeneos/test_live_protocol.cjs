@@ -7,6 +7,18 @@ function fixture(){
  call.ws={send:s=>sent.push(JSON.parse(s)),close:()=>{}};
  return {call,sent,notices};
 }
+
+test('canonical answer awaiting speech clears only its own recognition watchdog',()=>{
+ const {call}=fixture();call.routeUtterances=true;call.scheduleResultSpeech=()=>{};
+ const cleared=[],original=global.clearTimeout;
+ global.clearTimeout=id=>cleared.push(id);
+ try{
+  call.replyWatch='current-question';call.utterance={result:{answer:'Gerçek cevap.'}};
+  call.enqueueResultSpeech('Gerçek cevap.',0);assert.deepEqual(cleared,['current-question']);
+  cleared.length=0;call.utterance={text:'Yeni soru',result:null};
+  call.enqueueResultSpeech('Önceki isteğinin sonucu: Gerçek cevap.',0);assert.deepEqual(cleared,[]);
+ }finally{global.clearTimeout=original;}
+});
 test('one admitted request sends one complete result, not progress or sentence completions',async()=>{
  const {call,sent}=fixture();let finish;
  call.postConsult=(_,__,piece,accepted)=>{
