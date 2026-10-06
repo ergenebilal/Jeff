@@ -452,7 +452,9 @@
       }catch(e){
         if(e.name!=='AbortError'&&this.active&&generation===this.generation){
           this.notice(e.message||'Jeff yanıtı alınamadı.');
-          const response={answer:'Bu isteğin sonucunu doğrulayamadım. İsteği tekrar çalıştırmadım.',completion_verified:false};
+          const response={answer:e.reason==='ses_model_hakki_dolu'
+            ? 'Jeff’in cevap üreten bağlantılarındaki kullanım hakkı dolu. Bu soruyu işleme başlatmadım. Mevcut haberleri ve iş listesini okuyabilirim.'
+            : 'Bu isteğin sonucunu doğrulayamadım. İsteği tekrar çalıştırmadım.',completion_verified:false};
           this.completedCalls.add(call.id);this.callResults.set(call.id,{requestKey,response});
           this.turnOutcomes.set(requestKey,response);
           this.remember('assistant',response.answer);
@@ -626,7 +628,9 @@
             const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;
             const event=JSON.parse(line);
             if(event.t==='accepted'){accepted=true;onAccepted?.(event);}
-            if(event.t==='err')throw new Error('Jeff cevabı tamamlanamadı. Sonuç doğrulanmadı.');
+            if(event.t==='err')throw Object.assign(new Error(event.error==='ses_model_hakki_dolu'
+              ? 'Jeff’in cevap bağlantılarındaki kullanım hakkı dolu.'
+              : 'Jeff cevabı tamamlanamadı. Sonuç doğrulanmadı.'),{reason:event.error});
             if(event.t==='piece'){received+=event.answer||'';onPiece(event);}
             if(event.t==='end')result=event;
           }
@@ -635,7 +639,7 @@
         if(buffer.trim()||!result)throw new Error('Jeff cevabı yarım kaldı. Sonuç doğrulanmadı.');
         return result;
       }catch(e){
-        if(!accepted||signal?.aborted||e.name==='AbortError')throw e;
+        if(!accepted||signal?.aborted||e.name==='AbortError'||e.reason==='ses_model_hakki_dolu')throw e;
         const recovered=await this.recoverConsultResult(body,signal);
         const tail=recovered.answer.startsWith(received)?recovered.answer.slice(received.length):'Son doğrulanmış cevap: '+recovered.answer;
         if(tail)onPiece({authority:'real_jeff',answer:tail,completion_verified:false});

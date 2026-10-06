@@ -8,6 +8,35 @@ function fixture(){
  return {call,sent,notices};
 }
 
+test('known capacity refusal is terminal without journal polling or a second submission',async()=>{
+ const {call}=fixture(),original=global.fetch;let requests=0,reads=0,accepted=0;
+ global.fetch=async()=>{requests++;return {ok:true,body:{getReader:()=>({
+   read:async()=>reads++?{done:true}:{done:false,value:new TextEncoder().encode(
+     '{"t":"accepted","authority":"real_jeff"}\n{"t":"err","error":"ses_model_hakki_dolu"}\n')},
+   cancel:async()=>{},releaseLock:()=>{}
+ })}};};
+ call.recoverConsultResult=()=>assert.fail('capacity refusal must not wait on the journal');
+ try{
+  await assert.rejects(call.postConsult({session:'fixture',call_id:'capacity'},undefined,()=>{},()=>accepted++),
+    error=>error.reason==='ses_model_hakki_dolu');
+  assert.equal(requests,1);assert.equal(accepted,1);
+ }finally{global.fetch=original;call.stop();}
+});
+
+test('capacity refusal tells the owner the actual cause and does not become a successful answer',async()=>{
+ const {call}=fixture(),original=global.WebSocket;global.WebSocket={OPEN:1};
+ call.routeUtterances=true;call.enqueueResultSpeech=()=>{};
+ call.postConsult=async()=>{throw Object.assign(new Error('Kullanım hakkı dolu.'),{reason:'ses_model_hakki_dolu'});};
+ try{
+  call.receive({serverContent:{inputTranscription:{text:'Bir fikir düşünelim.'}}},0);
+  await call.dispatchUtterance(call.utterance,0);
+  const answer=call.dialogue.at(-1).content;
+  assert.match(answer,/kullanım hakkı dolu/);assert.match(answer,/başlatmadım/);
+  assert.doesNotMatch(answer,/sonucunu doğrulayamadım/);
+  assert.equal([...call.turnOutcomes.values()].at(-1).completion_verified,false);
+ }finally{call.stop();global.WebSocket=original;}
+});
+
 test('voice captures the selected opportunity when the human question starts',async()=>{
  const {call}=fixture();call.routeUtterances=true;call.enqueueResultSpeech=()=>{};
  let selected='20b52029e3604190',requests=[];call.opportunity=()=>selected;

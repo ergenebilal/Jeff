@@ -96,6 +96,65 @@ class ReliabilityTests(unittest.TestCase):
                 route.write_text(value)
                 with self.assertRaises(Refused):brain_route(self.tmp.name)
 
+    def capacity_fixture(self):
+        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=standby)))
+        value={'version':1,'observed_at':1000,'blocks':[
+            dict(provider=primary['provider'],model=primary['model'],unavailable_until=3000,source='openai_usage_limit_reached'),
+            dict(provider=standby['provider'],model=standby['model'],unavailable_until=2000,source='google_daily_quota_exceeded')]}
+        path=Path(self.tmp.name,'voice-brain-capacity.json');path.write_text(json.dumps(value));path.chmod(0o600)
+        return path,value
+
+    def test_both_dated_capacity_limits_refuse_before_any_backend_call(self):
+        self.capacity_fixture()
+        app=SimpleNamespace(DATA=self.tmp.name,jeff=SimpleNamespace())
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=1001),patch('urllib.request.urlopen') as backend:
+            with self.assertRaises(Refused) as refused:list(brain_reply(app,'Bir fikir düşünelim.','{}'))
+        self.assertEqual(refused.exception.reason,'ses_model_hakki_dolu');backend.assert_not_called()
+
+    def test_capacity_expiry_allows_only_a_later_human_request_on_matching_route(self):
+        self.capacity_fixture()
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=2001):
+            self.assertEqual(brain_route(self.tmp.name)['provider'],'custom:jeff-voice-google')
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=3001):
+            self.assertEqual(brain_route(self.tmp.name)['provider'],'openai-codex')
+        self.assertEqual(self.executions,0)
+
+    def test_old_primary_failure_does_not_erase_dated_hard_capacity_limit(self):
+        self.capacity_fixture()
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=1001):
+            record_primary_failure(self.tmp.name,{'provider':'openai-codex'})
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=1200):
+            with self.assertRaises(Refused) as refused:brain_route(self.tmp.name)
+        self.assertEqual(refused.exception.reason,'ses_model_hakki_dolu')
+
+    def test_capacity_record_rejects_wrong_model_secrets_and_unbounded_or_future_dates(self):
+        path,valid=self.capacity_fixture()
+        bad=[]
+        for field,value in [('model','unknown'),('unavailable_until',float('inf')),('unavailable_until',True),
+                            ('unavailable_until',999),('unavailable_until',1000+8*86400),('source','healthy'),('api_key','secret')]:
+            candidate=json.loads(json.dumps(valid));candidate['blocks'][0][field]=value;bad.append(candidate)
+        bad.extend([dict(valid,observed_at=2000),dict(valid,observed_at=True),dict(valid,version=2),{}])
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=1001):
+            for value in bad:
+                path.write_text(json.dumps(value))
+                with self.subTest(value=value),self.assertRaises(Refused) as refused:brain_route(self.tmp.name)
+                self.assertEqual(refused.exception.reason,'ses_kapasite_kaydi_gecersiz')
+
+    def test_capacity_refusal_is_not_unknown_execution_and_keeps_record_reader_available(self):
+        def blocked(text):raise Refused(503,'ses_model_hakki_dolu')
+        self.service.reply=blocked
+        self.service.records_reply=lambda text:iter(['Kayıttan okundu.'])
+        with self.assertRaises(Refused) as refused:list(self.service._execute_stream('owner',self.body))
+        self.assertEqual(refused.exception.reason,'ses_model_hakki_dolu')
+        self.assertEqual(self.service.result('owner',self.body)['state'],'NOT_EXECUTED')
+        self.assertIsNone(self.service.result('owner',self.body)['answer'])
+        with self.assertRaises(Refused):list(self.service._execute_stream('owner',self.body))
+        read=dict(self.body,call_id='records-after-capacity',operation='records',text='Pablo ne durumda?')
+        events=list(self.service._execute_stream('owner',read))
+        self.assertEqual(events[-1]['answer'],'Kayıttan okundu.');self.assertEqual(self.executions,0)
+
     def test_openai_primary_keeps_gemini_standby_without_executing_either_model(self):
         primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
         fallback={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}

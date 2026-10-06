@@ -419,9 +419,12 @@ class LiveCalls:
                     if first is None: first = time.monotonic() - started
                     yield {'t': 'piece', 'answer': pending, 'authority': 'real_jeff', 'completion_verified': False}
             except BaseException as exc:
+                capacity_refused=isinstance(exc,Refused) and exc.reason=='ses_model_hakki_dolu'
                 with self.db() as db:
-                    db.execute("UPDATE voice_calls SET state='OUTCOME_UNKNOWN' WHERE session=? AND id=?", (sid,cid))
+                    db.execute("UPDATE voice_calls SET state=? WHERE session=? AND id=?",
+                               ('NOT_EXECUTED' if capacity_refused else 'OUTCOME_UNKNOWN',sid,cid))
                 if isinstance(exc, (GeneratorExit, KeyboardInterrupt, SystemExit)): raise
+                if capacity_refused:raise
                 raise Refused(502, 'jeff_yaniti_dogrulanamadi') from None
             with self.db() as db:
                 db.execute("UPDATE voice_calls SET state='ANSWERED',answer=? WHERE session=? AND id=?", (answer,sid,cid))
@@ -619,6 +622,36 @@ def bounded_brain_lines(lines,started,clock=time.monotonic,initial_seconds=45):
         yield raw
 
 
+def known_capacity_blocks(data):
+    """Dated provider evidence, not a health guess or an inference call.
+
+    Only matching model/provider records apply. Expiry permits a later human
+    request; it never replays an earlier job or proves capacity has recovered.
+    """
+    path=Path(data)/'voice-brain-capacity.json'
+    if not path.exists():return set()
+    try:
+        if path.is_symlink() or path.stat().st_size>4096 or path.stat().st_mode&0o077:raise ValueError()
+        value=json.loads(path.read_text())
+        if not isinstance(value,dict) or set(value)!={'version','observed_at','blocks'} or value['version']!=1:raise ValueError()
+        observed=value['observed_at'];blocks=value['blocks'];now=time.time()
+        if (not isinstance(observed,(int,float)) or isinstance(observed,bool) or
+                not math.isfinite(observed) or observed<=0 or observed>now+60 or
+                not isinstance(blocks,list) or len(blocks)>2):raise ValueError()
+        result=set()
+        sources={('openai-codex','gpt-6-astra'):'openai_usage_limit_reached',
+                 ('custom:jeff-voice-google','gemini-3.8-flash'):'google_daily_quota_exceeded'}
+        for block in blocks:
+            if not isinstance(block,dict) or set(block)!={'provider','model','unavailable_until','source'}:raise ValueError()
+            identity=(block['provider'],block['model']);until=block['unavailable_until']
+            if (identity not in sources or block['source']!=sources[identity] or
+                    not isinstance(until,(int,float)) or isinstance(until,bool) or
+                    not math.isfinite(until) or not observed<=until<=observed+7*86400):raise ValueError()
+            if until>now:result.add(identity)
+        return result
+    except (OSError,ValueError,TypeError,KeyError):raise Refused(503,'ses_kapasite_kaydi_gecersiz') from None
+
+
 def brain_route(data):
     """Voice-only transport selection. The Hermes identity, history and tools stay.
 
@@ -639,6 +672,9 @@ def brain_route(data):
         fallback=configured.get('fallback') if isinstance(configured,dict) else None
         primary={k:v for k,v in configured.items() if k!='fallback'}
         if not valid(primary):raise ValueError()
+        blocked=known_capacity_blocks(data)
+        primary_blocked=(primary['provider'],primary['model']) in blocked
+        cooldown=False
         if 'fallback' in configured:
             if (not valid(fallback) or primary['provider']!='openai-codex' or
                     fallback['provider']!='custom:jeff-voice-google'):raise ValueError()
@@ -648,7 +684,13 @@ def brain_route(data):
                 if not isinstance(status,dict):raise ValueError()
                 until=status.get('primary_unavailable_until')
                 if not isinstance(until,(int,float)) or isinstance(until,bool) or not math.isfinite(until):raise ValueError()
-                if until>time.time():primary=fallback
+                cooldown=until>time.time()
+            if primary_blocked or cooldown:
+                if (fallback['provider'],fallback['model']) in blocked:
+                    if primary_blocked:raise Refused(503,'ses_model_hakki_dolu')
+                    raise Refused(503,'ses_model_yolu_gecici_kapali')
+                primary=fallback
+        elif primary_blocked:raise Refused(503,'ses_model_hakki_dolu')
     except (OSError,ValueError,TypeError,KeyError):raise Refused(503,'ses_beyin_yolu_gecersiz') from None
     route.update(model=primary['model'],provider=primary['provider'],
                  model_options={'reasoning_effort':primary['reasoning_effort']})
