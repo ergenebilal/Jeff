@@ -2,7 +2,7 @@ import json,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
-from integrations.cybergeneos.live_adapter import LiveCalls,Refused,brain_reply,brain_route,bounded_brain_lines
+from integrations.cybergeneos.live_adapter import LiveCalls,Refused,brain_reply,brain_route,bounded_brain_lines,record_primary_failure,verified_session_reply
 
 
 class ReliabilityTests(unittest.TestCase):
@@ -95,6 +95,79 @@ class ReliabilityTests(unittest.TestCase):
             with self.subTest(value=value):
                 route.write_text(value)
                 with self.assertRaises(Refused):brain_route(self.tmp.name)
+
+    def test_openai_primary_keeps_gemini_standby_without_executing_either_model(self):
+        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
+        fallback={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=fallback)))
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'openai-codex')
+        self.assertEqual(self.executions,0)
+        record_primary_failure(self.tmp.name,primary)
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'custom:jeff-voice-google')
+        state=json.loads(Path(self.tmp.name,'voice-brain-route-state.json').read_text())
+        self.assertFalse(state['failed_request_replayed']);self.assertEqual(self.executions,0)
+        with patch('integrations.cybergeneos.live_adapter.time.time',return_value=state['primary_unavailable_until']+1):
+            self.assertEqual(brain_route(self.tmp.name)['provider'],'openai-codex')
+
+    def test_openai_failure_is_not_a_second_backend_request_or_a_gemini_success(self):
+        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
+        fallback={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=fallback)))
+        requests=[]
+        def fail(request,timeout):requests.append(json.loads(request.data));raise OSError('connection lost')
+        app=SimpleNamespace(DATA=self.tmp.name,jeff=SimpleNamespace(DATA_RULES='DATA ONLY',pack_request=lambda t,c:t,hermes_url=lambda:'http://fixture'))
+        with patch.dict('os.environ',{'HERMES_API_KEY':'test'}),patch('urllib.request.urlopen',side_effect=fail):
+            with self.assertRaises(OSError):list(brain_reply(app,'Sadece konuş, iş başlatma.',''))
+        self.assertEqual(len(requests),1);self.assertEqual(requests[0]['provider'],'openai-codex')
+        self.assertTrue(requests[0]['require_model_lock'])
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'custom:jeff-voice-google')
+
+    def test_corrupt_standby_state_or_credentials_are_refused_not_used_as_success(self):
+        route=Path(self.tmp.name,'voice-brain-route.json')
+        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        route.write_text(json.dumps(dict(primary,fallback=dict(standby,api_key='secret'))))
+        with self.assertRaises(Refused):brain_route(self.tmp.name)
+        route.write_text(json.dumps(dict(primary,fallback=standby)))
+        Path(self.tmp.name,'voice-brain-route-state.json').write_text('broken')
+        with self.assertRaises(Refused):brain_route(self.tmp.name)
+        for status in [[],False,{'primary_unavailable_until':True},{'primary_unavailable_until':float('inf')},{'primary_unavailable_until':float('nan')}]:
+            with self.subTest(status=status):
+                Path(self.tmp.name,'voice-brain-route-state.json').write_text(json.dumps(status))
+                with self.assertRaises(Refused):brain_route(self.tmp.name)
+
+    def test_only_completed_locked_provider_output_is_canonical(self):
+        selected={'provider':'openai-codex','model':'gpt-6-astra'}
+        def frame(event,data):return [f'event: {event}', 'data: '+json.dumps(data),'']
+        runtime=dict(selected,model_lock='confirmed')
+        lines=frame('assistant.commentary',{'text':'Kontrol ediyorum.'})+frame('assistant.delta',{'delta':'Taslak'})
+        lines+=frame('assistant.completed',{'content':'Gerçek sonuç.'})+frame('run.completed',{'runtime':runtime})+frame('done',{})
+        self.assertEqual(list(verified_session_reply(lines,selected,0,clock=lambda:1)),['Gerçek sonuç.'])
+        for terminal in [('run.failed',{}),('run.cancelled',{}),('error',{}),
+                         ('run.completed',{'runtime':dict(runtime,provider='other')}),
+                         ('run.completed',{'runtime':dict(runtime,model_lock='accepted')}),
+                         ('run.completed',{'runtime':runtime,'partial':True})]:
+            with self.subTest(terminal=terminal):
+                failed=lines[:6]+frame('assistant.completed',{'content':'Başarı gibi görünen hata.'})+frame(*terminal)
+                with self.assertRaises(Refused):list(verified_session_reply(failed,selected,0,clock=lambda:1))
+        with self.assertRaises(Refused):list(verified_session_reply(lines[:6],selected,0,clock=lambda:1))
+
+    def test_empty_or_unverified_openai_stream_enters_standby_without_replay(self):
+        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=standby)))
+        class Response:
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def __iter__(self):return iter([])
+        app=SimpleNamespace(DATA=self.tmp.name,jeff=SimpleNamespace(DATA_RULES='DATA ONLY',pack_request=lambda t,c:t,hermes_url=lambda:'http://fixture'))
+        with patch.dict('os.environ',{'HERMES_API_KEY':'test'}),patch('urllib.request.urlopen',return_value=Response()) as request:
+            with self.assertRaises(Refused):list(brain_reply(app,'İş başlatma.',''))
+        self.assertEqual(request.call_count,1)
+        self.assertIn('/api/sessions/',request.call_args.args[0].full_url)
+        self.assertEqual(brain_route(self.tmp.name)['provider'],standby['provider'])
+        proof=json.loads(Path(self.tmp.name,'voice-brain-route-last.json').read_text())
+        self.assertFalse(proof['completion_verified']);self.assertFalse(proof['failed_request_replayed'])
 
     def test_keepalives_cannot_extend_the_initial_answer_deadline(self):
         times=iter([1,20,46])

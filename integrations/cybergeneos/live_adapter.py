@@ -7,6 +7,7 @@ from contextlib import closing
 import datetime
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -615,13 +616,98 @@ def brain_route(data):
     if not path.exists():return route
     try:
         configured=json.loads(path.read_text())
-        if (set(configured)!={'model','provider','reasoning_effort'} or
-            configured['model']!='gemini-3.8-flash' or configured['provider']!='custom:jeff-voice-google' or
-            configured['reasoning_effort'] not in {'low','medium','high'}):raise ValueError()
+        if not isinstance(configured,dict):raise ValueError()
+        def valid(candidate):
+            if not isinstance(candidate,dict) or set(candidate)!={'model','provider','reasoning_effort'}:return False
+            allowed={('gemini-3.8-flash','custom:jeff-voice-google'),('gpt-6-astra','openai-codex')}
+            return ((candidate['model'],candidate['provider']) in allowed and
+                    candidate['reasoning_effort'] in {'low','medium','high'})
+        fallback=configured.get('fallback') if isinstance(configured,dict) else None
+        primary={k:v for k,v in configured.items() if k!='fallback'}
+        if not valid(primary):raise ValueError()
+        if 'fallback' in configured:
+            if (not valid(fallback) or primary['provider']!='openai-codex' or
+                    fallback['provider']!='custom:jeff-voice-google'):raise ValueError()
+            state=Path(data)/'voice-brain-route-state.json'
+            if state.exists():
+                status=json.loads(state.read_text())
+                if not isinstance(status,dict):raise ValueError()
+                until=status.get('primary_unavailable_until')
+                if not isinstance(until,(int,float)) or isinstance(until,bool) or not math.isfinite(until):raise ValueError()
+                if until>time.time():primary=fallback
     except (OSError,ValueError,TypeError,KeyError):raise Refused(503,'ses_beyin_yolu_gecersiz') from None
-    route.update(model=configured['model'],provider=configured['provider'],
-                 model_options={'reasoning_effort':configured['reasoning_effort']})
+    route.update(model=primary['model'],provider=primary['provider'],
+                 model_options={'reasoning_effort':primary['reasoning_effort']})
     return route
+
+
+def verified_session_reply(lines,selected,started,clock=time.monotonic):
+    """Only the final answer of a completed, confirmed provider run is canonical.
+
+    Commentary, draft deltas and failed/truncated output are never success. The
+    gateway's session endpoint disables its implicit provider fallback under lock.
+    """
+    event='';final=None;completed=False;tool_started=False;answer_started=False
+    for raw in lines:
+        line=raw.decode('utf-8','replace').strip() if isinstance(raw,bytes) else raw.strip()
+        if line.startswith('event:'):event=line[6:].strip()
+        elif line.startswith('data:'):
+            try:payload=json.loads(line[5:].strip())
+            except ValueError:raise Refused(502,'jeff_akis_gecersiz') from None
+            if not isinstance(payload,dict):raise Refused(502,'jeff_akis_gecersiz')
+            if event=='tool.started':tool_started=True
+            if event=='assistant.delta' and payload.get('delta'):answer_started=True
+            if event=='assistant.completed':final=payload.get('content')
+            if event in {'error','run.failed','run.cancelled'}:raise Refused(502,'jeff_yaniti_dogrulanamadi')
+            if event=='run.completed':
+                runtime=payload.get('runtime') or {}
+                if (not isinstance(runtime,dict) or runtime.get('provider')!=selected['provider'] or
+                        runtime.get('model')!=selected['model'] or runtime.get('model_lock')!='confirmed' or
+                        payload.get('failed') or payload.get('partial')):
+                    raise Refused(502,'jeff_model_yolu_dogrulanamadi')
+                completed=True
+            event=''
+        if not tool_started and not answer_started and clock()-started>45:
+            raise Refused(504,'model_ilk_yanit_zaman_asimi')
+    if not completed or not isinstance(final,str) or not final.strip():
+        raise Refused(502,'jeff_yaniti_dogrulanamadi')
+    yield final
+
+
+def record_route_result(data,selected,verified):
+    """Current routing evidence only; no prompt, token or private transcript."""
+    out={'observed_at':time.time(),'selected_provider':selected.get('provider'),
+         'selected_model':selected['model'],'completion_verified':verified,
+         'implicit_fallback_allowed':False,'failed_request_replayed':False}
+    path=Path(data)/'voice-brain-route-last.json'
+    pending=path.with_name(path.name+'.'+secrets.token_hex(8)+'.pending')
+    try:
+        with pending.open('x') as handle:
+            pending.chmod(0o600);json.dump(out,handle)
+        os.replace(pending,path)
+    except OSError:pass
+
+
+def record_primary_failure(data,selected):
+    """Select the standby for a *later human request*. Never replay this job.
+
+    No credentials or transcripts are stored. This is an observed failed request,
+    not proof that every OpenAI model or the owner's entire account is unhealthy.
+    """
+    if selected.get('provider')!='openai-codex':return
+    now=time.time()
+    status={'observed_at':now,'primary_provider':'openai-codex',
+            'primary_unavailable_until':now+120,'reason':'request_result_not_verified',
+            'failed_request_replayed':False}
+    path=Path(data)/'voice-brain-route-state.json'
+    pending=path.with_name(path.name+'.'+secrets.token_hex(8)+'.pending')
+    try:
+        with pending.open('x') as handle:
+            pending.chmod(0o600);json.dump(status,handle)
+        os.replace(pending,path)
+    except OSError:
+        # Failure to record a cooldown cannot authorize a new execution.
+        return
 
 
 def brain_reply(app,text,context):
@@ -643,19 +729,33 @@ def brain_reply(app,text,context):
            "sonucu kullanıcıya bildirmek farklıdır. Kanıt olmadan tamamlandı deme. "
            "Sözünün kesilmesi bir işi iptal etme talimatı değildir. Mevcut onay ve gizlilik kurallarını koru. ")
     body=brain_route(app.DATA)
-    body['messages']=[{'role':'system','content':rules+app.jeff.DATA_RULES},
-                      {'role':'user','content':app.jeff.pack_request(text,context)}]
-    request=urllib.request.Request(app.jeff.hermes_url()+'/v1/chat/completions',data=json.dumps(body).encode(),
+    locked='provider' in body
+    if locked:
+        body.update(require_model_lock=True,system_message=rules+app.jeff.DATA_RULES,
+                    message=app.jeff.pack_request(text,context))
+        endpoint='/api/sessions/'+session+'/chat/stream'
+    else:
+        body['messages']=[{'role':'system','content':rules+app.jeff.DATA_RULES},
+                          {'role':'user','content':app.jeff.pack_request(text,context)}]
+        endpoint='/v1/chat/completions'
+    request=urllib.request.Request(app.jeff.hermes_url()+endpoint,data=json.dumps(body).encode(),
         headers={'Authorization':'Bearer '+os.environ['HERMES_API_KEY'],'Content-Type':'application/json',
                  'X-Hermes-Session-Id':session,'X-Hermes-Session-Key':'cybergeneos-bilal-voice'})
-    started=time.monotonic();headers_at=None;first_at=None
+    started=time.monotonic();headers_at=None;first_at=None;verified=False
     try:
         with urllib.request.urlopen(request,timeout=90) as response:
             headers_at=time.monotonic()-started
-            for piece in app.jeff.sse_deltas(bounded_brain_lines(response,started)):
+            pieces=verified_session_reply(response,body,started) if locked else app.jeff.sse_deltas(bounded_brain_lines(response,started))
+            for piece in pieces:
                 if first_at is None:first_at=time.monotonic()-started
                 yield piece
+            if first_at is None:raise Refused(502,'jeff_yaniti_dogrulanamadi')
+            verified=True
+    except Exception:
+        record_primary_failure(app.DATA,body)
+        raise
     finally:
+        if locked:record_route_result(app.DATA,body,verified)
         # Timing only: no prompts, transcripts, audio, tokens or provider secrets.
         try:
             with closing(sqlite3.connect(Path(app.DATA)/'voice-calls.sqlite3',timeout=1)) as db:
