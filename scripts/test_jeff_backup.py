@@ -79,6 +79,12 @@ class BackupTests(unittest.TestCase):
         (self.fx.home/names[0]).unlink()
         self.assertNotEqual(self.fx.run()[0],0)
 
+    def test_required_data_in_existing_trees_is_archived_exactly_once(self):
+        self.assertEqual(self.fx.run()[0],0)
+        with tarfile.open(self.fx.latest()) as archive:
+            names=archive.getnames()
+        for name in jb.REQUIRED_DATA_PATHS:self.assertEqual(names.count(self.prefix+'/'+name),1,name)
+
     def test_agenda_plan_is_required_data_without_becoming_mutable_core_source(self):
         self.assertNotIn('raporlar/JEFF_TO_JARVIS.md', jb.CORE_SOURCE_PATHS)
         self.assertEqual(self.fx.run()[0], 0)

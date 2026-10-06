@@ -83,14 +83,16 @@ OPT_TREES = (Path('/opt/hermes'), Path('/usr/lib/python3/dist-packages'))
 
 def trees(home, opt_trees=OPT_TREES):
     h = Path(home)
-    return [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
+    roots = [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
             h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos', h / 'jeff-artifacts',
             h / '.alert.env', h / '.config', h / 'jeff_repo',
             h / 'jeff-v0.21.5' / 'live_ext', h / 'jeff-v0.21.5' / 'site',
             h / '.local/share/beyin-v3',
-            *[h / name for name in REQUIRED_DATA_PATHS],
             *sorted((h / '.local/lib').glob('python*/site-packages')),
             *sorted((h / '.venv/lib').glob('python*/site-packages')), *opt_trees]
+    # Required data already inside a backed-up tree must not appear twice in the archive.
+    return roots + [h / name for name in REQUIRED_DATA_PATHS
+                    if not any((h / name).is_relative_to(root) for root in roots)]
 
 
 ETC_PATTERNS = [
