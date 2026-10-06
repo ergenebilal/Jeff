@@ -70,6 +70,7 @@ CORE_SOURCE_PATHS = (
 CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
 REQUIRED_DATA_PATHS = ('raporlar/JEFF_TO_JARVIS.md',
                        'cybergeneos-data/voice-brain-route.json',
+                       'cybergeneos-data/voice-brain-capacity.json',
                        'cybergeneos-data/voice-owner-context.json')
 # Directory names that are skipped anywhere inside a backed-up tree.
 SKIP_DIRS = {'node_modules', '__pycache__', '.git', 'venv', '.venv', '.cache', 'cache', 'logs', 'backups',

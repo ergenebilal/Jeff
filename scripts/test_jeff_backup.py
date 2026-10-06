@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import tarfile
 import tempfile
@@ -70,7 +71,8 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(list(self.fx.dest.glob('jeff-backup-*.tar.gz')),[])
 
     def test_voice_provider_and_owner_context_must_be_restorable_data(self):
-        names=('cybergeneos-data/voice-brain-route.json','cybergeneos-data/voice-owner-context.json')
+        names=('cybergeneos-data/voice-brain-route.json','cybergeneos-data/voice-owner-context.json',
+               'cybergeneos-data/voice-brain-capacity.json')
         for name in names:
             self.assertIn(name,jb.REQUIRED_DATA_PATHS)
             self.assertNotIn(name,jb.CORE_SOURCE_PATHS)
@@ -78,6 +80,25 @@ class BackupTests(unittest.TestCase):
         for name in names:self.assertIn(self.prefix+'/'+name,self.fx.names())
         (self.fx.home/names[0]).unlink()
         self.assertNotEqual(self.fx.run()[0],0)
+
+    def test_missing_capacity_evidence_cannot_pass_current_voice_backup(self):
+        name='cybergeneos-data/voice-brain-capacity.json'
+        (self.fx.home/name).unlink()
+        self.assertNotEqual(self.fx.run()[0],0)
+        self.assertEqual(list(self.fx.dest.glob('jeff-backup-*.tar.gz')),[])
+
+    def test_capacity_snapshot_keeps_exact_dates_and_reason_without_becoming_core_code(self):
+        name='cybergeneos-data/voice-brain-capacity.json'
+        value={'version':1,'observed_at':1000,'blocks':[
+            {'provider':'custom:jeff-voice-google','model':'gemini-3.8-flash',
+             'unavailable_until':2000,'source':'google_daily_quota_exceeded'}]}
+        raw=json.dumps(value).encode();(self.fx.home/name).write_bytes(raw)
+        self.assertEqual(self.fx.run()[0],0)
+        with tarfile.open(self.fx.latest()) as archive:
+            member=self.prefix+'/'+name
+            self.assertEqual(archive.extractfile(member).read(),raw)
+            self.assertEqual(archive.getnames().count(member),1)
+        self.assertNotIn(name,jb.CORE_SOURCE_PATHS)
 
     def test_required_data_in_existing_trees_is_archived_exactly_once(self):
         self.assertEqual(self.fx.run()[0],0)
