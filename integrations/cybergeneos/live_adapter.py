@@ -344,10 +344,16 @@ class LiveCalls:
                 sum(len(m['content']) for m in dialogue)>6000):
             raise Refused(400,'gecersiz_konusma_baglami')
         dialogue=[{'role':m['role'],'content':m['content']} for m in dialogue]
+        opportunity_id=body.get('opportunity_id')
+        if opportunity_id is not None:
+            from .opportunity_context import valid_id
+            if not valid_id(opportunity_id):raise Refused(400,'gecersiz_firsat')
         sid = hashlib.sha256(nonce.encode()).hexdigest()
         bound=json.dumps({'text':text,'dialogue':dialogue},sort_keys=True,ensure_ascii=False) if 'dialogue' in body else text
         if 'operation' in body:
             bound=json.dumps({'request':bound,'operation':operation},sort_keys=True,ensure_ascii=False)
+        if opportunity_id is not None:
+            bound=json.dumps({'request':bound,'opportunity_id':opportunity_id},sort_keys=True,ensure_ascii=False)
         binding = hashlib.sha256(bound.encode()).hexdigest()
         with self.db() as db:
             row = db.execute('SELECT owner,expires FROM voice_sessions WHERE id=?', (sid,)).fetchone()
@@ -390,6 +396,9 @@ class LiveCalls:
                 elif effective_operation=='records':
                     if not self.records_reply:raise Refused(503,'kayit_okuyucu_yok')
                     replies=self.records_reply(text)
+                elif opportunity_id is not None:
+                    if not self.context_reply:raise Refused(503,'firsat_baglami_yok')
+                    replies=self.context_reply(text,dialogue,opportunity_id)
                 else:replies=self.context_reply(text,dialogue) if self.context_reply else self.reply(text)
                 for piece in replies:
                     if not isinstance(piece, str):
@@ -477,7 +486,7 @@ def install(app):
     def radar(text):
         from .work_agenda import read_radar,render_radar
         return iter([render_radar(read_radar(app.store))])
-    def reply(text,dialogue=None):
+    def reply(text,dialogue=None,opportunity_id=None):
         from .jarvis_adapter import STATUS_REQUESTS
         # Voice punctuation does not change an exact infrastructure status request.
         clean=text.strip().rstrip('.!?').replace('İ','i').casefold()
@@ -508,10 +517,15 @@ def install(app):
             {'status':'not_loaded_for_this_question','available':True,
              'read_only_records':'/home/hermes/cybergeneos-data/cgos.db',
              'rule':'Gerekirse mevcut araçlarınla güncel panel kaydını oku. Veri yüklenmemesi boş iş veya haber kanıtı değildir.'})
+        selected=None
+        if opportunity_id is not None:
+            from .opportunity_context import selected_opportunity
+            selected=selected_opportunity(app.store,opportunity_id)
         from scripts.jarvis_snapshot import render
         pieces=brain_reply(app,text, json.dumps({'live_voice': True,
             'jarvis_snapshot':current,
             'panel_recorded_context':panel_context,
+            'selected_opportunity':selected,
             'owner_context':owner_briefing(app.DATA),
             # Hermes already loads the full persisted dialogue. These two turns
             # bridge native greetings/clarifications that did not reach the core.

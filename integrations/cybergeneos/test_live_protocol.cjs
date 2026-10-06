@@ -8,6 +8,20 @@ function fixture(){
  return {call,sent,notices};
 }
 
+test('voice captures the selected opportunity when the human question starts',async()=>{
+ const {call}=fixture();call.routeUtterances=true;call.enqueueResultSpeech=()=>{};
+ let selected='20b52029e3604190',requests=[];call.opportunity=()=>selected;
+ call.postConsult=async body=>{requests.push(body);return {authority:'real_jeff',answer:'Fixture only.'};};
+ call.receive({serverContent:{inputTranscription:{text:'Bunu neden seçmiştin?'}}},0);
+ const first=call.utterance;selected='0123456789abcdef';
+ await call.dispatchUtterance(first,0);
+ assert.equal(requests[0].opportunity_id,'20b52029e3604190');
+ call.onInputActivity();call.inputActive=false;
+ call.receive({serverContent:{inputTranscription:{text:'Bunu neden seçmiştin?'}}},0);
+ await call.dispatchUtterance(call.utterance,0);
+ assert.equal(requests.length,2);assert.equal(requests[1].opportunity_id,selected);call.stop();
+});
+
 test('canonical answer awaiting speech clears only its own recognition watchdog',()=>{
  const {call}=fixture();call.routeUtterances=true;call.scheduleResultSpeech=()=>{};
  const cleared=[],original=global.clearTimeout;

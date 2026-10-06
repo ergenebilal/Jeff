@@ -1,8 +1,8 @@
 /* One continuous, interruptible call. No recognition restart or per-turn send button. */
 (function(root){
   class JeffLiveCall {
-    constructor({state,transcript,notice,voice,worklet,routeUtterances=true}){
-      Object.assign(this,{state,transcript,notice,voice,worklet});
+    constructor({state,transcript,notice,voice,worklet,routeUtterances=true,opportunity=()=>null}){
+      Object.assign(this,{state,transcript,notice,voice,worklet,opportunity});
       this.active=false; this.generation=0; this.sources=new Set(); this.pending=new Map();
       this.stats={inputFrames:0,outputChunks:0,interruptions:0,localInterruptions:0,unconsultedAudioDropped:0};
       this.timings=[];this.speechEndedAt=null;this.voiceTurn=null;
@@ -216,7 +216,7 @@
         this.inputText+=heard;this.transcript('user',this.inputText,false);
         if(this.routeUtterances){
           if(!this.utterance){
-            this.utterance={text:this.inputText,calls:this.unboundCalls.splice(0),dispatched:false};
+            this.utterance={text:this.inputText,calls:this.unboundCalls.splice(0),dispatched:false,opportunityId:this.opportunity()};
             for(const call of this.utterance.calls)this.providerBindings.set(call.id,this.utterance);
           }else if(!this.utterance.dispatched)this.utterance.text=this.inputText;
           this.scheduleUtterance();
@@ -380,7 +380,8 @@
       if(!['consult_jeff','read_jarvis_records','read_work_agenda','read_radar_summary'].includes(call.name)||typeof call.args?.text!=='string'||!call.id){
         this.fail('Sesli istek doğrulanamadı.');return;
       }
-      const requestKey=call.name+'|'+call.args.text.normalize('NFC').toLocaleLowerCase('tr-TR').trim().replace(/\s+/g,' ');
+      const opportunityId=call.clientManaged?call.utterance.opportunityId:this.opportunity();
+      const requestKey=call.name+'|'+call.args.text.normalize('NFC').toLocaleLowerCase('tr-TR').trim().replace(/\s+/g,' ')+(opportunityId?'|'+opportunityId:'');
       const completed=this.callResults.get(call.id);
       if(completed){
         if(completed.requestKey===requestKey)this.sendToolResult(call,completed.response,'SILENT');
@@ -417,6 +418,7 @@
       this.state('thinking','Jeff düşünüyor · sizi dinliyorum');
       try{
         const result=await this.postConsult({session:this.session.session,call_id:call.id,text:call.args.text,dialogue,
+          ...(opportunityId?{opportunity_id:opportunityId}:{}),
           operation:call.name==='read_jarvis_records'?'records':call.name==='read_work_agenda'?'agenda':call.name==='read_radar_summary'?'radar':'consult'},ac.signal,event=>{
           if(!this.active||generation!==this.generation||ac.signal.aborted||ac.detached||this.reconnecting)return;
           if(event.authority!=='real_jeff'||!event.answer)throw new Error('Gerçek Jeff yanıtı alınamadı.');
