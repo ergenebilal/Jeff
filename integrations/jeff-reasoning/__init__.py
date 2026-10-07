@@ -34,13 +34,20 @@ def envelope(content):
     if not isinstance(content, str) or len(content) > 250000:
         return None
     try:
-        value = json.loads(content)
+        def unique_pairs(pairs):
+            result = {}
+            for key, item in pairs:
+                if key in result:
+                    raise ValueError('ambiguous JSON')
+                result[key] = item
+            return result
+        value = json.loads(content, object_pairs_hook=unique_pairs)
         if (not isinstance(value, dict) or set(value) != {'trusted_user_request', DATA_KEY}
                 or not isinstance(value['trusted_user_request'], str)):
             return None
         context = value[DATA_KEY]
         if isinstance(context, str):
-            context = json.loads(context)
+            context = json.loads(context, object_pairs_hook=unique_pairs)
         if not isinstance(context, dict):
             return None
         return value, context
@@ -62,8 +69,10 @@ def user_request(message):
 
 def substantive(text):
     normalized = text.casefold().replace('ı', 'i')
-    return len(text.strip()) >= 35 or bool(re.search(
-        r'karar|stratej|neden|niçin|nasil|hatir|öncelik|plan|seç|sec|risk|alternatif', normalized))
+    # Personal sharing alone is not a request to optimize the owner's life.
+    return bool(re.search(
+        r'karar|stratej|neden|niçin|nasil|hatir|öncelik|plan|seç|sec|risk|alternatif|'
+        r'hangisi|ne yapmali|incele|analiz|öner|araştir|karşilaştir|çöz|çoz|düzelt|onar|tasarla', normalized))
 
 
 def owner_scope(platform, session_id, sender_id='', voice_db=VOICE_DB):

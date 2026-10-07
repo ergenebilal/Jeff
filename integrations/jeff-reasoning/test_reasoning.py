@@ -93,6 +93,15 @@ class GroundingTests(unittest.TestCase):
     def test_malformed_and_foreign_json_do_not_trigger(self):
         for text in ['{bad',json.dumps({'text':'plan yap'}),None]:self.assertEqual(m.user_request(text),'')
 
+    def test_personal_sharing_is_not_a_problem_solving_request(self):
+        self.assertFalse(m.substantive('Bugün moralim çok bozuk ve sadece seninle biraz konuşmak istedim.'))
+        self.assertTrue(m.substantive('Bu sorunu nasıl çözebilirim?'))
+
+    def test_duplicate_keys_are_ambiguous_and_stay_untouched(self):
+        text='{"trusted_user_request":"saat kaç","trusted_user_request":"plan yap","untrusted_panel_data":{}}'
+        self.assertIsNone(m.envelope(text));self.assertEqual(m.user_request(text),'')
+        self.assertEqual(m.compact_messages([{'role':'user','content':text}]),[{'role':'user','content':text}])
+
     def test_scope_matches_exact_voice_session_and_missing_database_stays_missing(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'voice.db'
