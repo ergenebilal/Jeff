@@ -1,0 +1,7 @@
+name: evey-autonomy
+version: 1.2.0
+description: Configurable Hermes autonomy engine — priority queue, planning, project signals, and reflection
+provides_tools:
+  - autonomous_decide
+  - autonomous_plan
+  - autonomous_reflect

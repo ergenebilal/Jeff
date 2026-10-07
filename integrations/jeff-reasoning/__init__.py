@@ -96,6 +96,32 @@ def owner_scope(platform, session_id, sender_id='', voice_db=VOICE_DB):
     return False
 
 
+QUERY_STOPWORDS = {'hangi', 'hangisi', 'nasıl', 'nasil', 'neden', 'niçin', 'için', 'olan',
+                  'benim', 'bizim', 'bana', 'bunu', 'şunu', 'ile', 'bir', 'the', 'and', 'that',
+                  'what', 'which', 'with', 'this', 'from'}
+
+
+def source_window(text, query, width=650):
+    """Select an exact slice of the already validated/redacted reader excerpt; no new reads."""
+    normalize = lambda word: word.casefold().replace('ı', 'i')
+    terms = {normalize(t.group()) for t in re.finditer(r'[^\W_]+', query)}
+    terms = {t for t in terms if len(t) >= 3 and t not in QUERY_STOPWORDS}
+    hits = [(t.start(), t.end(), normalize(t.group())) for t in re.finditer(r'[^\W_]+', text)
+            if normalize(t.group()) in terms]
+    candidates = {0}
+    for start, end, _ in hits:
+        candidates.add(max(0, min(start - 180, len(text) - width)))
+    def score(start):
+        inside = [term for a, b, term in hits if a >= start and b <= start + width]
+        # Distinct query terms lead; repetition alone cannot displace a richer passage.
+        return len(set(inside)), min(len(inside), 8), -start
+    start = max(candidates, key=score)
+    end = min(len(text), start + width)
+    return {'text': text[start:end], 'excerpt_start_char': start, 'excerpt_end_char': end,
+            'reader_excerpt_chars': len(text), 'excerpt_selection': 'exact_query_terms' if hits else 'prefix_no_query_match',
+            'offset_scope': 'validated_redacted_reader_excerpt', 'query_match_terms': score(start)[0]}
+
+
 def memory_brief(query, reader=None, budget=5000):
     if reader is None:
         source = '/home/hermes/jeff_repo'
@@ -118,11 +144,12 @@ def memory_brief(query, reader=None, budget=5000):
             if not isinstance(record, dict) or record.get('source_hash_matched') is not True:
                 continue
             item = {k: record.get(k) for k in (
-                'source', 'source_sha256', 'declared_date', 'assessment', 'facts', 'source_project')}
+                'source', 'source_sha256', 'source_hash_matched', 'declared_date', 'assessment', 'facts', 'source_project')}
             text = record.get('text', '')
             if not isinstance(text, str):
                 raise ValueError('invalid excerpt')
-            item.update(text=text[:650], text_truncated=bool(record.get('text_truncated')) or len(text)>650,
+            item.update(source_window(text, query))
+            item.update(text_truncated=bool(record.get('text_truncated')) or len(text)>650,
                         current_truth_verified=False)
             candidate = {**brief, 'records': brief['records'] + [item]}
             if len(dump(candidate)) > budget:
