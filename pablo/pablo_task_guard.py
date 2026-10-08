@@ -257,6 +257,7 @@ class TaskGuard:
                 if name not in {r[1] for r in db.execute('PRAGMA table_info(requests)')}:
                     db.execute('ALTER TABLE requests ADD COLUMN '+name+' '+definition)
             db.execute('CREATE TABLE IF NOT EXISTS work_events (seq INTEGER PRIMARY KEY, request_id TEXT NOT NULL, phase TEXT NOT NULL, status TEXT NOT NULL, observed_at REAL NOT NULL)')
+            db.execute('CREATE INDEX IF NOT EXISTS work_events_by_request_seq ON work_events(request_id,seq DESC)')
             db.execute('CREATE TABLE IF NOT EXISTS work_plan_signals (request_id TEXT NOT NULL,step_name TEXT NOT NULL,input_digest TEXT NOT NULL,signal_key TEXT NOT NULL,actor_kind TEXT NOT NULL,source TEXT NOT NULL,recorded_at REAL NOT NULL,PRIMARY KEY(request_id,step_name))')
             db.execute('CREATE TABLE IF NOT EXISTS work_history (request_id TEXT PRIMARY KEY,archived_at REAL NOT NULL,reason TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS work_interruptions (request_id TEXT PRIMARY KEY,process_started_at REAL NOT NULL,detected_at REAL NOT NULL)')
@@ -352,35 +353,39 @@ class TaskGuard:
     def work_status(self, rid):
         """One redacted record; stored task input and customer text stay private."""
         with self.connect() as db:
-            row = db.execute('SELECT action,status,created_at,updated_at,work_phase,deadline_at,observation_after,response FROM requests WHERE id=?', (rid,)).fetchone()
-            if row is None:
-                return {'request_id': rid, 'status': 'NOT_FOUND', 'open': False}
-            action, status, created, updated, phase, deadline, after, saved = row
-            if action == 'local_draft_plan':
-                from pablo_work_plans import WorkPlans
-                return WorkPlans(self).view(rid)
-            interruption=db.execute('SELECT process_started_at,detected_at FROM work_interruptions WHERE request_id=?',(rid,)).fetchone()
-            recorded_status=status
-            try:receipt=json.loads(saved)
-            except (TypeError,ValueError):receipt={}
-            outcome_verified=(action=='local_draft' and receipt.get('outcome_verified') is True
-                              and receipt.get('completion_authority') is not False)
-            if status=='SUCCESS' and not outcome_verified:
-                status='EXECUTION_SUCCEEDED'
-            if interruption and status=='IN_PROGRESS':
-                status,phase='OUTCOME_UNKNOWN','outcome_unknown_after_restart'
-            phase = phase if interruption and recorded_status=='IN_PROGRESS' else ((phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status))
-            if status in CLOSED_WORK_STATUSES:
-                next_step, waiting_for = 'none', None
-            elif status == 'APPROVAL_REQUIRED':
-                next_step, waiting_for = 'owner_decision', 'owner'
-            elif action == 'local_draft':
-                next_step, waiting_for = 'observe_file_without_writing', 'file_evidence'
-            else:
-                next_step, waiting_for = 'inspect_outcome_without_replay', 'outcome_evidence'
-            events = [dict(seq=r[0], phase=r[1], status=r[2], observed_at=r[3]) for r in
-                      db.execute('SELECT seq,phase,status,observed_at FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 20', (rid,))]
-            history = db.execute('SELECT archived_at,reason FROM work_history WHERE request_id=?', (rid,)).fetchone()
+            return self._work_status_from_db(rid, db)
+
+    def _work_status_from_db(self, rid, db):
+        """Existing projection, using this request-owned read connection."""
+        row = db.execute('SELECT action,status,created_at,updated_at,work_phase,deadline_at,observation_after,response FROM requests WHERE id=?', (rid,)).fetchone()
+        if row is None:
+            return {'request_id': rid, 'status': 'NOT_FOUND', 'open': False}
+        action, status, created, updated, phase, deadline, after, saved = row
+        if action == 'local_draft_plan':
+            from pablo_work_plans import WorkPlans
+            return WorkPlans(self).view(rid)
+        interruption=db.execute('SELECT process_started_at,detected_at FROM work_interruptions WHERE request_id=?',(rid,)).fetchone()
+        recorded_status=status
+        try:receipt=json.loads(saved)
+        except (TypeError,ValueError):receipt={}
+        outcome_verified=(action=='local_draft' and receipt.get('outcome_verified') is True
+                          and receipt.get('completion_authority') is not False)
+        if status=='SUCCESS' and not outcome_verified:
+            status='EXECUTION_SUCCEEDED'
+        if interruption and status=='IN_PROGRESS':
+            status,phase='OUTCOME_UNKNOWN','outcome_unknown_after_restart'
+        phase = phase if interruption and recorded_status=='IN_PROGRESS' else ((phase or 'legacy_unknown') if status == 'IN_PROGRESS' else self._status_phase(status))
+        if status in CLOSED_WORK_STATUSES:
+            next_step, waiting_for = 'none', None
+        elif status == 'APPROVAL_REQUIRED':
+            next_step, waiting_for = 'owner_decision', 'owner'
+        elif action == 'local_draft':
+            next_step, waiting_for = 'observe_file_without_writing', 'file_evidence'
+        else:
+            next_step, waiting_for = 'inspect_outcome_without_replay', 'outcome_evidence'
+        events = [dict(seq=r[0], phase=r[1], status=r[2], observed_at=r[3]) for r in
+                  db.execute('SELECT seq,phase,status,observed_at FROM work_events WHERE request_id=? ORDER BY seq DESC LIMIT 20', (rid,))]
+        history = db.execute('SELECT archived_at,reason FROM work_history WHERE request_id=?', (rid,)).fetchone()
         legacy_worker_history=(recorded_status=='SUCCESS' and action not in ('local_draft','local_draft_plan')
                                and status=='EXECUTION_SUCCEEDED')
         return dict(request_id=rid, action=action, status=status, phase=phase, open=status not in CLOSED_WORK_STATUSES,
@@ -400,8 +405,9 @@ class TaskGuard:
         selection = "parent_id IS NULL AND status NOT IN ('REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')"
         with self.connect() as db:
             ids = [r[0] for r in db.execute('SELECT id FROM requests WHERE ' + selection + ' ORDER BY coalesce(created_at,0),id')]
-        # Derived views never rewrite old worker claims or replay an action.
-        opened=[view for rid in ids if (view:=self.work_status(rid))['open']]
+            # Reuse this request-owned connection; no per-row connection churn.
+            # Derived views never rewrite old worker claims or replay an action.
+            opened=[view for rid in ids if (view:=self._work_status_from_db(rid, db))['open']]
         history=sum(view.get('history_only') is True for view in opened)
         visible=opened if include_history else [view for view in opened if not view.get('history_only')]
         total=len(visible);items=visible[offset:offset+limit]
