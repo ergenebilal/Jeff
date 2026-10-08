@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Read one existing receipt; bind dated draft evidence to an explicit task criterion.
+"""Bind a dated receipt or authenticated current observation to an explicit criterion.
 
-No action submission, reconciliation, retry, delivery, memory write or fresh file read.
-This checks the authenticated journal receipt, not the current contents of a PC file.
+No action submission, reconciliation, retry, delivery or memory write.
+The default reads a dated receipt; --current independently observes existing draft bytes.
 """
 import argparse
 import json
@@ -18,6 +18,12 @@ except ImportError:
     from pablo_dispatch import bridge_key
 
 MAX_RECEIPT_BYTES = 262144
+CURRENT_FIELDS = {
+    'schema_version', 'request_id', 'status', 'method', 'observed_at', 'input_digest',
+    'expected_sha256', 'expected_bytes', 'observed_sha256', 'observed_bytes',
+    'file_bytes_matched_at_observation', 'scope', 'read_only', 'journal_status_updated',
+    'execution_authorized', 'reexecution_authorized', 'customer_delivery_verified',
+    'semantic_quality_verified', 'reason'}
 
 
 def strict_json(raw):
@@ -115,14 +121,82 @@ def evidence_view(receipt, *, task_id, input_digest, expected_sha256, expected_b
     return view
 
 
-def load_record(record_id):
+def current_evidence_view(observation, *, task_id, input_digest, expected_sha256,
+                          expected_bytes, execution_state, now=None):
+    """Validate current authenticated file evidence against an independent criterion.
+
+    A match is only the file bytes at the stated instant. Unknown action results
+    stay unknown; content quality, delivery and permission do not follow a match.
+    """
+    now = time.time() if now is None else now
+    view = evidence_view(None, task_id=task_id, input_digest=input_digest,
+                         expected_sha256=expected_sha256, expected_bytes=expected_bytes,
+                         execution_state=execution_state, now=now)
+    view.update(acceptance_scope='private_draft_bytes_at_this_observation',
+                current_observation=None, execution_outcome_verified=False,
+                reason='No usable current independent observation')
+    if execution_state == 'proposed':
+        view.update(new_task_outcome='not_run', reason='Proposed job has no execution result')
+        return view
+    if not isinstance(observation, dict) or set(observation) != CURRENT_FIELDS:
+        return view
+    if (type(observation['schema_version']) is not int or observation['schema_version'] != 1
+            or not valid_id(observation['request_id'])
+            or observation['method'] != 'independent_current_file_read'
+            or observation['scope'] != 'private_draft_bytes_at_this_observation'
+            or observation['read_only'] is not True
+            or any(observation[k] is not False for k in (
+                'journal_status_updated', 'execution_authorized', 'reexecution_authorized',
+                'customer_delivery_verified', 'semantic_quality_verified'))):
+        return view
+    status = observation['status']
+    if status not in ('matched', 'mismatch', 'unavailable', 'deferred', 'unsupported'):
+        return view
+    if status not in ('matched', 'mismatch'):
+        view['reason'] = {'unavailable': 'Current file observation unavailable',
+                          'deferred': 'Writer still active; observe later without replay',
+                          'unsupported': 'Only private draft bytes can be observed'}[status]
+        return view
+    observed_at = observation['observed_at']
+    if (type(observed_at) not in (int, float) or not math.isfinite(observed_at)
+            or not 0 < observed_at <= now or now - observed_at > 60
+            or not all(valid_sha(observation[k]) for k in (
+                'input_digest', 'expected_sha256', 'observed_sha256'))
+            or not valid_bytes(observation['expected_bytes'])
+            or type(observation['observed_bytes']) is not int
+            or not 0 <= observation['observed_bytes'] <= 500000):
+        return view
+    matched = (observation['observed_sha256'] == observation['expected_sha256']
+               and observation['observed_bytes'] == observation['expected_bytes'])
+    if (observation['file_bytes_matched_at_observation'] is not matched
+            or (status == 'matched') != matched):
+        return view
+    bound = (observation['request_id'] == task_id and observation['input_digest'] == input_digest
+             and observation['expected_sha256'] == expected_sha256
+             and observation['expected_bytes'] == expected_bytes)
+    if not bound:
+        view.update(new_task_outcome='binding_mismatch', reason='Current observation belongs to a different task/input/criterion')
+        return view
+    view.update(task_binding_matched=True, fresh_file_read=True,
+                current_observation={k: observation[k] for k in (
+                    'request_id', 'input_digest', 'method', 'observed_at',
+                    'expected_sha256', 'expected_bytes', 'observed_sha256', 'observed_bytes')},
+                observed_outcome_verified=matched, current_file_outcome_verified=matched,
+                new_task_outcome='unknown' if execution_state == 'unknown' else (
+                    'matched_at_observation' if matched else 'mismatch'),
+                reason='Current private file bytes matched at the observation; action result and delivery remain separate'
+                       if matched else 'Current private file bytes differ from the criterion')
+    return view
+
+
+def _load_authenticated(record_id, suffix=''):
     if not valid_id(record_id):
         raise ValueError('Invalid record id')
     key = bridge_key()
     if not key:
         raise ValueError('Missing bridge authentication')
     host = os.environ.get('ALFRED_HOST', '100.89.26.86')
-    req = Request('http://' + host + ':7788/tasks/' + record_id,
+    req = Request('http://' + host + ':7788/tasks/' + record_id + suffix,
                   headers={'X-Bridge-Key': key}, method='GET')
     with urlopen(req, timeout=10) as response:
         raw = response.read(MAX_RECEIPT_BYTES + 1)
@@ -134,6 +208,14 @@ def load_record(record_id):
     return receipt
 
 
+def load_record(record_id):
+    return _load_authenticated(record_id)
+
+
+def load_current_observation(record_id):
+    return _load_authenticated(record_id, '/observation')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task-id', required=True)
@@ -142,6 +224,7 @@ def main(argv=None):
     parser.add_argument('--expected-bytes', required=True, type=int)
     parser.add_argument('--execution-state', choices=('proposed', 'recorded', 'unknown'), required=True)
     parser.add_argument('--record-task-id', help='Optional historical receipt; never changes the requested task binding')
+    parser.add_argument('--current', action='store_true', help='Read current private file bytes through the authenticated node')
     args = parser.parse_args(argv)
     criteria = dict(task_id=args.task_id, input_digest=args.input_digest,
                     expected_sha256=args.expected_sha256, expected_bytes=args.expected_bytes,
@@ -149,8 +232,12 @@ def main(argv=None):
     try:
         # Validate BEFORE any transport. Unknown binding must not be invented from a receipt.
         evidence_view(None, **criteria)
-        receipt = load_record(args.record_task_id or args.task_id)
-        view = evidence_view(receipt, **criteria)
+        if args.current:
+            observation = None if args.execution_state == 'proposed' else load_current_observation(args.record_task_id or args.task_id)
+            view = current_evidence_view(observation, **criteria)
+        else:
+            receipt = load_record(args.record_task_id or args.task_id)
+            view = evidence_view(receipt, **criteria)
     except (OSError, ValueError, TypeError, RecursionError):
         print('Göreve bağlı sonuç kanıtı okunamadı; iş tekrarlanmadı.', file=sys.stderr)
         return 1

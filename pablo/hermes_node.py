@@ -58,7 +58,7 @@ NODE_DIR = Path(__file__).resolve().parent
 PROCESS_STARTED_AT = time.time()
 LOADED_SOURCE_SHA256 = {
     name: hashlib.sha256((NODE_DIR / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py', 'pablo_local_drafts.py', 'pablo_work_plans.py', 'pablo_capability_policy.py')
+    for name in ('hermes_node.py', 'pablo_brain.py', 'pablo_task_guard.py', 'pablo_antigravity.py', 'pablo_approval_client.py', 'pablo_approval_maintenance.py', 'pablo_notification_policy.py', 'pablo_local_drafts.py', 'pablo_work_plans.py', 'pablo_capability_policy.py', 'pablo_outcome_observer.py')
 }
 try:
     SOURCE_RELEASE = json.loads((NODE_DIR / 'deployment.json').read_text(encoding='utf-8')).get('commit', 'unknown')
@@ -183,6 +183,7 @@ def normalize_tool_params(raw_args: any) -> dict:
 import uuid
 
 from pablo_task_guard import TaskGuard, allowed_ip, is_approval_required, GUI_ACTIONS
+from pablo_outcome_observer import observe_current
 
 _task_guard = None
 _task_guard_init_lock = threading.Lock()
@@ -2279,7 +2280,17 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 self.send_response(401)
                 self.end_headers()
                 return
-            if self.path.split('?')[0] == '/work':
+            if self.path.split('?')[0].endswith('/observation'):
+                parsed = urllib.parse.urlsplit(self.path)
+                match = re.fullmatch(r'/tasks/([A-Za-z0-9_-]{1,128})/observation', parsed.path)
+                if not match or parsed.query or parsed.fragment:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                # Use the node-owned journal directly: no guard constructor,
+                # migration, reconciliation, executor or caller-selected path.
+                result = observe_current(NODE_DIR / 'task-journal.sqlite3', match[1])
+            elif self.path.split('?')[0] == '/work':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 try:
                     result = task_guard().work_snapshot(int(query.get('limit', ['100'])[0]), int(query.get('offset', ['0'])[0]), query.get('include_history', ['0'])[0] == '1')
