@@ -70,7 +70,9 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(project(value)['new_task_outcome'], 'unknown')
 
     def test_receipt_lies_wrong_types_dates_and_identity_cannot_verify(self):
-        mutations = [('outcome_verified', 1), ('completion_authority', False), ('status', 'CANCELLED')]
+        mutations = [('outcome_verified', 1), ('completion_authority', False),
+                     ('completion_authority', 1), ('completion_authority', 'false'),
+                     ('task_id', 'another'), ('status', 'CANCELLED')]
         for key, value in mutations:
             row = receipt(); row[key] = value
             self.assertFalse(project(row)['observed_outcome_verified'])

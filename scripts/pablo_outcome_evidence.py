@@ -77,6 +77,8 @@ def evidence_view(receipt, *, task_id, input_digest, expected_sha256, expected_b
                  and 0 < observed_at <= now)
         # Unsupported plan/GUI/process receipts cannot borrow a draft's acceptance.
         independent = (proof.get('method') == 'independent_file_read'
+                       and receipt.get('request_id') == proof.get('request_id')
+                       and receipt.get('task_id', receipt.get('request_id')) == receipt.get('request_id')
                        and valid_id(proof.get('request_id')) and valid_sha(proof.get('input_digest'))
                        and valid_sha(proof.get('expected_sha256')) and valid_sha(proof.get('observed_sha256'))
                        and valid_bytes(proof.get('expected_bytes')) and valid_bytes(proof.get('observed_bytes'))
@@ -106,7 +108,7 @@ def evidence_view(receipt, *, task_id, input_digest, expected_sha256, expected_b
         view.update(new_task_outcome='mismatch', reason='Independent recorded bytes differ from the expected draft')
     elif (bound and matches and receipt.get('status') == 'SUCCESS'
           and proof.get('status') == 'matched' and receipt.get('outcome_verified') is True
-          and receipt.get('completion_authority') is not False
+          and receipt.get('completion_authority', True) is True
           and isinstance(receipt.get('result'), dict) and receipt['result'].get('delivered') is False):
         view.update(new_task_outcome='matched_at_observation', observed_outcome_verified=True,
                     reason='Exact job/input/byte criterion matched at the dated independent observation; current file and delivery remain unverified')
