@@ -69,15 +69,27 @@ class RunAndSummaryTests(unittest.TestCase):
     def test_missing_key_means_route_not_configured_not_crash(self):
         report = mh.run({}, opener=by_url({'127.0.0.1': ok_opener}))
         detail = {r['route']: r['detail'] for r in report['routes']}
-        self.assertEqual(detail['gemini'], 'anahtar tanimli degil')
         self.assertEqual(detail['opencode-go'], 'anahtar tanimli degil')
-        self.assertEqual(detail['openrouter'], 'anahtar tanimli degil')
+
+    def test_unselected_provider_keys_never_trigger_extra_probes(self):
+        sent=[]
+        def opener(req,timeout):
+            sent.append((req.full_url,json.loads(req.data),req.headers))
+            return ok_opener(req,timeout)
+        report=mh.run(self.ENV,opener=opener,main='opencode-go')
+        self.assertEqual({row['route'] for row in report['routes']},{'proxy','opencode-go'})
+        self.assertEqual(len(sent),2)
+        go=next(item for item in sent if 'opencode.ai' in item[0])
+        self.assertEqual(go[1]['model'],'deepseek-v4.1-flash')
+        self.assertIn('hermes-agent',go[2]['User-agent'])
+        self.assertTrue(go[2]['X-opencode-session'])
+        self.assertFalse(any('googleapis' in url or 'openrouter' in url for url,_,_ in sent))
 
     def test_all_ok_with_spares(self):
         report = mh.run(self.ENV, opener=ok_opener)
         state, sentence = mh.summarize(report)
         self.assertEqual(state, 'all_ok')
-        self.assertIn('gemini', sentence)
+        self.assertIn('opencode-go', sentence)
 
     def test_main_route_up_but_no_spare_is_called_out(self):
         report = mh.run({}, opener=by_url({'127.0.0.1': ok_opener}))
@@ -101,7 +113,7 @@ class RunAndSummaryTests(unittest.TestCase):
         mh.run(self.ENV, opener=opener)
         headers = seen['https://opencode.ai/zen/go/v1/chat/completions']
         self.assertTrue(headers.get('x-opencode-session'))
-        self.assertNotIn('x-opencode-session', seen['https://openrouter.ai/api/v1/chat/completions'])
+        self.assertNotIn('x-opencode-session', seen['http://127.0.0.1:8999/v1/chat/completions'])
         self.assertEqual(headers['user-agent'], mh.USER_AGENT)
 
     def test_requests_leave_room_for_thinking_models(self):

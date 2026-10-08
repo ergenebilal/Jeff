@@ -1,10 +1,8 @@
-"""Does Jeff still have a working brain? Tries every model route with a one-word request.
+"""Does Jeff still have a working brain? Tries the two selected routes with a one-word request.
 
 Routes are probes; the preferred route is read from the active configuration:
   proxy       the Antigravity bridge on this machine
   opencode-go the OpenCode Go subscription
-  gemini      Google's official Gemini API, directly
-  openrouter  OpenRouter
 
 Each probe is a real (tiny) completion, because a bridge that answers /v1/models can still have no
 working Google account behind it. API keys come from an env file and are never printed or logged.
@@ -31,8 +29,8 @@ except ImportError:  # pragma: no cover
 
 PROMPT = 'Reply with the single word: ok'
 # Thinking models spend tokens on reasoning before the visible answer; 8 tokens would look like an empty reply.
-MAX_TOKENS = 400
-USER_AGENT = 'CyberGene-model-health/1.0'
+MAX_TOKENS = 4000
+USER_AGENT = 'hermes-agent/0.21.5 CyberGene-model-health/1.0'
 
 
 def _post(url, headers, body, timeout, opener):
@@ -74,11 +72,7 @@ def routes(env):
         ('proxy', 'http://127.0.0.1:8999/v1/chat/completions', env.get('ANTIGRAVITY_API_KEY', ''),
          env.get('MODEL_PROXY', 'gemini-3.8-flash-high')),
         ('opencode-go', 'https://opencode.ai/zen/go/v1/chat/completions', env.get('OPENCODE_GO_API_KEY', ''),
-         env.get('MODEL_OPENCODE', 'deepseek-v4-flash')),
-        ('gemini', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-         env.get('GOOGLE_API_KEY', ''), env.get('MODEL_GEMINI', 'gemini-2.5-flash')),
-        ('openrouter', 'https://openrouter.ai/api/v1/chat/completions', env.get('OPENROUTER_API_KEY', ''),
-         env.get('MODEL_OPENROUTER', 'google/gemini-2.5-flash')),
+         env.get('MODEL_OPENCODE', 'deepseek-v4.1-flash')),
     ]
 
 
@@ -241,7 +235,7 @@ def main(argv=None):
     env = {}
     for values in files:
         env.update(values)     # later file wins, exactly as Hermes loads .env over the service environment
-    wanted = ['ANTIGRAVITY_API_KEY', 'OPENCODE_GO_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY']
+    wanted = ['ANTIGRAVITY_API_KEY', 'OPENCODE_GO_API_KEY']
     report = run(env, conflicts=env_conflicts(files, wanted), main=main_route_from_config(args.config))
     write_report(report, args.out)
     state, sentence = summarize(report)
