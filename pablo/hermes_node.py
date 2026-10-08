@@ -2273,7 +2273,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok": false, "error": "Forbidden: IP not allowed"}')
             return
 
-        if self.path.startswith('/tasks/') or self.path.split('?')[0] == '/work' or self.path.startswith('/work/'):
+        if self.path.startswith('/tasks/') or self.path.split('?')[0] == '/work' or self.path.startswith('/work/') or self.path.split('?')[0] == '/draft-choices':
             import hmac
             token = self.headers.get('X-Bridge-Key') or self.headers.get('X-Alfred-Token') or ''
             expected = CONFIG.get('auth_token', '')
@@ -2281,7 +2281,18 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 self.send_response(401)
                 self.end_headers()
                 return
-            if self.path.split('?')[0].endswith('/observation'):
+            if self.path.split('?')[0] == '/draft-choices':
+                parsed = urllib.parse.urlsplit(self.path)
+                query = urllib.parse.parse_qs(parsed.query,keep_blank_values=True)
+                try:
+                    if parsed.fragment or set(query)-{'limit','offset'} or any(len(v)!=1 or not re.fullmatch(r'[0-9]{1,6}',v[0]) for v in query.values()):
+                        raise ValueError('Invalid catalog page')
+                    result = task_guard().draft_choices(int(query.get('limit',['20'])[0]),int(query.get('offset',['0'])[0]))
+                except ValueError:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+            elif self.path.split('?')[0].endswith('/observation'):
                 parsed = urllib.parse.urlsplit(self.path)
                 match = re.fullmatch(r'/tasks/([A-Za-z0-9_-]{1,128})/observation', parsed.path)
                 if not match or parsed.query or parsed.fragment:

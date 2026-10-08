@@ -400,6 +400,31 @@ class TaskGuard:
                     runtime_interruption=({'process_started_at':interruption[0],'detected_at':interruption[1]}
                                           if interruption and recorded_status=='IN_PROGRESS' else None))
 
+    def draft_choices(self, limit=20, offset=0):
+        """Bounded private catalog, not a criterion or result verification.
+
+        Stored payloads, results, paths and customer content never leave here.
+        A chosen task still needs the existing original-criterion reader.
+        """
+        if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
+            raise ValueError('Invalid catalog page')
+        with self.connect() as db:
+            where="action='local_draft' AND parent_id IS NULL"
+            total=db.execute('SELECT count(*) FROM requests WHERE '+where).fetchone()[0]
+            rows=db.execute('SELECT id,created_at FROM requests WHERE '+where+' ORDER BY coalesce(created_at,0) DESC,id LIMIT ? OFFSET ?', (limit,offset)).fetchall()
+        items=[]
+        for rid,created in rows:
+            if not isinstance(rid,str) or re.fullmatch(r'[A-Za-z0-9_-]{1,128}',rid) is None:
+                continue
+            known=type(created) in (int,float) and math.isfinite(created) and created>0
+            items.append(dict(task_id=rid,created_at=created if known else None,created_at_known=known))
+        return dict(items=items,total_recorded_drafts=total,
+                    next_offset=offset+len(rows) if offset+len(rows)<total else None,
+                    omitted_in_page=len(rows)-len(items),observed_at=self.clock(),read_only=True,
+                    catalog_only=True,criterion_verified=False,current_outcome_verified=False,
+                    execution_authorized=False,reexecution_authorized=False,
+                    customer_contact_authorized=False,automatic_replay=False)
+
     def work_snapshot(self, limit=100, offset=0, include_history=False):
         limit, offset = max(1, min(int(limit), 100)), max(0, int(offset))
         selection = "parent_id IS NULL AND status NOT IN ('REJECTED','EXPIRED','NEEDS_REVALIDATION','CANCELLED')"
