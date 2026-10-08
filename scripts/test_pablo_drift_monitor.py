@@ -45,3 +45,33 @@ def test_contradictory_success_not_pass(tmp_path):
     expected,ping=source(tmp_path);result=compare_sources(tmp_path,expected,ping)
     result.update(version=1,observed_at=100,missing=['critical.py'])
     path=tmp_path/'report';path.write_text(json.dumps(result));assert not read_report(path,now=100)[0]
+
+
+def test_new_criterion_and_observation_are_required_runtime_sources(tmp_path):
+    expected,ping=source(tmp_path)
+    assert set(LOADED[-2:])=={'pablo_outcome_observer.py','pablo_task_criterion.py'}
+    assert len(LOADED)==12
+    assert compare_sources(tmp_path,expected,ping)['runtime_compared']==12
+    for name in LOADED[-2:]:
+        changed=dict(ping,loaded_source_sha256=dict(ping['loaded_source_sha256']))
+        changed['loaded_source_sha256'][name]='0'*64
+        result=compare_sources(tmp_path,expected,changed)
+        assert not result['ok'] and result['runtime_changed']==[name]
+
+
+def test_previous_ten_source_runtime_cannot_pass(tmp_path):
+    expected,ping=source(tmp_path)
+    ping['loaded_source_sha256']={name:ping['loaded_source_sha256'][name] for name in LOADED[:-2]}
+    with pytest.raises(ValueError):compare_sources(tmp_path,expected,ping)
+
+
+def test_unexpected_runtime_module_cannot_automatically_expand_scope(tmp_path):
+    expected,ping=source(tmp_path)
+    ping['loaded_source_sha256']['unexpected.py']='0'*64
+    with pytest.raises(ValueError):compare_sources(tmp_path,expected,ping)
+
+
+def test_report_with_old_coverage_is_not_current_success(tmp_path):
+    expected,ping=source(tmp_path);result=compare_sources(tmp_path,expected,ping)
+    result.update(version=1,observed_at=100,runtime_compared=10)
+    path=tmp_path/'report';path.write_text(json.dumps(result));assert not read_report(path,now=100)[0]
