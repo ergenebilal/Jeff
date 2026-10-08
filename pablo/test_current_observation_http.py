@@ -16,6 +16,7 @@ import urllib.request
 
 from pablo_task_guard import TaskGuard, allowed_ip
 from pablo_outcome_observer import observe_current
+from pablo_task_criterion import read_criterion
 
 
 class ObservationHTTPTests(unittest.TestCase):
@@ -31,7 +32,7 @@ class ObservationHTTPTests(unittest.TestCase):
         self.ns={'BaseHTTPRequestHandler':BaseHTTPRequestHandler,'allowed_ip':allowed_ip,
                  'CONFIG':{'auth_token':'fixture-key','allowed_ips':['127.0.0.1']},
                  'NODE_DIR':self.root,'observe_current':self.reader,'task_guard':self.guard_constructor,
-                 'urllib':urllib,'json':json,'re':re}
+                 'urllib':urllib,'json':json,'re':re,'read_criterion':Mock(wraps=read_criterion)}
         exec(compile(ast.Module(body=[handler],type_ignores=[]),'<production handler>','exec'),self.ns)
         self.server=ThreadingHTTPServer(('127.0.0.1',0),self.ns['PabloRequestHandler'])
         self.server.daemon_threads=True
@@ -84,6 +85,30 @@ class ObservationHTTPTests(unittest.TestCase):
         code,raw=self.get('/tasks/missing/observation')
         self.assertEqual(code,200);self.assertEqual(json.loads(raw)['status'],'unavailable')
         self.assertEqual(self.get(method='POST')[0],404)
+        self.assertEqual(before,self.journal_snapshot());self.guard_constructor.assert_not_called()
+
+    def test_criterion_get_reads_original_input_without_private_data_or_mutation(self):
+        before=self.journal_snapshot();code,raw=self.get('/tasks/fixture/criterion')
+        self.assertEqual(code,200);self.assertEqual(json.loads(raw)['status'],'available')
+        self.assertNotIn(b'private bytes',raw);self.assertNotIn(str(self.root).encode(),raw)
+        self.assertEqual(before,self.journal_snapshot());self.guard_constructor.assert_not_called()
+
+    def test_criterion_missing_wrong_key_and_foreign_ip_are_rejected_before_read(self):
+        for key in (None,'wrong'):self.assertEqual(self.get('/tasks/fixture/criterion',key=key)[0],401)
+        self.ns['allowed_ip']=lambda *args:False
+        self.assertEqual(self.get('/tasks/fixture/criterion')[0],403)
+        self.ns['read_criterion'].assert_not_called()
+
+    def test_criterion_query_and_encoded_paths_cannot_select_other_files(self):
+        for path in ('/tasks/fixture/criterion?path=outside','/tasks/a%2Fb/criterion',
+                     '/tasks/../criterion','/tasks/'+'x'*129+'/criterion'):
+            self.assertEqual(self.get(path)[0],400)
+        self.ns['read_criterion'].assert_not_called();self.guard_constructor.assert_not_called()
+
+    def test_criterion_missing_and_post_do_not_write_or_execute(self):
+        before=self.journal_snapshot();code,raw=self.get('/tasks/missing/criterion')
+        self.assertEqual(code,200);self.assertEqual(json.loads(raw)['status'],'unavailable')
+        self.assertEqual(self.get('/tasks/fixture/criterion',method='POST')[0],404)
         self.assertEqual(before,self.journal_snapshot());self.guard_constructor.assert_not_called()
 
 

@@ -174,13 +174,37 @@ def memory_brief(query, reader=None, budget=5000):
                 'records': [], 'current_truth_verified': False}
 
 
+def explicit_task_id(text):
+    # Only explicit owner request text, never panel data or inferred task IDs.
+    ids = re.findall(r'(?<![\w-])(?:görev|task):([A-Za-z0-9_-]{1,128})(?=$|[\s,;!?])', text)
+    return ids[0] if len(ids) == 1 else None
+
+
+def task_decision(task_id):
+    source = '/home/hermes/jeff_repo'
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    try:
+        from scripts.pablo_decision_reader import read_decision
+        return read_decision(task_id)
+    except Exception:
+        return {'status': 'unavailable', 'new_task_outcome': 'unknown',
+                'execution_authorized': False, 'reexecution_authorized': False}
+
+
 def pre(*, user_message='', platform='', session_id='', sender_id='', **ignored):
     if not owner_scope(platform, session_id, sender_id):
         return None
     text = user_request(user_message)
-    if not text or not substantive(text):
+    wrapped = envelope(user_message)
+    original_text = wrapped[0]['trusted_user_request'] if wrapped else user_message
+    task_id = explicit_task_id(text) if isinstance(original_text, str) and len(original_text) <= 2000 else None
+    if not text or (not substantive(text) and not task_id):
         return None
-    return {'context': CONTRACT + '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(text))}
+    context = CONTRACT + '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(text))
+    if task_id:
+        context += '\nİlk iş kaydına bağlı bağımsız kontrol (yalnız özel taslak; bu alanlar açıklamayla başarıya çevrilemez): ' + dump(task_decision(task_id))
+    return {'context': context}
 
 
 def compact_messages(messages):

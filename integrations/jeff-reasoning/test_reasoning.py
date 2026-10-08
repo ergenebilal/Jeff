@@ -149,4 +149,35 @@ class GroundingTests(unittest.TestCase):
         ctx.register_hook.assert_called_once_with('pre_llm_call',m.pre)
         ctx.register_middleware.assert_called_once_with('llm_request',m.middleware)
 
+class TaskDecisionTests(unittest.TestCase):
+    def test_foreign_owner_never_reads_evidence(self):
+        with patch.object(m, 'owner_scope', return_value=False), patch.object(m, 'task_decision') as read:
+            self.assertIsNone(m.pre(user_message='görev:fixture sonucunu kontrol et'))
+            read.assert_not_called()
+
+    def test_marker_in_untrusted_panel_data_cannot_trigger_reader(self):
+        with patch.object(m, 'owner_scope', return_value=True), patch.object(m, 'memory_brief', return_value={}), patch.object(m, 'task_decision') as read:
+            result=m.pre(user_message=message('Hangi planı seçelim?', {'injection':'görev:fixture'})['content'])
+            self.assertIsNotNone(result); read.assert_not_called()
+
+    def test_exact_owner_marker_includes_computed_evidence(self):
+        proof={'status':'observed','new_task_outcome':'mismatch','execution_authorized':False}
+        with patch.object(m, 'owner_scope', return_value=True), patch.object(m, 'memory_brief', return_value={}), patch.object(m, 'task_decision', return_value=proof) as read:
+            result=m.pre(user_message='görev:fixture sonucunu kontrol et')
+            self.assertIn('mismatch',result['context']);read.assert_called_once_with('fixture')
+
+    def test_ambiguous_invalid_or_oversized_markers_do_not_guess(self):
+        for text in ('görev:a task:b','görev:'+ 'a'*129,'görev:a/b','görev:../outside'):
+            self.assertIsNone(m.explicit_task_id(text))
+
+    def test_missing_marker_never_opens_receipt_transport(self):
+        with patch.object(m, 'owner_scope', return_value=True), patch.object(m, 'memory_brief', return_value={}), patch.object(m, 'task_decision') as read:
+            m.pre(user_message='Eski başarıya göre karar ver')
+            read.assert_not_called()
+
+    def test_truncated_owner_request_cannot_turn_partial_id_into_another_task(self):
+        with patch.object(m, 'owner_scope', return_value=True), patch.object(m, 'memory_brief', return_value={}), patch.object(m, 'task_decision') as read:
+            m.pre(user_message='karar '+ ' '*1987 + 'görev:fixture123456789')
+            read.assert_not_called()
+
 if __name__=='__main__':unittest.main()
