@@ -1,0 +1,20 @@
+--- a/server/app.py
++++ b/server/app.py
+@@ -842,6 +842,8 @@
+     install_live_adapter(sys.modules[__name__])
+     from .opportunity_context import install as install_opportunity_context
+     install_opportunity_context(sys.modules[__name__])
++    from .panel_correction import install as install_panel_correction
++    install_panel_correction(sys.modules[__name__])
+     JEFF_TOKEN = jeff_token()
+     has = llm.load_key()
+     radar = Radar(store)
+--- a/index.html
++++ b/index.html
+@@ -967,5 +967,6 @@
+ <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+ <script src="live-call.js?v=35f5a304b2b4d27b"></script>
+ <script src="app.js?v=36246c37f08d6550"></script>
++<script src="correction-panel.js?v=65c12471de0ddb88"></script>
+ </body>
+ </html>
