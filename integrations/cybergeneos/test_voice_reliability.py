@@ -82,27 +82,27 @@ class ReliabilityTests(unittest.TestCase):
 
     def test_voice_transport_selection_does_not_change_global_configuration(self):
         route=Path(self.tmp.name)/'voice-brain-route.json'
-        route.write_text(json.dumps({'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}))
+        route.write_text(json.dumps({'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'low'}))
         selected=brain_route(self.tmp.name)
-        self.assertEqual(selected['provider'],'custom:jeff-voice-google');self.assertEqual(selected['model'],'gemini-3.8-flash')
+        self.assertEqual(selected['provider'],'antigravity');self.assertEqual(selected['model'],'gemini-3.8-flash-high')
         self.assertNotIn('api_key',selected)
         route.unlink();self.assertEqual(brain_route(self.tmp.name)['model'],'jeff')
 
     def test_invalid_voice_route_never_silently_falls_back_or_accepts_secrets(self):
         route=Path(self.tmp.name)/'voice-brain-route.json'
         for value in ['broken',json.dumps({'model':'unknown','provider':'gemini','reasoning_effort':'low'}),
-                      json.dumps({'model':'gemini-3.8-flash','provider':'gemini','reasoning_effort':'low','api_key':'secret'})]:
+                      json.dumps({'model':'gemini-3.8-flash-high','provider':'gemini','reasoning_effort':'low','api_key':'secret'})]:
             with self.subTest(value=value):
                 route.write_text(value)
                 with self.assertRaises(Refused):brain_route(self.tmp.name)
 
     def capacity_fixture(self):
-        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
-        standby={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'low'}
         Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=standby)))
         value={'version':1,'observed_at':1000,'blocks':[
-            dict(provider=primary['provider'],model=primary['model'],unavailable_until=3000,source='openai_usage_limit_reached'),
-            dict(provider=standby['provider'],model=standby['model'],unavailable_until=2000,source='google_daily_quota_exceeded')]}
+            dict(provider=primary['provider'],model=primary['model'],unavailable_until=3000,source='opencode_go_usage_limit_reached'),
+            dict(provider=standby['provider'],model=standby['model'],unavailable_until=2000,source='antigravity_quota_exceeded')]}
         path=Path(self.tmp.name,'voice-brain-capacity.json');path.write_text(json.dumps(value));path.chmod(0o600)
         return path,value
 
@@ -116,15 +116,15 @@ class ReliabilityTests(unittest.TestCase):
     def test_capacity_expiry_allows_only_a_later_human_request_on_matching_route(self):
         self.capacity_fixture()
         with patch('integrations.cybergeneos.live_adapter.time.time',return_value=2001):
-            self.assertEqual(brain_route(self.tmp.name)['provider'],'custom:jeff-voice-google')
+            self.assertEqual(brain_route(self.tmp.name)['provider'],'antigravity')
         with patch('integrations.cybergeneos.live_adapter.time.time',return_value=3001):
-            self.assertEqual(brain_route(self.tmp.name)['provider'],'openai-codex')
+            self.assertEqual(brain_route(self.tmp.name)['provider'],'opencode-go')
         self.assertEqual(self.executions,0)
 
     def test_old_primary_failure_does_not_erase_dated_hard_capacity_limit(self):
         self.capacity_fixture()
         with patch('integrations.cybergeneos.live_adapter.time.time',return_value=1001):
-            record_primary_failure(self.tmp.name,{'provider':'openai-codex'})
+            record_primary_failure(self.tmp.name,{'provider':'opencode-go','model':'deepseek-v4.1-flash'})
         with patch('integrations.cybergeneos.live_adapter.time.time',return_value=1200):
             with self.assertRaises(Refused) as refused:brain_route(self.tmp.name)
         self.assertEqual(refused.exception.reason,'ses_model_hakki_dolu')
@@ -155,36 +155,36 @@ class ReliabilityTests(unittest.TestCase):
         events=list(self.service._execute_stream('owner',read))
         self.assertEqual(events[-1]['answer'],'Kayıttan okundu.');self.assertEqual(self.executions,0)
 
-    def test_openai_primary_keeps_gemini_standby_without_executing_either_model(self):
-        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
-        fallback={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+    def test_opencode_primary_keeps_gemini_standby_without_executing_either_model(self):
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        fallback={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'low'}
         Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=fallback)))
-        self.assertEqual(brain_route(self.tmp.name)['provider'],'openai-codex')
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'opencode-go')
         self.assertEqual(self.executions,0)
         record_primary_failure(self.tmp.name,primary)
-        self.assertEqual(brain_route(self.tmp.name)['provider'],'custom:jeff-voice-google')
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'antigravity')
         state=json.loads(Path(self.tmp.name,'voice-brain-route-state.json').read_text())
         self.assertFalse(state['failed_request_replayed']);self.assertEqual(self.executions,0)
         with patch('integrations.cybergeneos.live_adapter.time.time',return_value=state['primary_unavailable_until']+1):
-            self.assertEqual(brain_route(self.tmp.name)['provider'],'openai-codex')
+            self.assertEqual(brain_route(self.tmp.name)['provider'],'opencode-go')
 
-    def test_openai_failure_is_not_a_second_backend_request_or_a_gemini_success(self):
-        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
-        fallback={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+    def test_opencode_failure_is_not_a_second_backend_request_or_a_gemini_success(self):
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        fallback={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'low'}
         Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=fallback)))
         requests=[]
         def fail(request,timeout):requests.append(json.loads(request.data));raise OSError('connection lost')
         app=SimpleNamespace(DATA=self.tmp.name,jeff=SimpleNamespace(DATA_RULES='DATA ONLY',pack_request=lambda t,c:t,hermes_url=lambda:'http://fixture'))
         with patch.dict('os.environ',{'HERMES_API_KEY':'test'}),patch('urllib.request.urlopen',side_effect=fail):
             with self.assertRaises(OSError):list(brain_reply(app,'Sadece konuş, iş başlatma.',''))
-        self.assertEqual(len(requests),1);self.assertEqual(requests[0]['provider'],'openai-codex')
+        self.assertEqual(len(requests),1);self.assertEqual(requests[0]['provider'],'opencode-go')
         self.assertTrue(requests[0]['require_model_lock'])
-        self.assertEqual(brain_route(self.tmp.name)['provider'],'custom:jeff-voice-google')
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'antigravity')
 
     def test_corrupt_standby_state_or_credentials_are_refused_not_used_as_success(self):
         route=Path(self.tmp.name,'voice-brain-route.json')
-        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
-        standby={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'low'}
         route.write_text(json.dumps(dict(primary,fallback=dict(standby,api_key='secret'))))
         with self.assertRaises(Refused):brain_route(self.tmp.name)
         route.write_text(json.dumps(dict(primary,fallback=standby)))
@@ -196,7 +196,7 @@ class ReliabilityTests(unittest.TestCase):
                 with self.assertRaises(Refused):brain_route(self.tmp.name)
 
     def test_only_completed_locked_provider_output_is_canonical(self):
-        selected={'provider':'openai-codex','model':'gpt-6-astra'}
+        selected={'provider':'opencode-go','model':'deepseek-v4.1-flash'}
         def frame(event,data):return [f'event: {event}', 'data: '+json.dumps(data),'']
         runtime=dict(selected,model_lock='confirmed')
         lines=frame('assistant.commentary',{'text':'Kontrol ediyorum.'})+frame('assistant.delta',{'delta':'Taslak'})
@@ -211,9 +211,9 @@ class ReliabilityTests(unittest.TestCase):
                 with self.assertRaises(Refused):list(verified_session_reply(failed,selected,0,clock=lambda:1))
         with self.assertRaises(Refused):list(verified_session_reply(lines[:6],selected,0,clock=lambda:1))
 
-    def test_empty_or_unverified_openai_stream_enters_standby_without_replay(self):
-        primary={'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'}
-        standby={'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'}
+    def test_empty_or_unverified_opencode_stream_enters_standby_without_replay(self):
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'low'}
         Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=standby)))
         class Response:
             def __enter__(self):return self
@@ -228,15 +228,36 @@ class ReliabilityTests(unittest.TestCase):
         proof=json.loads(Path(self.tmp.name,'voice-brain-route-last.json').read_text())
         self.assertFalse(proof['completion_verified']);self.assertFalse(proof['failed_request_replayed'])
 
-    def test_named_gemini_runtime_requires_exact_confirmed_identity(self):
-        selected={'provider':'custom:jeff-voice-google','model':'gemini-3.8-flash'}
-        runtime={'provider':'custom','model':selected['model'],'requested':selected,'model_lock':'confirmed'}
+    def test_standby_requires_confirmed_antigravity_runtime(self):
+        selected={'provider':'antigravity','model':'gemini-3.8-flash-high'}
+        runtime=dict(selected,model_lock='confirmed')
         def stream(r):return ['event: assistant.completed','data: '+json.dumps({'content':'Yedi.'}),
                               'event: run.completed','data: '+json.dumps({'runtime':r})]
         self.assertEqual(list(verified_session_reply(stream(runtime),selected,0,clock=lambda:1)),['Yedi.'])
-        for bad in [dict(runtime,requested={'provider':'custom:other','model':selected['model']}),
-                    dict(runtime,model_lock='accepted'),dict(runtime,requested={})]:
+        for bad in [dict(runtime,provider='custom',requested=selected),
+                    dict(runtime,model_lock='accepted'),dict(runtime,model='gemini-3.8-flash')]:
             with self.assertRaises(Refused):list(verified_session_reply(stream(bad),selected,0,clock=lambda:1))
+
+    def test_previous_provider_cooldown_cannot_select_current_standby(self):
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        fallback={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'high'}
+        Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(dict(primary,fallback=fallback)))
+        Path(self.tmp.name,'voice-brain-route-state.json').write_text(json.dumps({
+            'primary_provider':'old-provider','primary_model':'old-model','primary_unavailable_until':time.time()+120}))
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'opencode-go')
+        record_primary_failure(self.tmp.name,primary)
+        self.assertEqual(brain_route(self.tmp.name)['provider'],'antigravity')
+        self.assertEqual(brain_route(self.tmp.name)['model_options']['reasoning_effort'],'high')
+
+    def test_previous_voice_routes_and_reversed_fallback_are_rejected(self):
+        primary={'model':'deepseek-v4.1-flash','provider':'opencode-go','reasoning_effort':'low'}
+        standby={'model':'gemini-3.8-flash-high','provider':'antigravity','reasoning_effort':'high'}
+        values=[{'model':'gpt-6-astra','provider':'openai-codex','reasoning_effort':'low'},
+                {'model':'gemini-3.8-flash','provider':'custom:jeff-voice-google','reasoning_effort':'low'},
+                dict(standby,fallback=primary)]
+        for value in values:
+            Path(self.tmp.name,'voice-brain-route.json').write_text(json.dumps(value))
+            with self.assertRaises(Refused):brain_route(self.tmp.name)
 
     def test_keepalives_cannot_extend_the_initial_answer_deadline(self):
         times=iter([1,20,46])

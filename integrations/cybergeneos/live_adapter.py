@@ -640,7 +640,9 @@ def known_capacity_blocks(data):
                 not isinstance(blocks,list) or len(blocks)>2):raise ValueError()
         result=set()
         sources={('openai-codex','gpt-6-astra'):'openai_usage_limit_reached',
-                 ('custom:jeff-voice-google','gemini-3.8-flash'):'google_daily_quota_exceeded'}
+                 ('custom:jeff-voice-google','gemini-3.8-flash'):'google_daily_quota_exceeded',
+                 ('opencode-go','deepseek-v4.1-flash'):'opencode_go_usage_limit_reached',
+                 ('antigravity','gemini-3.8-flash-high'):'antigravity_quota_exceeded'}
         for block in blocks:
             if not isinstance(block,dict) or set(block)!={'provider','model','unavailable_until','source'}:raise ValueError()
             identity=(block['provider'],block['model']);until=block['unavailable_until']
@@ -666,7 +668,7 @@ def brain_route(data):
         if not isinstance(configured,dict):raise ValueError()
         def valid(candidate):
             if not isinstance(candidate,dict) or set(candidate)!={'model','provider','reasoning_effort'}:return False
-            allowed={('gemini-3.8-flash','custom:jeff-voice-google'),('gpt-6-astra','openai-codex')}
+            allowed={('deepseek-v4.1-flash','opencode-go'),('gemini-3.8-flash-high','antigravity')}
             return ((candidate['model'],candidate['provider']) in allowed and
                     candidate['reasoning_effort'] in {'low','medium','high'})
         fallback=configured.get('fallback') if isinstance(configured,dict) else None
@@ -676,15 +678,16 @@ def brain_route(data):
         primary_blocked=(primary['provider'],primary['model']) in blocked
         cooldown=False
         if 'fallback' in configured:
-            if (not valid(fallback) or primary['provider']!='openai-codex' or
-                    fallback['provider']!='custom:jeff-voice-google'):raise ValueError()
+            if (not valid(fallback) or primary['provider']!='opencode-go' or
+                    fallback['provider']!='antigravity'):raise ValueError()
             state=Path(data)/'voice-brain-route-state.json'
             if state.exists():
                 status=json.loads(state.read_text())
                 if not isinstance(status,dict):raise ValueError()
                 until=status.get('primary_unavailable_until')
                 if not isinstance(until,(int,float)) or isinstance(until,bool) or not math.isfinite(until):raise ValueError()
-                cooldown=until>time.time()
+                cooldown=(status.get('primary_provider')==primary['provider'] and
+                          status.get('primary_model')==primary['model'] and until>time.time())
             if primary_blocked or cooldown:
                 if (fallback['provider'],fallback['model']) in blocked:
                     if primary_blocked:raise Refused(503,'ses_model_hakki_dolu')
@@ -718,12 +721,6 @@ def verified_session_reply(lines,selected,started,clock=time.monotonic):
             if event=='run.completed':
                 runtime=payload.get('runtime') or {}
                 provider_ok=isinstance(runtime,dict) and runtime.get('provider')==selected['provider']
-                # Hermes resolves a named custom provider to the runtime id
-                # "custom". Its confirmed lock validates that resolution;
-                # require the exact requested identity as additional evidence.
-                if (isinstance(runtime,dict) and selected['provider']=='custom:jeff-voice-google' and
-                        runtime.get('provider')=='custom' and runtime.get('requested')==
-                        {'provider':selected['provider'],'model':selected['model']}):provider_ok=True
                 if (not provider_ok or
                         runtime.get('model')!=selected['model'] or runtime.get('model_lock')!='confirmed' or
                         payload.get('failed') or payload.get('partial') or payload.get('completed') is False):
@@ -755,11 +752,11 @@ def record_primary_failure(data,selected):
     """Select the standby for a *later human request*. Never replay this job.
 
     No credentials or transcripts are stored. This is an observed failed request,
-    not proof that every OpenAI model or the owner's entire account is unhealthy.
+    not proof that every model or the owner's entire account is unhealthy.
     """
-    if selected.get('provider')!='openai-codex':return
+    if (selected.get('provider'),selected.get('model'))!=('opencode-go','deepseek-v4.1-flash'):return
     now=time.time()
-    status={'observed_at':now,'primary_provider':'openai-codex',
+    status={'observed_at':now,'primary_provider':selected['provider'],'primary_model':selected['model'],
             'primary_unavailable_until':now+120,'reason':'request_result_not_verified',
             'failed_request_replayed':False}
     path=Path(data)/'voice-brain-route-state.json'
