@@ -135,14 +135,41 @@ MEMORY_READER_PATH = Path('/home/hermes/jeff_repo/scripts/jeff_memory_context.py
 _automatic_reader = None
 
 
+def explicit_project_scope(query):
+    """Only a leading owner header is a project binding; never infer from retrieved text."""
+    if not isinstance(query, str):
+        return 'invalid', None
+    prefix = re.match(r'^\s*(?:proje|project)[ \t]*:[ \t]*', query, re.IGNORECASE)
+    if not prefix:
+        return 'unbound', None
+    tail = query[prefix.end():]
+    if not tail or tail[0] in '\r\n':
+        return 'invalid', None
+    if tail[0] in ('"', "'"):
+        close = tail.find(tail[0], 1)
+        if close < 1 or (len(tail) > close + 1 and tail[close + 1] not in ' \t\r\n,;.!?'):
+            return 'invalid', None
+        project = tail[1:close].strip()
+    else:
+        project = re.split(r'\s', tail, maxsplit=1)[0].rstrip(',;.!?')
+    if not project or len(project) > 128 or any(ord(c) < 32 for c in project):
+        return 'invalid', None
+    return 'explicit', project
+
+
 def automatic_memory(query):
     """Own fresh helper copy per plugin lifetime; supported reload cannot reuse stale imports."""
+    scope, project = explicit_project_scope(query)
+    if scope == 'invalid':
+        return {'status': 'invalid_project_scope', 'records': [], 'current_truth_verified': False, 'read_only': True}
     global _automatic_reader
     if _automatic_reader is None:
         spec = importlib.util.spec_from_file_location('_jeff_automatic_memory_reader', MEMORY_READER_PATH)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         _automatic_reader = module.read_context
+    if scope == 'explicit':
+        return _automatic_reader(query, strict=True, project=project)
     return _automatic_reader(query, strict=True)
 
 
