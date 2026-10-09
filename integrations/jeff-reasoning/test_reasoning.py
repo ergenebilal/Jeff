@@ -147,7 +147,9 @@ class GroundingTests(unittest.TestCase):
     def test_register_uses_supported_hook_and_middleware(self):
         ctx=Mock();m.register(ctx)
         ctx.register_hook.assert_called_once_with('pre_llm_call',m.pre)
-        ctx.register_middleware.assert_called_once_with('llm_request',m.middleware)
+        self.assertEqual(ctx.register_middleware.call_count,2)
+        ctx.register_middleware.assert_any_call('llm_request',m.middleware)
+        ctx.register_middleware.assert_any_call('tool_execution',m.source_tool_execution)
 
 class TaskDecisionTests(unittest.TestCase):
     def test_foreign_owner_never_reads_evidence(self):

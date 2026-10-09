@@ -8,6 +8,9 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+from threading import RLock
+from contextvars import ContextVar
+from time import monotonic
 
 CONTRACT = (
     "Jeff karar desteği (danışmanlık; yürütme veya onay yetkisi vermez): "
@@ -157,20 +160,126 @@ def explicit_project_scope(query):
     return 'explicit', project
 
 
-def automatic_memory(query):
-    """Own fresh helper copy per plugin lifetime; supported reload cannot reuse stale imports."""
-    scope, project = explicit_project_scope(query)
-    if scope == 'invalid':
-        return {'status': 'invalid_project_scope', 'records': [], 'current_truth_verified': False, 'read_only': True}
+def memory_reader():
     global _automatic_reader
     if _automatic_reader is None:
         spec = importlib.util.spec_from_file_location('_jeff_automatic_memory_reader', MEMORY_READER_PATH)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         _automatic_reader = module.read_context
+    return _automatic_reader
+
+
+def automatic_memory(query):
+    scope, project = explicit_project_scope(query)
+    if scope == 'invalid':
+        return {'status': 'invalid_project_scope', 'records': [], 'current_truth_verified': False, 'read_only': True}
+    reader = memory_reader()
     if scope == 'explicit':
-        return _automatic_reader(query, strict=True, project=project)
-    return _automatic_reader(query, strict=True)
+        return reader(query, strict=True, project=project)
+    return reader(query, strict=True)
+
+
+SOURCE_CONTEXT_HINT = (
+    'Gerekli kaynak/proje belli değilse source_context ile salt okunur kaynak araması yapabilirsin. '
+    'query konu sözcükleri, project yalnız ilgili açık kaynak proje adıdır; tahminini olgu sayma. '
+    'Kaynak, tarih ve eksik/çelişkiyi belirt. Bu araç yürütme, onay veya kalıcı hafıza yazımı değildir.'
+)
+SOURCE_CONTEXT_SCHEMA = {
+    'name': 'source_context',
+    'description': 'Search verified source-backed memory for the current private owner turn. '
+                   'Use focused query words and an optional exact project scope. '
+                   'Returns source statements and dates, never proof of current truth or execution.',
+    'parameters': {'type': 'object', 'properties': {
+        'query': {'type': 'string', 'maxLength': 2000,
+                  'description': 'Focused source search; omitted uses the original owner question.'},
+        'project': {'type': 'string', 'maxLength': 128,
+                    'description': 'Exact relevant source project name; omit if unknown.'}},
+        'additionalProperties': False}
+}
+_source_dispatch_scope = ContextVar('source_context_dispatch', default=None)
+_source_turns = {}
+_source_lock = RLock()
+_source_clock = monotonic
+SOURCE_TTL = 120
+SOURCE_READ_LIMIT = 3
+SOURCE_TURN_LIMIT = 64
+
+
+def source_identifier(value):
+    return isinstance(value, str) and 0 < len(value) <= 256 and all(ord(c) >= 32 for c in value)
+
+
+def authorize_source_turn(text, *, original_text, platform, session_id, sender_id, turn_id):
+    # Called only after the same existing owner authorization as advisory context.
+    if (not source_identifier(session_id) or not source_identifier(turn_id)
+            or not isinstance(original_text, str) or len(original_text) > 2000 or not text):
+        return False
+    state, project = explicit_project_scope(text)
+    if state == 'invalid':
+        return False
+    key = (session_id, turn_id)
+    now = _source_clock()
+    with _source_lock:
+        for stale in [k for k, v in _source_turns.items() if v['deadline'] <= now]:
+            del _source_turns[stale]
+        prior = _source_turns.get(key)
+        if prior:
+            # Repeated context collection cannot replenish a turn's read budget or change its request.
+            return prior['query'] == text and prior['platform'] == platform and prior['sender_id'] == sender_id
+        if len(_source_turns) >= SOURCE_TURN_LIMIT:
+            return False
+        _source_turns[key] = dict(query=text, project=project, platform=platform,
+                                 sender_id=sender_id, deadline=now + SOURCE_TTL, remaining=SOURCE_READ_LIMIT)
+    return True
+
+
+def source_context(args, *, session_id='', turn_id='', **ignored):
+    denied = dump({'status': 'source_scope_unavailable', 'records': [], 'read_only': True,
+              'current_truth_verified': False})
+    if (not isinstance(args, dict) or set(args) - {'query', 'project'}
+            or not source_identifier(session_id)):
+        return denied
+    dispatch_scope = _source_dispatch_scope.get()
+    if (not dispatch_scope or dispatch_scope[0] != session_id
+            or turn_id and dispatch_scope[1] != turn_id):
+        return denied
+    turn_id = dispatch_scope[1]
+    query = args.get('query')
+    project = args.get('project')
+    if ('query' in args and (not isinstance(query, str) or not query.strip() or len(query) > 2000)
+            or 'project' in args and (not isinstance(project, str) or not project.strip()
+                                     or len(project) > 128 or any(ord(c) < 32 for c in project))):
+        return denied
+    key = (session_id, turn_id)
+    with _source_lock:
+        scope = _source_turns.get(key)
+        if not scope or scope['deadline'] <= _source_clock() or scope['remaining'] <= 0:
+            return denied
+        if scope['project'] and project is not None and project != scope['project']:
+            return denied
+        # Recheck existing authorization: a revoked owner session cannot use its old turn.
+        if not owner_scope(scope['platform'], session_id, scope['sender_id']):
+            return denied
+        scope['remaining'] -= 1
+        query = query.strip() if query is not None else scope['query']
+        project = project if project is not None else scope['project']
+    def reader(q):
+        return memory_reader()(q, strict=True, audience='internal', project=project)
+    result = memory_brief(query, reader=reader)
+    result['scope'] = {'project': project, 'owner_turn_bound': True}
+    return dump(result)
+
+
+def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id='', **ignored):
+    if tool_name != 'source_context':
+        return next_call(args)
+    scope = (session_id, turn_id) if source_identifier(session_id) and source_identifier(turn_id) else None
+    token = _source_dispatch_scope.set(scope)
+    try:
+        return next_call(args)
+    finally:
+        _source_dispatch_scope.reset(token)
 
 
 def memory_brief(query, reader=None, budget=5000):
@@ -231,18 +340,22 @@ def task_decision(task_id):
                 'execution_authorized': False, 'reexecution_authorized': False}
 
 
-def pre(*, user_message='', platform='', session_id='', sender_id='', **ignored):
+def pre(*, user_message='', platform='', session_id='', sender_id='', turn_id='', **ignored):
     if not owner_scope(platform, session_id, sender_id):
         return None
     text = user_request(user_message)
     wrapped = envelope(user_message)
     original_text = wrapped[0]['trusted_user_request'] if wrapped else user_message
     task_id = explicit_task_id(text) if isinstance(original_text, str) and len(original_text) <= 2000 else None
+    source_ready = authorize_source_turn(text, original_text=original_text, platform=platform,
+                                         session_id=session_id, sender_id=sender_id, turn_id=turn_id)
     if not text or (not substantive(text) and not task_id):
-        return None
+        return {'context': SOURCE_CONTEXT_HINT} if source_ready else None
     context = CONTRACT + '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(text))
     if task_id:
         context += '\nİlk iş kaydına bağlı bağımsız kontrol (yalnız özel taslak; bu alanlar açıklamayla başarıya çevrilemez): ' + dump(task_decision(task_id))
+    if source_ready:
+        context += '\n' + SOURCE_CONTEXT_HINT
     return {'context': context}
 
 
@@ -300,3 +413,9 @@ def middleware(*, request, platform='', session_id='', **ignored):
 def register(ctx):
     ctx.register_hook('pre_llm_call', pre)
     ctx.register_middleware('llm_request', middleware)
+
+    ctx.register_middleware('tool_execution', source_tool_execution)
+    registered = ctx.register_tool('source_context', 'source_memory', SOURCE_CONTEXT_SCHEMA, source_context,
+                                   description='Private owner source-backed memory search', emoji='📚')
+    if registered is None:
+        raise RuntimeError('Source context tool registration unavailable')

@@ -7,3 +7,4 @@ provides_hooks:
   - pre_llm_call
 provides_middleware:
   - llm_request
+  - tool_execution
