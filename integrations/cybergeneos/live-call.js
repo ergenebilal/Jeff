@@ -197,11 +197,22 @@
         for(const id of [...this.pending.keys()])this.detachCall(id);
         this.outputText='';this.state('listening','Dinliyorum');
       }
-      const heard=content.inputTranscription?.text;
+      let heard=content.inputTranscription?.text;
+      // A repeated full transcript while canonical speech is still outstanding
+      // does not authorize another execution. Local new-speech activity clears
+      // the previous utterance; a genuinely different recognized question can
+      // proceed without waiting for speech to finish.
+      if(heard&&this.routeUtterances&&!this.inputOpen&&this.utterance?.done&&this.answerCall?.awaiting){
+        const normalize=text=>text.normalize('NFC').toLocaleLowerCase('tr-TR').trim().replace(/\s+/g,' ').replace(/[.!?]+$/g,'');
+        const fragment=normalize(heard),previous=normalize(this.utterance.text);
+        if(fragment&&(fragment===previous||previous.endsWith(' '+fragment))){
+          heard='';this.stats.completedTranscriptsSuppressed=(this.stats.completedTranscriptsSuppressed||0)+1;
+        }
+      }
       if(heard){
         // Input transcription has no guaranteed ordering relative to tool replies.
         if(!this.inputOpen){
-          if(this.routeUtterances&&this.utterance?.done&&!this.answerCall?.awaiting)this.utterance=null;
+          if(this.routeUtterances&&this.utterance?.done)this.utterance=null;
           this.inputText='';this.inputOpen=true;
           // Local VAD can miss quiet speech. A fresh provider utterance must not
           // inherit the previous answer's permission, even without local activity.
