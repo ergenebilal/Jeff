@@ -97,8 +97,9 @@ def examine(vault,context,parse,redact,now,max_age_days=30,audience='internal'):
     return result
 
 
-def read_context(query,*,vault=VAULT,audience='internal',project=None,max_age_days=30,now=None):
+def read_context(query,*,vault=VAULT,audience='internal',project=None,max_age_days=30,now=None,strict=False):
     if not isinstance(query,str) or not query.strip() or len(query)>2000:raise ValueError('Query must contain 1..2000 characters')
+    if type(strict) is not bool:raise ValueError('Invalid relevance mode')
     if audience not in ('internal','public'):raise ValueError('Private memory retrieval is not supported')
     if type(max_age_days) is not int or not 1<=max_age_days<=3650:raise ValueError('Invalid age boundary')
     if project is not None and (not isinstance(project,str) or not project or len(project)>128):raise ValueError('Invalid project')
@@ -111,7 +112,12 @@ def read_context(query,*,vault=VAULT,audience='internal',project=None,max_age_da
     from beyin_v3_sync import parse
     from beyin_v3_secrets import redact
     store=MemoryStore(state,vault,read_only=True)
-    context=store.context_for('hermes',query,project=project,audience=audience,limit=32,budget_chars=32000)
+    # Automatic context uses the established strict note matcher. Passage text
+    # may not be a source prefix, so it cannot bypass this reader's source proof.
+    if strict:
+        context=store.retrieve(query,project=project,audience=audience,limit=32,budget_chars=32000,strict=True)
+    else:
+        context=store.context_for('hermes',query,project=project,audience=audience,limit=32,budget_chars=32000)
     return examine(vault,context,parse,lambda text:redact(text,state),now if now is not None else time.time(),max_age_days,audience)
 
 

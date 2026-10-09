@@ -2,6 +2,7 @@
 from copy import deepcopy
 from contextlib import closing
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -130,13 +131,24 @@ def source_window(text, query, width=650):
             'offset_scope': 'validated_redacted_reader_excerpt', 'query_match_terms': score(start)[0]}
 
 
+MEMORY_READER_PATH = Path('/home/hermes/jeff_repo/scripts/jeff_memory_context.py')
+_automatic_reader = None
+
+
+def automatic_memory(query):
+    """Own fresh helper copy per plugin lifetime; supported reload cannot reuse stale imports."""
+    global _automatic_reader
+    if _automatic_reader is None:
+        spec = importlib.util.spec_from_file_location('_jeff_automatic_memory_reader', MEMORY_READER_PATH)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _automatic_reader = module.read_context
+    return _automatic_reader(query, strict=True)
+
+
 def memory_brief(query, reader=None, budget=5000):
     if reader is None:
-        source = '/home/hermes/jeff_repo'
-        if source not in sys.path:
-            sys.path.insert(0, source)
-        from scripts.jeff_memory_context import read_context
-        reader = read_context
+        reader = automatic_memory
     try:
         result = reader(query)
         if not isinstance(result, dict):
