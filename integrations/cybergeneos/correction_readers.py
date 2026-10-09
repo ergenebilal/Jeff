@@ -134,3 +134,22 @@ def production_dependencies(app):
         catalog_read=lambda offset:node('/draft-choices?limit=20&offset='+str(offset)),
         memory_read=read_context,redact=safe)
     return decision,selected,safe,choices
+
+
+def production_excerpt_reader():
+    """Existing cognition reader, source identity checked before private load."""
+    import hashlib
+    import importlib.util
+    source=Path('/home/hermes/.hermes/plugins/jeff-reasoning/__init__.py')
+    reference=Path('/home/hermes/jeff_repo/integrations/jeff-reasoning/__init__.py')
+    try:
+        actual=source.read_bytes();expected=reference.read_bytes()
+    except OSError:
+        raise ValueError('Verified excerpt reader unavailable') from None
+    if hashlib.sha256(actual).digest()!=hashlib.sha256(expected).digest():
+        raise ValueError('Cognition source changed')
+    spec=importlib.util.spec_from_file_location('panel_advice_current_cognition',source)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    if not callable(getattr(module,'source_window',None)):
+        raise ValueError('Verified excerpt reader unavailable')
+    return module.source_window

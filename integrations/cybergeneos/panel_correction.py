@@ -10,6 +10,8 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlsplit
 
 from .correction_context import CorrectionContext
+from .advice_gate import SingleUseAdvice
+from .advice_dispatch import dispatch
 
 
 def patch_app(source):
@@ -22,7 +24,7 @@ def patch_app(source):
     return source.replace(anchor,anchor+addition)
 
 
-def install(app, *, decision_read=None, memory_read=None, redact=None, clock=None, choices_read=None):
+def install(app, *, decision_read=None, memory_read=None, redact=None, clock=None, choices_read=None, excerpt_read=None, invoke=None):
     """Dependencies supplied by supported installation; no caller credentials.
 
     The authenticated HTTP boundary below provides current owner identity. It is
@@ -30,6 +32,14 @@ def install(app, *, decision_read=None, memory_read=None, redact=None, clock=Non
     """
     if getattr(app,'_panel_correction_installed',False):
         return app._panel_correction_workflow
+    if (not callable(getattr(getattr(app,'H',None),'route',None))
+            or not callable(getattr(app,'valid_token',None))):
+        raise ValueError('Verified owner HTTP boundary required')
+    if invoke is None:
+        from .worker_invoke import invoke
+    if excerpt_read is None:
+        from .correction_readers import production_excerpt_reader
+        excerpt_read=production_excerpt_reader()
     if all(dep is None for dep in (decision_read,memory_read,redact,choices_read)):
         from .correction_readers import production_dependencies
         decision_read,memory_read,redact,choices_read=production_dependencies(app)
@@ -55,6 +65,7 @@ def install(app, *, decision_read=None, memory_read=None, redact=None, clock=Non
     if clock is not None:
         dependencies['clock']=clock
     workflow=CorrectionContext(**dependencies)
+    workflow=SingleUseAdvice(workflow,excerpt_read=guarded(excerpt_read),**({"clock":clock} if clock is not None else {}))
     original=app.H.route
     def route(handler,parts,body):
         if parts[:2] != ['api','correction']:
@@ -77,7 +88,7 @@ def install(app, *, decision_read=None, memory_read=None, redact=None, clock=Non
             if 'cgos' not in cookie or app.valid_token(cookie['cgos'].value) is not True:
                 return 403, {'error':'sahip_gerekiyor'}
             owner=hashlib.sha256(cookie['cgos'].value.encode()).hexdigest()
-            contracts={'select':{'task_id','source'},'correct':{'context_ticket','user_message'},'close':set(),'choices':{'query','offset'}}
+            contracts={'select':{'task_id','source'},'correct':{'context_ticket','user_message'},'close':set(),'choices':{'query','offset'},'advice-issue':{'context_ticket','confirmed_owner_correction','user_question','requested_task_id','source','explicit_scope'},'advice-answer':{'advice_ticket','requested_task_id','source'}}
             if len(parts)!=3 or parts[2] not in contracts:
                 return 404, {'error':'yok'}
             if not isinstance(body,dict) or set(body)!=contracts[parts[2]]:
@@ -93,8 +104,11 @@ def install(app, *, decision_read=None, memory_read=None, redact=None, clock=Non
                         return 503, {'error':'secim_okuyucusu_yok'}
                     result=guarded(choices_read)(body['query'],body['offset'])
                 else:
-                    method={'select':workflow.select,'correct':workflow.correct,'close':workflow.close}[parts[2]]
-                    result=method(**channel,**body)
+                    if parts[2]=='advice-answer':
+                        result=dispatch(workflow.consume(**channel,**body),invoke=invoke,redact=guarded(redact))
+                    else:
+                        method={'select':workflow.select,'correct':workflow.correct,'close':workflow.close,'advice-issue':workflow.issue}[parts[2]]
+                        result=method(**channel,**body)
             finally:
                 current.reset(token)
             # Ticket exists only in this private response and is never forwarded

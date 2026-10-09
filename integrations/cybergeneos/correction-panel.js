@@ -24,6 +24,11 @@
     <div class="actions"><button type="submit" class="btn btn-primary" data-submit disabled>Öneriyi incele</button></div>
     <p class="help" data-state role="status" aria-live="polite"></p>
     <div data-result hidden><h3>Düzeltme önerisi</h3><p data-correction></p><p class="help" data-review></p><p class="help">Kalıcı hafızaya yazılmadı. İş yeniden çalıştırılmadı.</p></div>
+    <section data-advice hidden>
+      <div class="field"><label for="correction-question">Bu iş için Jeff'e sorun</label><input id="correction-question" maxlength="1200" autocomplete="off" placeholder="Neye karar vermemiz gerekiyor?"></div>
+      <button type="button" class="btn btn-primary" data-ask>Bu düzeltmeyle değerlendir</button>
+      <div data-answer hidden><h3>Dayanak ve değerlendirme</h3><div data-facts></div><p data-reply></p></div>
+    </section>
   </form>`;
   document.body.append(dialog);
   const find = selector => dialog.querySelector(selector);
@@ -31,18 +36,31 @@
   const text = find('#correction-text'), select = find('[data-select]'), submit = find('[data-submit]');
   const search = find('[data-search]'), more = find('[data-more]'), status = find('[data-state]');
   let sequence = 0, ticket = null, pending = null, expiry = null, nextOffset = null, activeQuery = '', sourceRows = [];
+  const question = find('#correction-question'), ask = find('[data-ask]');
+  let proposalLiteral = null, closing = null, closeFailed = false;
+  function resetAdvice() { proposalLiteral = null; question.value = ''; question.disabled = true; ask.disabled = true; find('[data-advice]').hidden = true; find('[data-answer]').hidden = true; find('[data-facts]').replaceChildren(); find('[data-reply]').textContent = ''; }
   const stamp = value => Number.isFinite(value) && value > 0
     ? new Date(value * 1000).toLocaleString('tr-TR', {day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'}) : 'Tarihi bilinmiyor';
   const resetContext = () => {
-    sequence++; pending?.abort(); pending = null; ticket = null; clearTimeout(expiry);
+    resetAdvice(); sequence++; pending?.abort(); pending = null; ticket = null; clearTimeout(expiry);
     search.disabled = false; more.disabled = false;
     text.disabled = true; submit.disabled = true; find('[data-result]').hidden = true;
   };
-  const closeRemote = () => fetch('/api/correction/close', {method:'POST', credentials:'same-origin',
-    headers:{'Content-Type':'application/json'}, body:'{}', keepalive:true}).catch(() => {});
+  const closeRemote = () => {
+    if (closing) return closing;
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 5000);
+    closing = fetch('/api/correction/close', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body:'{}', keepalive:true, signal:controller.signal})
+      .then(async response => { const data = await response.json(); if (!response.ok || data.status !== 'context_closed') throw new Error('baglanti'); closeFailed = false; })
+      .catch(() => { closeFailed = true; }).finally(() => { clearTimeout(timer); closing = null; });
+    return closing;
+  };
   async function request(action, body, attempt) {
+    if (closing) await closing;
+    if (closeFailed) throw new Error('baglanti');
+    if (attempt !== sequence || !dialog.open) return null;
     const controller = new AbortController(); pending = controller;
-    const timer = setTimeout(() => controller.abort(), 25000);
+    const timer = setTimeout(() => controller.abort(), action === 'advice-answer' ? 55000 : 25000);
     try {
       const response = await fetch('/api/correction/' + action, {method:'POST', credentials:'same-origin',
         headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:controller.signal});
@@ -89,7 +107,7 @@
   }
   select.addEventListener('click', async () => {
     if (!task.value || !source.value) return;
-    resetContext(); const attempt = sequence; select.disabled = true; search.disabled = true; more.disabled = true;
+    resetContext(); closeRemote(); const attempt = sequence; select.disabled = true; search.disabled = true; more.disabled = true;
     task.disabled = true; source.disabled = true; status.textContent = 'Seçilen iş ve kaynak yeniden doğrulanıyor…';
     try {
       const data = await request('select', {task_id:task.value, source:source.value}, attempt);
@@ -119,14 +137,46 @@
       find('[data-review]').textContent = data.status === 'requires_source_review'
         ? 'Kaynak tarihi veya içeriği ayrıca incelenmeli. Bu öneri henüz uygulanmadı.' : 'Yalnız seçtiğin iş için öneri. Henüz uygulanmadı.';
       find('[data-result]').hidden = false; status.textContent = 'Öneri hazır; kalıcı bir değişiklik yapılmadı.';
+      proposalLiteral = text.value.trim(); question.disabled = false; ask.disabled = !question.value.trim(); find('[data-advice]').hidden = false;
     } catch (value) { if (attempt === sequence && dialog.open) { ticket = null; text.disabled = true; status.textContent = error(value); } }
     finally { if (attempt === sequence) { submit.disabled = !ticket; text.disabled = !ticket; } }
+  });
+  question.addEventListener('input', () => { find('[data-answer]').hidden = true; ask.disabled = !(ticket && proposalLiteral === text.value.trim() && question.value.trim()); });
+  question.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); if (!ask.disabled) ask.click(); } });
+  ask.addEventListener('click', async () => {
+    if (!ticket || !proposalLiteral || proposalLiteral !== text.value.trim() || !question.value.trim() || ask.disabled) return;
+    const attempt = sequence; const asked = question.value.trim(); const literal = text.value.trim();
+    ask.disabled = true; question.disabled = true; submit.disabled = true; text.disabled = true;
+    find('[data-answer]').hidden = true; status.textContent = 'Jeff bu seçili işi değerlendiriyor…';
+    try {
+      const issued = await request('advice-issue', {context_ticket:ticket, confirmed_owner_correction:literal,
+        user_question:asked, requested_task_id:task.value, source:source.value, explicit_scope:'selected_task_only'}, attempt);
+      if (!issued) return;
+      if (issued.status !== 'one_use_advice_ready' || typeof issued.advice_ticket !== 'string') {
+        status.textContent = 'Düzeltme veya dayanak değişti. Seçimi yeniden doğrula.'; resetAdvice(); return;
+      }
+      const answer = await request('advice-answer', {advice_ticket:issued.advice_ticket, requested_task_id:task.value, source:source.value}, attempt);
+      if (!answer) return;
+      if (answer.status !== 'advice_reply_ready' || answer.model_completion_verified !== true || answer.structured_claims_checked !== true
+          || answer.execution_authorized !== false || answer.permanent_memory_written !== false
+          || typeof answer.reply !== 'string' || !Array.isArray(answer.verified_facts) || answer.verified_facts.some(fact => typeof fact !== 'string')) {
+        status.textContent = answer.status === 'provider_busy' ? 'Önceki değerlendirme sürüyor. Bitince bu soruyu yeniden gönderebilirsin.'
+          : 'Yanıt veya dayanak doğrulanamadı. Değerlendirme gösterilmedi.'; return;
+      }
+      find('[data-facts]').replaceChildren(); answer.verified_facts.forEach(fact => { const p = document.createElement('p'); p.className = 'help'; p.textContent = fact; find('[data-facts]').append(p); });
+      find('[data-reply]').textContent = answer.reply; find('[data-answer]').hidden = false;
+      status.textContent = 'Bu iş için değerlendirme geldi.';
+    } catch (value) {
+      if (attempt === sequence && dialog.open) { status.textContent = error(value); if (value.name === 'AbortError') { resetContext(); closeRemote(); } }
+    } finally {
+      if (attempt === sequence) { submit.disabled = !ticket; text.disabled = !ticket; question.disabled = !proposalLiteral; ask.disabled = !(ticket && proposalLiteral === text.value.trim() && question.value.trim()); }
+    }
   });
   search.addEventListener('click', () => choices());
   more.addEventListener('click', () => { if (nextOffset !== null && query.value.trim() === activeQuery) choices(nextOffset); });
   task.addEventListener('change', updateSelection); source.addEventListener('change', updateSelection);
   query.addEventListener('input', () => { resetContext(); text.value=''; find('[data-source-note]').textContent=''; closeRemote(); options(task,[],()=>'',()=>'', 'Kayıtları yeniden getir'); options(source,[],()=>'',()=>'', 'Kayıtları yeniden getir'); sourceRows=[]; select.disabled = true; more.hidden = true; status.textContent = 'Arama değişti; kayıtları yeniden getir.'; });
-  text.addEventListener('input', () => { find('[data-result]').hidden = true; });
+  text.addEventListener('input', () => { resetAdvice(); find('[data-result]').hidden = true; });
   find('[data-close]').addEventListener('click', () => dialog.close());
   dialog.addEventListener('cancel', () => resetContext());
   dialog.addEventListener('close', () => { resetContext(); closeRemote(); text.value = ''; sourceRows = []; options(task,[],()=>'',()=>'', 'Kayıtları yeniden getir'); options(source,[],()=>'',()=>'', 'Kayıtları yeniden getir'); select.disabled=true; more.hidden=true; find('[data-source-note]').textContent=''; status.textContent = ''; button.focus(); });
