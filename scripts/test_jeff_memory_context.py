@@ -65,4 +65,32 @@ class MemoryTruthTests(unittest.TestCase):
         for query in ('','x'*2001,None):
             with self.subTest(query_type=type(query).__name__),self.assertRaises(ValueError):read_context(query,vault=self.root)
 
+    def test_requested_project_cannot_be_overridden_by_cached_project(self):
+        other=self.record(metadata={'project':'Atlas'});other['project']='Beta'
+        actual=self.record('actual',{'project':'Beta'})
+        result=self.check([other,actual],project='Beta')
+        self.assertEqual([r['source'] for r in result['records']],['knowledge/actual.md'])
+        self.assertEqual(result['excluded_counts'],{'project_mismatch':1})
+        self.assertFalse(result['current_truth_verified'])
+    def test_missing_source_project_is_not_inferred_from_the_cached_label(self):
+        record=self.record();record['project']='Beta'
+        result=self.check([record],project='Beta')
+        self.assertEqual(result['records'],[])
+        self.assertEqual(result['status'],'no_source_evidence')
+        self.assertEqual(result['excluded_counts'],{'project_mismatch':1})
+    def test_only_selected_source_project_participates_in_scoped_conflicts(self):
+        other=self.record(metadata={'project':'Atlas','facts':{'policy':'guess'}})
+        first=self.record('beta1',{'project':'Beta','facts':{'policy':'verify'}})
+        second=self.record('beta2',{'project':'Beta','facts':{'policy':'wait'}})
+        result=self.check([other,first,second],project='Beta')
+        self.assertEqual(len(result['records']),2)
+        self.assertEqual(len(result['conflicts']),1)
+        self.assertEqual(result['conflicts'][0]['project'],'Beta')
+        self.assertFalse(result['conflicts'][0]['resolved'])
+        self.assertEqual(len(self.check([other,first,second])['records']),3)
+    def test_invalid_project_rejects_before_source_reads(self):
+        for project in ('',[],7,'x'*129):
+            with self.subTest(project_type=type(project).__name__),mock.patch.object(Path,'open',side_effect=AssertionError('Must not read')):
+                with self.assertRaises(ValueError):self.check([],project=project)
+
 if __name__=='__main__':unittest.main()

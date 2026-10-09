@@ -28,7 +28,8 @@ def declared_date(metadata,now):
     except (ValueError,TypeError,OverflowError):return {'value':None,'state':'invalid','age_days':None}
 
 
-def examine(vault,context,parse,redact,now,max_age_days=30,audience='internal'):
+def examine(vault,context,parse,redact,now,max_age_days=30,audience='internal',*,project=None):
+    if project is not None and (not isinstance(project,str) or not project or len(project)>128):raise ValueError('Invalid project')
     if not isinstance(context,dict) or not isinstance(context.get('records'),list):raise ValueError('Invalid memory result')
     allowed={'public'} if audience=='public' else {'public','internal'}
     records=[];excluded={};facts={}
@@ -51,6 +52,9 @@ def examine(vault,context,parse,redact,now,max_age_days=30,audience='internal'):
             metadata,body=parse(raw.decode('utf-8'))
             if metadata.get('visibility','internal') not in allowed or metadata.get('trusted') is False or metadata.get('trust')=='untrusted' or metadata.get('validity')=='rejected':
                 omit('visibility_or_trust');continue
+            # Cached project labels are hints; the verified original source owns scope.
+            if project is not None and metadata.get('project')!=project:
+                omit('project_mismatch');continue
             excerpt=record.get('text')
             if not isinstance(excerpt,str):raise ValueError('text')
             if record.get('text_truncated'):
@@ -118,7 +122,7 @@ def read_context(query,*,vault=VAULT,audience='internal',project=None,max_age_da
         context=store.retrieve(query,project=project,audience=audience,limit=32,budget_chars=32000,strict=True)
     else:
         context=store.context_for('hermes',query,project=project,audience=audience,limit=32,budget_chars=32000)
-    return examine(vault,context,parse,lambda text:redact(text,state),now if now is not None else time.time(),max_age_days,audience)
+    return examine(vault,context,parse,lambda text:redact(text,state),now if now is not None else time.time(),max_age_days,audience,project=project)
 
 
 def main(argv=None):
