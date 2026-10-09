@@ -83,7 +83,7 @@ def examine(vault,context,parse,redact,now,max_age_days=30,audience='internal',*
             for i in indices:records[i]['assessment']='conflicting_source_statements'
             conflicts.append({'project':project,'fact_key':key,'sources':[records[i]['source'] for i in indices],'resolved':False})
     result={'status':'source_statements' if records else 'no_source_evidence','records':records,'conflicts':conflicts,
-            'excluded_counts':excluded,'backend_stale_count':context.get('stale_count',0),
+            'excluded_counts':excluded,'backend_stale_count':context.get('stale_count') if type(context.get('stale_count')) is int and context['stale_count']>=0 else None,
             'retrieval_truncated':bool(context.get('truncated')),'current_truth_verified':False,
             'semantic_conflicts_assessed':False,'structured_conflicts_scope':'returned_source_facts_only',
             'observed_at':now,'read_only':True,'model_calls':0,

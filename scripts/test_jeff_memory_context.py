@@ -93,4 +93,14 @@ class MemoryTruthTests(unittest.TestCase):
             with self.subTest(project_type=type(project).__name__),mock.patch.object(Path,'open',side_effect=AssertionError('Must not read')):
                 with self.assertRaises(ValueError):self.check([],project=project)
 
+class BackendCountScopeTests(unittest.TestCase):
+    def test_missing_or_invalid_stale_count_stays_unknown(self):
+        for value in [None,True,-1,'0',1.2]:
+            with self.subTest(value=value):
+                result=examine(Path('.'),{'records':[],**({'stale_count':value} if value is not None else {})},parse,lambda text:(text,0),1791110000)
+                self.assertIsNone(result['backend_stale_count'])
+    def test_actual_zero_and_positive_stale_count_are_preserved(self):
+        for value in [0,2]:
+            self.assertEqual(examine(Path('.'),{'records':[],'stale_count':value},parse,lambda text:(text,0),1791110000)['backend_stale_count'],value)
+
 if __name__=='__main__':unittest.main()

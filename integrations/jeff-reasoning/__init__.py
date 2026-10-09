@@ -4,6 +4,7 @@ from contextlib import closing
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
@@ -189,7 +190,9 @@ SOURCE_CONTEXT_SCHEMA = {
     'name': 'source_context',
     'description': 'Search verified source-backed memory for the current private owner turn. '
                    'Use focused query words and an optional exact project scope. '
-                   'Returns source statements and dates, never proof of current truth or execution.',
+                   'Verified source bytes are bound to the read observation time. Source dates are declarations; '
+                   'the statements operational truth and any later file state are not independently checked. '
+                   'Unverified operational state is unknown: neither presence nor absence is established by this read.',
     'parameters': {'type': 'object', 'properties': {
         'query': {'type': 'string', 'maxLength': 2000,
                   'description': 'Focused source search; omitted uses the original owner question.'},
@@ -290,7 +293,13 @@ def memory_brief(query, reader=None, budget=5000):
         if not isinstance(result, dict):
             raise ValueError('invalid memory result')
         brief = {k: result.get(k) for k in (
-            'status', 'conflicts', 'excluded_counts', 'retrieval_truncated', 'observed_at')}
+            'status', 'conflicts', 'excluded_counts', 'retrieval_truncated', 'observed_at', 'backend_stale_count')}
+        stamp = brief.get('observed_at')
+        stamp_known = type(stamp) in (int, float) and math.isfinite(stamp) and stamp > 0
+        brief['observed_at'] = stamp if stamp_known else None
+        stale = brief.get('backend_stale_count')
+        brief['backend_stale_count'] = stale if type(stale) is int and stale >= 0 else None
+        brief['backend_stale_count_scope'] = 'this_search_backend_only'
         brief.update(current_truth_verified=False, read_only=True, records=[])
         records = result.get('records', [])
         if not isinstance(records, list):
@@ -304,6 +313,14 @@ def memory_brief(query, reader=None, budget=5000):
             text = record.get('text', '')
             if not isinstance(text, str):
                 raise ValueError('invalid excerpt')
+            item['verification_scope'] = {
+                'source_bytes_matched_at_observation': True if stamp_known else None,
+                'observed_at': brief['observed_at'],
+                'source_date': 'source_declaration_only',
+                'operational_claims': 'not_independently_checked',
+                'operational_presence': 'unknown',
+                'operational_absence': 'unknown',
+                'subsequent_source_changes': 'not_checked'}
             item.update(source_window(text, query))
             item.update(text_truncated=bool(record.get('text_truncated')) or len(text)>650,
                         current_truth_verified=False)
