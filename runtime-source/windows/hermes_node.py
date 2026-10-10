@@ -468,7 +468,7 @@ class IntentGuard:
                     return True, {"status": "ACQUIRED", "intent_key": intent_key}
             except Exception as e:
                 log("WARN", f"IntentGuard check_and_acquire hatası: {e}")
-                return True, {"status": "ACQUIRED_FALLBACK"}
+                return False, {"status": "RECOVERY_BLOCKED", "outcome_verified": False, "reason": "Intent history unavailable; no fallback authorization"}
 
     def release_or_update(self, intent_key: str, status: str, outcome_verified: bool = False, evidence: dict = None):
         with self._lock:
@@ -757,7 +757,42 @@ def task_guard():
                                                  approvals=ApprovalClient(CONFIG),capability_policy=admission)
     return _task_guard
 
+
+# P110: missing state never authorizes work; a historical recovery admits reading only.
+RECOVERY_READ_ACTIONS = frozenset(('read','read_file','file_read','file_read_content',
+    'file_list','list_files','list_dir','dir_list','window_list','marketing_list','pilot_status','ping'))
+
+def current_recovery_mode():
+    from contextlib import closing
+    try:
+        path = NODE_DIR / 'task-journal.sqlite3'
+        if not path.is_file() or path.is_symlink() or path.stat().st_size == 0:
+            return 'unavailable'
+        with closing(sqlite3.connect(path.absolute().as_uri() + '?mode=ro', uri=True, timeout=2)) as db:
+            db.execute('PRAGMA query_only=ON')
+            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {'requests','outbox','work_events'} <= tables:
+                return 'unavailable'
+            if 'recovery_boundary' not in tables:
+                return 'normal'
+            row = db.execute('SELECT mode FROM recovery_boundary').fetchone()
+            return 'read_only_recovery' if row and row[0] == 'read_only_recovery' else 'unavailable'
+    except (OSError, sqlite3.Error):
+        return 'unavailable'
+
+def recovery_admission(action):
+    mode = current_recovery_mode()
+    if mode == 'normal' or (mode == 'read_only_recovery' and action in RECOVERY_READ_ACTIONS):
+        return None
+    return {'status': 'RECOVERY_READ_ONLY' if mode == 'read_only_recovery' else 'RECOVERY_UNAVAILABLE',
+            'ok': False, 'outcome_verified': False, 'completion_authority': False,
+            'execution_authorized': False, 'replayed': False,
+            'reason': 'Historical recovery or missing runtime state; do not execute or replay.'}
+
 def execute_request(action, params, request_id=None):
+    blocked = recovery_admission(action)
+    if blocked is not None:
+        return dict(blocked, request_id=request_id, task_id=request_id)
     # The bounded draft has a strict schema; general text aliases would add
     # unsupported fields and change its immutable input contract.
     normalized = dict(params) if action in ('local_draft', 'local_draft_plan') and isinstance(params, dict) else normalize_tool_params(params)
@@ -2440,6 +2475,14 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"ok":false,"error":"Expected JSON object"}')
                 return
 
+            if self.path.startswith('/work/') and current_recovery_mode() != 'normal':
+                blocked = recovery_admission('work_mutation')
+                self.send_response(409)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(blocked).encode())
+                return
+
             if self.path.startswith('/work/'):
                 route = self.path.rsplit('/', 1)[1]
                 rid = urllib.parse.unquote(self.path[len('/work/'):-(len(route)+1)])
@@ -2849,6 +2892,8 @@ class ExclusiveNodeServer(ThreadingHTTPServer):
 
 
 def main():
+    if not CONFIG_FILE.is_file() or not (NODE_DIR / 'deployment.json').is_file() or not (NODE_DIR / 'intent_guard.sqlite3').is_file():
+        raise RuntimeError('Required private state missing; no fallback startup')
     print("=" * 70)
     print("  CYBERGENE NATIVE WINDOWS HERMES AGENT: PABLO [FRONT-RUNNING]")
     print("  Kullanıcı  : Bilal Ergene (Active Windows Desktop Session)")
@@ -2864,19 +2909,31 @@ def main():
     # starting any executor. A duplicate process must fail without task changes.
     server = ExclusiveNodeServer((CONFIG["listen_host"], CONFIG["listen_port"]), PabloRequestHandler)
     server.daemon_threads = True
+    if current_recovery_mode() == 'unavailable':
+        server.server_close()
+        raise RuntimeError('Missing journal; no initialization or workers')
     task_guard().note_restart(PROCESS_STARTED_AT)
 
-    # 1. Bridge thread başlat
-    bridge_thread = threading.Thread(target=run_bridge_worker, daemon=True)
-    bridge_thread.start()
+    # Historical recovery exposes reading, never background business workers.
+    mode = current_recovery_mode()
+    if mode == 'unavailable':
+        server.server_close()
+        raise RuntimeError('Runtime history unavailable; workers not started')
+    if mode == 'normal':
+        # 1. Bridge thread başlat
+        bridge_thread = threading.Thread(target=run_bridge_worker, daemon=True)
+        bridge_thread.start()
 
-    # 2. Telegram thread başlat
-    telegram_thread = threading.Thread(target=run_telegram_worker, daemon=True)
-    telegram_thread.start()
+        # 2. Telegram thread başlat
+        telegram_thread = threading.Thread(target=run_telegram_worker, daemon=True)
+        telegram_thread.start()
 
-    # 3. Tailscale Watchdog thread başlat
-    ts_watchdog_thread = threading.Thread(target=run_tailscale_watchdog, daemon=True)
-    ts_watchdog_thread.start()
+        # 3. Tailscale Watchdog thread başlat
+        ts_watchdog_thread = threading.Thread(target=run_tailscale_watchdog, daemon=True)
+        ts_watchdog_thread.start()
+
+    else:
+        log('INFO', 'Read-only recovery: background workers not started')
 
     # 4. HTTP server başlat
     log("INFO", f"Pablo REST API aktif: {CONFIG['listen_host']}:{CONFIG['listen_port']}")
