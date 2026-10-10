@@ -9,3 +9,7 @@ Private notes, secrets, runtime configuration, databases, logs, reports, screens
 No private local commit history is pushed. Stable safe bytes are committed in an isolated clone. Network errors preserve the pending source snapshot. A diverged public history blocks, with no force push, reset, production rebase or source replacement. Unchanged content adds no commit. Successful publication requires reading the target commit back from GitHub. The main development branch remains separately maintained.
 
 Preparation checks: 25 independent tests on Windows and Linux, including local Git remotes, source races, private settings, retry preservation, history divergence and Windows packet integrity. Actual scheduler-to-GitHub acceptance is recorded in the private operational evidence after installation.
+
+## Actual transport evidence
+
+The new server timer completed its first publication and the target commit was independently read back from GitHub. The Windows collector completed a real scheduled private packet transport. Subsequent source updates are handled by the same timer and gates; this document update is included in that ordinary flow. Current task acceptance is held privately, including recovery/rollback evidence and coverage exclusions.
