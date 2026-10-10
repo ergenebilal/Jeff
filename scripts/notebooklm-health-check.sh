@@ -1,57 +1,87 @@
 #!/bin/bash
-# NotebookLM Health Check — JEFF OS v1.1 HA v2 (Proaktif)
-# Kesintisiz organ: L1-L4 + otomatik yedek
+# NotebookLM Health Check — v2 (09.10.2026 kök neden düzeltmesi)
+#
+# v1 HATASI: MCP'nin GERÇEK oturum deposu kalıcı Chrome profilidir
+#   (/home/hermes/chrome_profile_notebooklm — bkz. /home/hermes/nblm/config.json
+#    "profile_dir"). Ama v1 bekçisi var olmayan eski yolu kontrol ediyordu:
+#   ~/.notebooklm-mcp-cli/profiles/default/cookies.json
+#   -> 29.09'dan beri her turda SAHTE "cookie eksik / CRITICAL" alarmı üretti,
+#      oysa gerçek oturum canlıydı (tarayıcı ayakta, NotebookLM sekmeleri açık).
+#
+# v2: gerçek sinyali ölçer:
+#   1) Kalıcı Chrome (CDP 18800) ayakta mı? Değilse nlm-chrome'u otonom kaldırır.
+#   2) Oturum açık bir NotebookLM/Gemini Notebook sekmesi var mı?
+#      (notebook.google.com — Google, NotebookLM'i "Gemini Notebook" olarak
+#       yeniden adlandırdı; eski notebooklm.google.com da kabul edilir.)
+#   3) Sekme yoksa: tarayıcı ayakta + profil cookie DB taze ise OK say (yanlış alarmı önler).
+# Alarm YALNIZCA gerçek kayıpta üretilir.
 set -uo pipefail
-COOKIES="$HOME/.notebooklm-mcp-cli/profiles/default/cookies.json"
-METADATA="$HOME/.notebooklm-mcp-cli/profiles/default/metadata.json"
 LOG="$HOME/logs/notebooklm-health.log"
+CDP_URL="${NLM_CDP_URL:-http://127.0.0.1:18800}"
+PROFILE_DIR="$HOME/chrome_profile_notebooklm"
+PROFILE_COOKIES="$PROFILE_DIR/Default/Cookies"
 BACKUP_DIR="$HOME/.notebooklm-mcp-cli/profiles/default/backup_ha"
 mkdir -p "$(dirname "$LOG")" "$BACKUP_DIR"
+
 TELEGRAM_TOKEN=$(grep TELEGRAM_BOT_TOKEN ~/.hermes/gateway.env 2>/dev/null | cut -d= -f2 | tr -d "\r" | head -1)
-CHAT_ID="5506784207"
+CHAT_ID="${TELEGRAM_OWNER_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+
 send_proaktif() {
   local level="$1" msg="$2"
   local body="JEFF PROAKTIF BILDIRIM - NotebookLM [$level] $(date '+%d.%m %H:%M') $msg"
-  if [ -n "$TELEGRAM_TOKEN" ]; then
+  if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$CHAT_ID" ] && [ "${NLM_DRY_RUN:-0}" != "1" ]; then
     curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" -d "chat_id=${CHAT_ID}" -d "text=${body}" > /dev/null 2>&1 || true
   fi
   echo "$(date -Iseconds) $level: $msg" >> "$LOG"
 }
-# Yedek (gunde 1 kez)
-if [ -f "$COOKIES" ]; then
+
+cdp_ok() { timeout 8 curl -s -o /dev/null -w "%{http_code}" "$CDP_URL/json/version" 2>/dev/null | grep -q 200; }
+
+# 0) Günlük profil cookie yedeği (HA)
+if [ -f "$PROFILE_COOKIES" ]; then
   DAY=$(date +%Y%m%d)
-  if [ ! -f "$BACKUP_DIR/cookies-$DAY.json" ]; then
-    cp "$COOKIES" "$BACKUP_DIR/cookies-$DAY.json" 2>/dev/null || true
-    cp "$METADATA" "$BACKUP_DIR/metadata-$DAY.json" 2>/dev/null || true
-    find "$BACKUP_DIR" -name "cookies-*.json" -mtime +14 -delete 2>/dev/null || true
+  if [ ! -f "$BACKUP_DIR/profile-cookies-$DAY.db" ]; then
+    cp "$PROFILE_COOKIES" "$BACKUP_DIR/profile-cookies-$DAY.db" 2>/dev/null || true
+    find "$BACKUP_DIR" -name "profile-cookies-*.db" -mtime +14 -delete 2>/dev/null || true
   fi
 fi
-if [ ! -f "$COOKIES" ] || [ ! -f "$METADATA" ]; then
-  echo "$(date -Iseconds) FAIL: missing files" >> "$LOG"
-  send_proaktif "CRITICAL L4" "Olay: Cookie/metadata eksik! Analiz: MCP calisamaz DURDU. Otonom: Yedek arandi. Oneri: Windows nlm login yap!"
+
+# 1) Kalıcı Chrome ayakta mı? Değilse otonom kaldır.
+if ! cdp_ok; then
+  echo "$(date -Iseconds) WARN: CDP yok, nlm-chrome restart deneniyor" >> "$LOG"
+  # Otonom onarım yalnız gerçek servis için (test amaçlı özel URL'de tetiklenmez)
+  if [ "$CDP_URL" = "http://127.0.0.1:18800" ]; then
+    systemctl --user restart nlm-chrome >/dev/null 2>&1 || true
+    sleep 12
+  fi
+  if ! cdp_ok; then
+    send_proaktif "CRITICAL L4" "Olay: Kalici NotebookLM tarayicisi (CDP 18800) ayakta DEGIL ve restart basarisiz. Analiz: oturum deposuna erisilemiyor. Oneri: systemctl --user status nlm-chrome"
+    exit 1
+  fi
+  echo "$(date -Iseconds) OTO-ONARIM: nlm-chrome yeniden baslatildi, CDP geri geldi" >> "$LOG"
+fi
+
+# 2) Oturum açık NotebookLM/Gemini Notebook sekmesi var mı?
+TARGETS=$(timeout 10 curl -s "$CDP_URL/json/list" 2>/dev/null || true)
+if printf '%s' "$TARGETS" | grep -qE '"url": "https://(notebooklm|notebook)\.google\.com'; then
+  echo "$(date -Iseconds) OK: oturum canli (kalici tarayici + NotebookLM sekmesi)" >> "$LOG"
+  exit 0
+fi
+
+# 3) Giriş sayfası görülüyorsa oturum düşmüş demektir
+if printf '%s' "$TARGETS" | grep -qE 'accounts\.google\.com|/signin'; then
+  send_proaktif "CRITICAL L4" "Olay: NotebookLM oturumu DUSTU (giris sayfasi goruldu). Oneri: noVNC ekranindan Google girisi yenile (http://100.124.217.48:6080/vnc.html)."
   exit 1
 fi
-COOKIE_MTIME=$(stat -c %Y "$COOKIES" 2>/dev/null || stat -f %m "$COOKIES" 2>/dev/null)
-NOW=$(date +%s)
-AGE_DAYS=$(( (NOW - COOKIE_MTIME) / 86400 ))
-COOKIE_COUNT=$(python3 -c "import json; print(len(json.load(open('$COOKIES'))))" 2>/dev/null || echo 0)
-if [ "$COOKIE_COUNT" -lt 10 ]; then
-  echo "$(date -Iseconds) FAIL: only ${COOKIE_COUNT} cookies" >> "$LOG"
-  send_proaktif "CRITICAL L4" "Olay: Sadece ${COOKIE_COUNT} cookie (10+ gerekli)! Otonom: Yedekten restore denendi. Oneri: nlm login yenile!"
-  LATEST=$(ls -t "$BACKUP_DIR"/cookies-*.json 2>/dev/null | head -1)
-  if [ -n "$LATEST" ] && [ -f "$LATEST" ]; then cp "$LATEST" "$COOKIES" 2>/dev/null || true; echo "$(date -Iseconds) AUTO-HEAL: restored from $LATEST" >> "$LOG"; fi
-  exit 1
+
+# 4) Sekme yok ama tarayıcı ayakta: profil cookie DB taze ise oturum muhtemelen canlı
+if [ -f "$PROFILE_COOKIES" ]; then
+  AGE_D=$(( ( $(date +%s) - $(stat -c %Y "$PROFILE_COOKIES") ) / 86400 ))
+  if [ "$AGE_D" -lt 14 ]; then
+    echo "$(date -Iseconds) OK: oturum canli (profil cookie DB ${AGE_D} gun taze; sekme gozlenmedi)" >> "$LOG"
+    exit 0
+  fi
 fi
-if [ "$AGE_DAYS" -ge 10 ]; then
-  echo "$(date -Iseconds) CRITICAL: cookies ${AGE_DAYS} days old" >> "$LOG"
-  send_proaktif "CRITICAL L4" "Olay: Cookie ${AGE_DAYS} gun oldu! Analiz: 10+ gun expire esigi. Otonom: Yedek OK. Oneri: BUGUN nlm login yap!"
-elif [ "$AGE_DAYS" -ge 7 ]; then
-  echo "$(date -Iseconds) HIGH: cookies ${AGE_DAYS} days old" >> "$LOG"
-  send_proaktif "HIGH L3" "Olay: Cookie ${AGE_DAYS} gun oldu. Analiz: 7 gun yenileme penceresi. Otonom: Yedek alindi. Oneri: 48 saat icinde nlm login planla."
-elif [ "$AGE_DAYS" -ge 6 ]; then
-  echo "$(date -Iseconds) WARN: cookies ${AGE_DAYS} days old" >> "$LOG"
-  echo "$(date -Iseconds) SESSIZ L1: ${AGE_DAYS} gun - aksam raporuna birikti" >> "$LOG"
-else
-  echo "$(date -Iseconds) OK: ${COOKIE_COUNT} cookies, ${AGE_DAYS} days old" >> "$LOG"
-fi
-exit 0
+
+send_proaktif "HIGH L3" "Olay: Tarayici ayakta ama NotebookLM sekmesi ve taze profil cookie DB yok. Oneri: noVNC ekranindan kontrol et (http://100.124.217.48:6080/vnc.html)."
+exit 1

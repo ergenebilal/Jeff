@@ -3,6 +3,7 @@
 # Kullanım: nanobot_task.sh "PROMPT" [session-id] [timeout-sec]
 # Çıktı: Nanobot cevabı stdout, exit code korunur
 set -euo pipefail
+export PATH="/home/hermes/.local/bin:/home/hermes/.venvs/nanobot/bin:$PATH"
 PROMPT="${1:?prompt required}"
 SESSION="${2:-swarm-$(date +%s)-$$}"
 TIMEOUT="${3:-60}"

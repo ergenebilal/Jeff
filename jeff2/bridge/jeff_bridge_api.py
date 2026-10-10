@@ -12,7 +12,9 @@ import json
 from coding_contract import validate_contract
 import logging
 import os
+import re
 import time
+import urllib.request
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -33,6 +35,11 @@ BRIDGE_KEY = os.environ.get("BRIDGE_KEY")
 DB_PATH = os.environ.get("BRIDGE_DB_PATH", os.path.join(os.path.dirname(__file__), "bridge.db"))
 LOG_PATH = os.path.join(os.path.dirname(__file__), "bridge.log")
 ALFRED_TIMEOUT_SEC = 60
+# Teslim edilmis bir gorev kac saniye sonra YENIDEN teklif edilir.
+# 120 sn idi: 120 sn'den uzun suren her komut, ayni gorevin ikinci kez
+# calistirilmasina yol acabiliyordu (mukerrer yan etki). Uzun gorevler
+# guvenle calissin diye yukseltildi ve ayarlanabilir yapildi.
+ALFRED_REDELIVER_SEC = int(os.environ.get("BRIDGE_REDELIVER_SEC", "300"))
 HOST = None
 PORT = int(os.environ.get("BRIDGE_PORT", "7700"))
 LOADED_SOURCE_SHA256 = {
@@ -700,7 +707,7 @@ async def alfred_get_tasks(
             await db.execute('BEGIN IMMEDIATE')
             async with db.execute(
                 "SELECT * FROM alfred_events WHERE status='pending' OR (status='delivered' AND worker_id=? AND delivered_at < ?) ORDER BY created_at ASC LIMIT 10",
-                (x_worker_id, time.time() - 120),
+                (x_worker_id, time.time() - ALFRED_REDELIVER_SEC),
             ) as cur:
                 rows = await cur.fetchall()
 
@@ -768,6 +775,231 @@ async def get_alfred_client(x_bridge_key: Optional[str] = Header(default=None)):
     from fastapi.responses import FileResponse
     client_path = os.path.join(os.path.dirname(__file__), "alfred_client.py")
     return FileResponse(client_path, media_type="text/x-python", filename="alfred_client.py")
+
+
+# ── Danışman köprüsü (A2A) ─────────────────────────────────────────────────────
+# Uygulama ağa çıkmaz: soruyu Pablo getirir, cevabı Pablo yazar. A2A jetonu yalnız
+# burada, sunucuda durur; hiçbir zaman loglanmaz ve yanıtta döndürülmez.
+DANISMAN_SABLON = """Sen Türkiye vergi mevzuatı konusunda gider değerlendirmesi yapan bir danışmansın.
+Kesin vergi hükmü vermiyorsun; mali müşavire sorulacak bir değerlendirme üretiyorsun.
+
+MÜKELLEF
+- Mükellef, faaliyet, araç ve belge bilgilerini yalnız aşağıdaki BAĞLAM alanından al.
+- Bağlamda verilmeyen kişisel ayrıntıları varsayma; eksik bilgi için SUPHELI de.
+
+DÖRT KOVA
+- OLUMLU   : gider yazılabilir
+- OLUMSUZ  : gider yazılamaz
+- SUPHELI  : karar için ek bilgi/belge gerekir
+- AYRI_TUT : silinmez ama gider toplamına girmez (belge başkası adına, UTTS yok, şahsi otomobil vb.)
+
+KURALLAR
+- Belge mükellef/işletme adına değilse yazılamaz -> AYRI_TUT
+- UTTS kaydı ve TTB montajı yoksa akaryakıt yazılamaz -> AYRI_TUT (motosiklet dahil)
+- İşletmeye kayıtlı olmayan otomobilin akaryakıtı yazılamaz
+- Kişisel market, günlük yemek/kahve, kişisel kıyafet, kişisel sağlık, vergi ödemesi, ceza -> OLUMSUZ
+- 12.000 TL üstü alımlar amortismana girer, tek seferde gider yazılmaz
+- 30.000 TL üstü ödemelerde tevsik zorunluluğu var
+- Emin değilsen SUPHELI yaz. Uydurma yok: ölçmediğin şeyi iddia etme.
+
+KURAL SÜRÜMÜ: {{kural_surumu}}
+
+KODUN ÖN HÜKMÜ (mevzuat kural motorundan)
+{{kod_on_hukmu}}
+
+DEĞERLENDİRİLECEK SATIR
+{{soru}}
+
+BAĞLAM (JSON)
+{{baglam}}
+
+ÇIKTI KURALI: Yalnızca tek bir JSON nesnesi döndür. Başlık, açıklama, kod bloğu ekleme.
+{"hukum":"OLUMLU|OLUMSUZ|SUPHELI|AYRI_TUT","kod_ile_ayni_mi":true|false,"gerekce":"en fazla 2 cümle","dayanak":["GVK m.40/1"],"guven":"yuksek|orta|dusuk","uyari":"varsa kısa uyarı, yoksa boş string"}"""
+
+DANISMAN_KOVALAR = ('OLUMLU', 'OLUMSUZ', 'SUPHELI', 'AYRI_TUT')
+
+
+class DanismanSoruRequest(BaseModel):
+    soru: str = Field(min_length=1, max_length=4000)
+    istek_id: Optional[str] = Field(default=None, max_length=64)
+    kural_surumu: Optional[str] = Field(default=None, max_length=128)
+    kod_on_hukmu: Optional[dict] = None
+    baglam: Optional[dict] = None
+
+
+def _a2a_bearer_token():
+    """A2A jetonunu gateway.env'den okur. Deger loglanmaz, yanitta donmez."""
+    path = os.environ.get('A2A_TOKEN_FILE') or os.path.join(os.path.expanduser('~'), '.hermes', 'gateway.env')
+    try:
+        with open(path, encoding='utf-8') as fh:
+            for satir in fh:
+                anahtar, _, deger = satir.strip().partition('=')
+                if anahtar.strip() == 'A2A_BEARER_TOKEN':
+                    return deger.strip().strip('"').strip("'")
+    except OSError:
+        return ''
+    return ''
+
+
+def _danisman_metni(body):
+    return (DANISMAN_SABLON
+            .replace('{{kural_surumu}}', body.kural_surumu or '(belirtilmedi)')
+            .replace('{{kod_on_hukmu}}', json.dumps(body.kod_on_hukmu or {}, ensure_ascii=False, indent=2))
+            .replace('{{soru}}', body.soru)
+            .replace('{{baglam}}', json.dumps(body.baglam or {}, ensure_ascii=False, indent=2)))
+
+
+def _a2a_parcalari(msg):
+    if not isinstance(msg, dict):
+        return ''
+    parcalar = []
+    for parca in (msg.get('parts') or []):
+        if isinstance(parca, dict) and isinstance(parca.get('text'), str):
+            parcalar.append(parca['text'])
+    return '\n'.join(parcalar).strip()
+
+
+def _a2a_govde_coz(govde):
+    """SendMessage cevabi {task: {...}} ya da {message: {...}} sarmaliyla gelebilir."""
+    if isinstance(govde, dict):
+        if isinstance(govde.get('task'), dict):
+            return govde['task']
+        if isinstance(govde.get('message'), dict):
+            return govde['message']
+    return govde
+
+
+def _a2a_metni_cek(govde):
+    """A2A Task/Message govdesinden cevap metnini cikarir."""
+    govde = _a2a_govde_coz(govde)
+    if not isinstance(govde, dict):
+        return ''
+    for artifact in (govde.get('artifacts') or []):
+        metin = _a2a_parcalari(artifact)
+        if metin:
+            return metin
+    status = govde.get('status') or {}
+    return _a2a_parcalari(status.get('message')) or _a2a_parcalari(govde)
+
+
+def _get_task_metni(gorev_id, token, url, timeout):
+    """Cevap bos donerse gorev kimligiyle GetTask sorgusu yapar."""
+    for yontem in ('GetTask', 'tasks/get'):
+        govde = {'jsonrpc': '2.0', 'id': uuid.uuid4().hex, 'method': yontem,
+                 'params': {'id': gorev_id}}
+        istek = urllib.request.Request(
+            url, data=json.dumps(govde, ensure_ascii=False).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+            method='POST')
+        try:
+            with urlopen(istek, timeout=timeout) as yanit:
+                veri = json.loads(yanit.read().decode('utf-8'))
+        except Exception:
+            continue
+        if veri.get('error'):
+            continue
+        metin = _a2a_metni_cek(veri.get('result'))
+        if metin:
+            return metin
+    return ''
+
+
+def _a2a_cagir(soru, timeout=240):
+    """Sunucudaki A2A ucuna soru gonderir. Doner: (cevap_metni, hata_metni)."""
+    token = _a2a_bearer_token()
+    if not token:
+        return '', 'A2A jetonu okunamadi (gateway.env)'
+    url = os.environ.get('A2A_URL', 'http://127.0.0.1:9900/')
+    for yontem in ('SendMessage', 'message/send'):
+        govde = {
+            'jsonrpc': '2.0',
+            'id': uuid.uuid4().hex,
+            'method': yontem,
+            'params': {'message': {'messageId': uuid.uuid4().hex, 'role': 'ROLE_USER',
+                                   'parts': [{'text': soru}]}},
+        }
+        istek = urllib.request.Request(
+            url, data=json.dumps(govde, ensure_ascii=False).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+            method='POST')
+        try:
+            with urlopen(istek, timeout=timeout) as yanit:
+                veri = json.loads(yanit.read().decode('utf-8'))
+        except Exception as exc:
+            return '', 'A2A cagrisi basarisiz: ' + type(exc).__name__
+        hata = veri.get('error')
+        if hata:
+            kod = (hata or {}).get('code')
+            if yontem == 'SendMessage' and kod in (-32601, -32600):
+                continue
+            return '', 'A2A hatasi %s: %s' % (kod, (hata or {}).get('message'))
+        sonuc = veri.get('result')
+        metin = _a2a_metni_cek(sonuc)
+        if metin:
+            return metin, ''
+        gorev = _a2a_govde_coz(sonuc)
+        gorev_id = gorev.get('id') if isinstance(gorev, dict) else None
+        if gorev_id:
+            metin = _get_task_metni(gorev_id, token, url, timeout)
+            if metin:
+                return metin, ''
+        durum = (gorev.get('status') or {}).get('state') if isinstance(gorev, dict) else '?'
+        return '', 'A2A cevabi bos (durum=%s)' % durum
+    return '', 'A2A yontemi bulunamadi'
+
+
+def _hukmu_ayristir(metin):
+    """Cevaptan tek JSON nesnesi cikarir; cikarilamazsa None."""
+    if not metin:
+        return None
+    temiz = metin.strip()
+    if temiz.startswith('```'):
+        temiz = re.sub(r'^```[A-Za-z]*\s*', '', temiz)
+        temiz = re.sub(r'\s*```$', '', temiz).strip()
+    bas, son = temiz.find('{'), temiz.rfind('}')
+    if bas == -1 or son <= bas:
+        return None
+    try:
+        veri = json.loads(temiz[bas:son + 1])
+    except ValueError:
+        return None
+    if not isinstance(veri, dict):
+        return None
+    hukum = str(veri.get('hukum') or '').strip().upper()
+    if hukum not in DANISMAN_KOVALAR:
+        return None
+    return {
+        'hukum': hukum,
+        'kod_ile_ayni_mi': bool(veri.get('kod_ile_ayni_mi')),
+        'gerekce': str(veri.get('gerekce') or '')[:1200],
+        'dayanak': [str(d)[:200] for d in (veri.get('dayanak') or []) if str(d).strip()][:8],
+        'guven': (str(veri.get('guven') or '').strip().lower() or 'orta')[:16],
+        'uyari': str(veri.get('uyari') or '')[:500],
+    }
+
+
+@app.post('/danisman/sor')
+async def danisman_sor(body: DanismanSoruRequest, x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    metin, hata = await asyncio.to_thread(_a2a_cagir, _danisman_metni(body))
+    if hata:
+        log.warning('DANISMAN_HATA  istek_id=%s  %s', body.istek_id, hata)
+        return {'durum': 'hata', 'istek_id': body.istek_id, 'hata': hata}
+    hukum = _hukmu_ayristir(metin)
+    if not hukum:
+        log.warning('DANISMAN_AYRISTIRILAMADI  istek_id=%s  uzunluk=%d', body.istek_id, len(metin))
+        return {'durum': 'hata', 'istek_id': body.istek_id,
+                'hata': 'cevap ayristirilamadi' if metin else 'cevap bos dondu',
+                'ham_yanit': metin[:2000]}
+    log.info('DANISMAN_OK  istek_id=%s  hukum=%s', body.istek_id, hukum['hukum'])
+    return {
+        'durum': 'tamam',
+        'istek_id': body.istek_id,
+        'yanitlayan': 'jeff',
+        'yanit_zamani': datetime.now(timezone.utc).isoformat(),
+        'kural_surumu': body.kural_surumu,
+        **hukum,
+    }
 
 
 @app.get("/health")
