@@ -21,6 +21,13 @@ import urllib.request
 BASE = "http://100.80.122.74:7700"
 
 
+
+# P109: current node evidence is required before creating any new work.
+def _p109_admission(action):
+    __import__('sys').path.insert(0, '/home/hermes/.local/lib/jeff-pablo-guard')
+    from pablo_readiness_gate import admission
+    return admission(action)
+
 def bridge_key():
     r = subprocess.run(
         ["sudo", "grep", "-E", "^BRIDGE_KEY=", "/etc/jeff-bridge.env"],
@@ -42,6 +49,9 @@ def call(path, key, data=None, method=None):
 
 
 def main():
+    readiness = _p109_admission('shell')
+    if readiness['admitted'] is not True:
+        print(json.dumps(readiness, ensure_ascii=False)); return 3
     if len(sys.argv) < 2:
         print("Kullanim: python3 pablo_dispatch.py \"KOMUT\"", file=sys.stderr)
         return 2

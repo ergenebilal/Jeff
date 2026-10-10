@@ -18,6 +18,13 @@ except ImportError:
     from pablo_dispatch import bridge_key, call
 
 
+
+# P109: current node evidence is required before creating any new work.
+def _p109_admission(action):
+    __import__('sys').path.insert(0, '/home/hermes/.local/lib/jeff-pablo-guard')
+    from pablo_readiness_gate import admission
+    return admission(action)
+
 def recorded_outcome(task_id, params, record):
     """Validate binding and evidence shape; never promote Bridge's trust level."""
     raw = record.get('result') if isinstance(record, dict) else None
@@ -47,6 +54,9 @@ def recorded_outcome(task_id, params, record):
 
 
 def main(argv=None):
+    readiness = _p109_admission('local_draft')
+    if readiness['admitted'] is not True:
+        print(json.dumps(readiness, ensure_ascii=False)); return 3
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--file', required=True, type=Path)
     parser.add_argument('--name', default='draft')

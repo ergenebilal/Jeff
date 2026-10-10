@@ -11,6 +11,13 @@ BASE = "http://100.80.122.74:7700"
 ENV = "/etc/jeff-bridge.env"
 
 
+
+# P109: current node evidence is required before creating any new work.
+def _p109_admission(action):
+    __import__('sys').path.insert(0, '/home/hermes/.local/lib/jeff-pablo-guard')
+    from pablo_readiness_gate import admission
+    return admission(action)
+
 def bridge_key():
     out = subprocess.run(["sudo", "grep", "-E", "^BRIDGE_KEY=", ENV],
                          capture_output=True, text=True).stdout
@@ -44,6 +51,9 @@ def get(path):
         return {"_http": e.code, "_body": e.read().decode()[:400]}
 
 
+readiness = _p109_admission(tt)
+if readiness['admitted'] is not True:
+    print(json.dumps(readiness, ensure_ascii=False)); sys.exit(3)
 payload = {"cmd": CMD} if tt == "shell" else {}
 r = post("/pablo/task", {"type": tt, "payload": payload, "policy": {}})
 tid = r.get("task_id")
