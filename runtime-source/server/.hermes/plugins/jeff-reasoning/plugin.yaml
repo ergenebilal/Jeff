@@ -1,0 +1,10 @@
+name: jeff-reasoning
+version: 1.0.0
+description: Owner-scoped source-backed decision support and lossless voice context references
+author: CyberGene
+kind: standalone
+provides_hooks:
+  - pre_llm_call
+provides_middleware:
+  - llm_request
+  - tool_execution

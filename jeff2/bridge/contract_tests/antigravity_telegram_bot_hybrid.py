@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-ANTIGRAVITY 24/7 HYBRID TELEGRAM CONTROLLER & AUTONOMOUS SURGEON
------------------------------------------------------------------
-Host: Jeff Linux Server (100.124.217.48 - Always Online 24/7)
-Remote Node: Lenovo Windows Laptop (100.89.26.86:7788 - Pablo)
-Bot: configured via TELEGRAM_BOT_TOKEN
-Owner & Operator: Bilal Ergene (chat_id: 5506784207)
-"""
+('\nANTIGRAVITY 24/7 HYBRID TELEGRAM CONTROLLER & AUTONOMOUS SURGEON\n-----------------------------------------------------------------\nHost: Jeff Linux Server (100.124.217.48 - Always Online 24/7)\nRemote Node: Lenovo Windows Laptop (100.89.26.86:7788 - Pablo)\nBot: configured via TELEGRAM_BOT_TOKEN\nOwner & Operator: Bilal Ergene (chat_id: ' + __import__('os').environ.get('TELEGRAM_OWNER_CHAT_ID', '') + ')\n')
 
 import os
 import sys
@@ -26,7 +19,7 @@ from typing import Dict, List, Optional, Any
 
 # ── CONFIGURATION ─────────────────────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-AUTHORIZED_CHATS = [5506784207]  # Bilal Ergene
+AUTHORIZED_CHATS = [int(__import__('os').environ.get('TELEGRAM_OWNER_CHAT_ID', '0'))]  # Bilal Ergene
 
 WINDOWS_TAILSCALE_IP = "100.89.26.86"
 WINDOWS_NODE_PORT = 7788

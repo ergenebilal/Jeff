@@ -68,7 +68,7 @@ CONFIG = {
     "jeff_bridge_api_url": "http://100.124.217.48:7700",
     "allowed_ips": ["127.0.0.1", "::1", "100.124.217.48", "100.89.26.86"],
     "telegram_bot_token": "",
-    "telegram_default_chat_id": 5506784207,
+    "telegram_default_chat_id": int(__import__('os').environ.get('TELEGRAM_OWNER_CHAT_ID', '0')),
     "poll_interval_sec": 1.0,
     "heartbeat_interval_sec": 10.0,
 }

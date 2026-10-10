@@ -12,7 +12,7 @@
 ## Telegram Gönderim Komutu
 ```bash
 BOT_TOKEN=$(grep "TELEGRAM_BOT_TOKEN" ~/.hermes/.env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-CHAT_ID="5506784207"
+CHAT_ID="${TELEGRAM_OWNER_CHAT_ID}"
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
   -F "chat_id=${CHAT_ID}" \
   -F "document=@/path/to/report.md" \

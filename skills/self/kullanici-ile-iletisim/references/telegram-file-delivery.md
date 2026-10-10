@@ -7,13 +7,13 @@ Telegram'da dosya göndermek için Bot API `sendDocument` endpoint'i kullanılı
 ### Gerekli Bilgiler
 
 1. **Bot Token:** `/home/hermes/.hermes/gateway.env` dosyasından `TELEGRAM_BOT_TOKEN`
-2. **Chat ID:** Session key'den çıkarılır: `agent:main:telegram:dm:5506784207` → Chat ID = `5506784207`
+2. **Chat ID:** Session key'den çıkarılır: `agent:main:telegram:dm:${TELEGRAM_OWNER_CHAT_ID}` → Chat ID = `${TELEGRAM_OWNER_CHAT_ID}`
 
 ### Curl Komutu
 
 ```bash
 BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN /home/hermes/.hermes/gateway.env | cut -d= -f2)
-CHAT_ID="5506784207"  # veya ilgili chat ID
+CHAT_ID="${TELEGRAM_OWNER_CHAT_ID}"  # veya ilgili chat ID
 FILE="/path/to/file.md"
 
 curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \

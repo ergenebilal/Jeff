@@ -1,2 +1,0 @@
-# Raw SHA256 source inventory must survive a Windows checkout.
-*.py text eol=lf

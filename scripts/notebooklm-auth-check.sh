@@ -8,7 +8,7 @@ LOG="$HOME/logs/notebooklm-health.log"
 COOKIES="$HOME/.notebooklm-mcp-cli/profiles/default/cookies.json"
 mkdir -p "$(dirname "$LOG")"
 TELEGRAM_TOKEN=$(grep TELEGRAM_BOT_TOKEN ~/.hermes/gateway.env 2>/dev/null | cut -d= -f2 | tr -d "\r" | head -1)
-CHAT_ID="5506784207"
+CHAT_ID="${TELEGRAM_OWNER_CHAT_ID:?owner not configured}"
 send_proaktif() {
   local level="$1" msg="$2"
   local body="JEFF PROAKTIF BILDIRIM - NotebookLM [$level] $(date '+%d.%m %H:%M') $msg"

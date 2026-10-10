@@ -37,7 +37,7 @@ for line in envdata.decode().splitlines():
         k,v=line.split('=',1);env[k]=v.strip().strip('"\'')
 key=env.get('APPROVAL_DECISION_KEY') or secrets.token_hex(32)
 if key==env.get('BRIDGE_KEY'):raise RuntimeError('Owner key must differ from bridge key')
-owner='5506784207'
+owner=(__import__('os').environ.get('TELEGRAM_OWNER_CHAT_ID', ''))
 config={'auth_token':env['BRIDGE_KEY'],'approval_decision_key':key,'jeff_bridge_api_url':'http://100.80.122.74:7700','owner_id':owner}
 secret_file=backup/'approval-gateway.json';secret_file.write_text(json.dumps(config));os.chmod(secret_file,0o600)
 panel_config=Path('/home/hermes/cybergeneos-data/approval-gateway.json')

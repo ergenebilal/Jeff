@@ -784,8 +784,8 @@ DANISMAN_SABLON = """Sen Türkiye vergi mevzuatı konusunda gider değerlendirme
 Kesin vergi hükmü vermiyorsun; mali müşavire sorulacak bir değerlendirme üretiyorsun.
 
 MÜKELLEF
-- Mükellef, faaliyet, araç ve belge bilgilerini yalnız aşağıdaki BAĞLAM alanından al.
-- Bağlamda verilmeyen kişisel ayrıntıları varsayma; eksik bilgi için SUPHELI de.
+- Mükellef, faaliyet, araç ve belge bilgilerini yalnız BAĞLAM alanından al.
+- Verilmeyen kişisel ayrıntıları varsayma; eksik bilgi için SUPHELI de.
 
 DÖRT KOVA
 - OLUMLU   : gider yazılabilir
