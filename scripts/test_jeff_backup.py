@@ -116,7 +116,7 @@ class BackupTests(unittest.TestCase):
     def setUp(self):
         self._d = tempfile.TemporaryDirectory()
         self.fx = Fixture(self._d.name)
-        self.prefix = str(self.fx.home).lstrip('/').replace('\\', '/').replace(':', '')
+        self.prefix = self.fx.home.as_posix().split(':', 1)[-1].lstrip('/')
 
     def tearDown(self):
         self._d.cleanup()

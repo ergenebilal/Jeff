@@ -96,6 +96,8 @@ CORE_SOURCE_PATHS = (
     'jeff-v0.21.5/site/openai/__init__.py',
     'jeff-beyin/.beyin-runtime.json', 'jeff-beyin/.claude/scripts/beyin_v3.py',
     '.venv/lib/python3.12/site-packages/aiosqlite/__init__.py',
+    '.hermes/scripts/masaustu_gozlemci.py',
+    'jeff_repo/scripts/masaustu_gozlemci.py',
 )
 CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
 REQUIRED_DATA_PATHS = ('raporlar/JEFF_TO_JARVIS.md',
