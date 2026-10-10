@@ -19,10 +19,12 @@ from scripts.pablo_recovery_retention import record_verified,prune
 REMOTE_ROOT='/home/hermes/jeff-artifacts/pablo-recovery'
 REMOTE_REPORT='/home/hermes/jeff-artifacts/pablo-recovery-status.json'
 SSH=['ssh','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ConnectTimeout=15','hermes']
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if sys.platform == 'win32' else 0
+TRANSFER_TIMEOUT_SECONDS = 1800
 
 
 def remote(script):
-    result=subprocess.run(SSH+['/home/hermes/.venv/bin/python -c '+shlex.quote(script)],capture_output=True,text=True,timeout=120)
+    result=subprocess.run(SSH+['/home/hermes/.venv/bin/python -c '+shlex.quote(script)],capture_output=True,text=True,timeout=120,creationflags=_NO_WINDOW)
     if result.returncode:raise RuntimeError('Private recovery transport or verification unavailable')
     return json.loads(result.stdout) if result.stdout.strip() else None
 
@@ -95,6 +97,7 @@ print(json.dumps(REPORT))
 def run(live,storage,report):
     live=Path(live);storage=Path(storage);report=Path(report)
     public={'version':1,'ok':False,'observed_at':time.time(),'notification_policy':'dashboard_only','workers_started':False}
+    phase='snapshot'
     try:
         # Import only the already installed private-copy helper, never Node.
         sys.path.insert(0,str(live));from pablo_recovery import snapshot,validate,private_directory,digest
@@ -104,6 +107,7 @@ def run(live,storage,report):
         assert re.fullmatch(r'\d{8}T\d{6}Z-[a-f0-9]{32}',name)
         with urllib.request.urlopen('http://127.0.0.1:7788/ping',timeout=8) as response:before=json.load(response)
         dest=storage/name;snapshot(live,dest);manifest=validate(dest)
+        phase='runtime_source_check'
         loaded=check_runtime(manifest,before)
         for source,expected in loaded.items():
             if hashlib.sha256((dest/'files'/source).read_bytes().replace(b'\r\n',b'\n')).hexdigest()!=expected:raise ValueError('Snapshot differs from loaded runtime')
@@ -117,17 +121,26 @@ def run(live,storage,report):
                       cross_database_atomic_snapshot=False,private_settings_in_archive=True)
         base=REMOTE_ROOT+'/'+name
         prepare='from pathlib import Path;import os;os.umask(0o077);root=Path('+repr(REMOTE_ROOT)+');assert root.is_dir() and not root.is_symlink();root.chmod(0o700);(root/'+repr(name)+').mkdir(mode=0o700)'
+        phase='remote_prepare'
         remote(prepare)
-        transfer=subprocess.run(['scp','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ConnectTimeout=15',str(archive),'hermes:'+base+'/windows-snapshot.zip'],capture_output=True,timeout=120)
+        phase='archive_transfer'
+        transfer_started=time.monotonic()
+        try:
+            transfer=subprocess.run(['scp','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ConnectTimeout=15','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=2',str(archive),'hermes:'+base+'/windows-snapshot.zip'],capture_output=True,timeout=TRANSFER_TIMEOUT_SECONDS,creationflags=_NO_WINDOW)
+        finally:
+            public['archive_transfer_seconds']=time.monotonic()-transfer_started
         if transfer.returncode:raise RuntimeError('Private archive transport failed')
         code='BASE='+repr(base)+'\nEXPECTED='+repr(public['archive_sha256'])+'\nREPORT='+repr(public)+'\n'+VERIFY_REMOTE
-        public=remote(code)
-        if public.get('ok') is not True:raise RuntimeError('No verification receipt')
+        phase='remote_archive_verification'
+        verified=remote(code)
+        if not isinstance(verified,dict) or verified.get('ok') is not True:raise RuntimeError('No verification receipt')
+        public=verified
+        phase='local_acceptance'
         record_verified(dest,storage,'local',public,validate)
         try:public['local_retention']=prune(storage,name,validate)
         except Exception as exc:public['local_retention']={'ok':False,'failure_class':type(exc).__name__}
     except Exception as exc:
-        public.update(ok=False,failure_class=type(exc).__name__)
+        public.update(ok=False,failure_class=type(exc).__name__,failure_phase=phase)
         # Report failure without secrets. Preserve all prior valid archives.
         try:
             remote('from pathlib import Path;import json,os;data='+repr(public)+';p=Path('+repr(REMOTE_REPORT)+');t=p.with_suffix(".failure-pending");t.write_text(json.dumps(data,indent=2));t.chmod(0o600);os.replace(t,p)')

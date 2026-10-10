@@ -32,6 +32,61 @@ class RecoveryMonitorTests(unittest.TestCase):
             with patch('pablo_recovery.snapshot',side_effect=ValueError('private fixture secret')),patch('scripts.pablo_recovery_monitor.remote') as ssh,patch('scripts.pablo_recovery_monitor.urllib.request.urlopen') as ping:
                 ping.return_value.__enter__.return_value.read.return_value=b'{}'
                 result=run(root,root/'storage',report)
-            self.assertFalse(result['ok']);self.assertEqual(result['failure_class'],'ValueError')
+            self.assertFalse(result['ok']);self.assertEqual(result['failure_class'],'ValueError');self.assertEqual(result['failure_phase'],'snapshot')
             self.assertNotIn('private fixture secret',report.read_text());self.assertEqual(ssh.call_count,1)
             self.assertNotIn('windows-snapshot.zip',ssh.call_args.args[0])
+
+
+class TransferFailureTests(unittest.TestCase):
+    def verify_failure(self, timeout, response=None):
+        import hashlib
+        import sqlite3
+        import subprocess
+        from contextlib import closing
+        from types import SimpleNamespace
+        import pablo_recovery
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);live=root/'live';live.mkdir()
+            for name in set(pablo_recovery.CORE)|set(LOADED):
+                p=live/name
+                if name.endswith('.sqlite3'):
+                    with closing(sqlite3.connect(p)) as db:
+                        db.execute('CREATE TABLE anonymous_fixture(id INTEGER)');db.commit()
+                else:p.write_text('# anonymous fixture\n' if name.endswith('.py') else '{}')
+            (live/'deployment.json').write_text(json.dumps({'commit':'a'*40}))
+            loaded={n:hashlib.sha256((live/n).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for n in LOADED}
+            ping={'ok':True,'result':'pong','source_commit':'a'*40,'loaded_source_sha256':loaded,'process_started_at':100}
+            before={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in live.iterdir()}
+            actual_snapshot=pablo_recovery.snapshot
+            def make_private(p):p.mkdir(mode=0o700);return p
+            def transfer(*args,**kwargs):
+                self.assertEqual(args[0][0],'scp')
+                if timeout is True:raise subprocess.TimeoutExpired('anonymous-transfer',kwargs['timeout'])
+                return SimpleNamespace(returncode=0 if timeout=='verification' else 1)
+            with patch.object(pablo_recovery,'private_directory',side_effect=make_private),patch.object(pablo_recovery,'snapshot',side_effect=lambda a,b:actual_snapshot(a,b,collect_packages=False)),patch('scripts.pablo_recovery_monitor.remote') as ssh,patch('scripts.pablo_recovery_monitor.urllib.request.urlopen') as http,patch('scripts.pablo_recovery_monitor.subprocess.run',side_effect=transfer) as copy:
+                http.return_value.__enter__.return_value.read.return_value=json.dumps(ping).encode()
+                if timeout=='verification':ssh.side_effect=[None,response,None]
+                result=run(live,root/'storage',root/'report.json')
+            self.assertFalse(result['ok'])
+            self.assertEqual(result['failure_phase'],'remote_archive_verification' if timeout=='verification' else 'archive_transfer')
+            self.assertEqual(result['failure_class'],'TimeoutExpired' if timeout is True else 'RuntimeError')
+            self.assertGreaterEqual(result['archive_transfer_seconds'],0)
+            self.assertEqual(copy.call_count,1)
+            self.assertEqual(ssh.call_count,3 if timeout=='verification' else 2)
+            self.assertFalse(result['workers_started'])
+            images=list((root/'storage').glob('*/windows-snapshot.zip'))
+            self.assertEqual(len(images),1)
+            self.assertEqual(images[0].stat().st_size,result['archive_bytes'])
+            self.assertEqual(before,{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in live.iterdir()})
+
+    def test_timeout_preserves_local_archive_and_cannot_get_success(self):
+        self.verify_failure(True)
+
+    def test_failed_transfer_is_not_retried_or_verified(self):
+        self.verify_failure(False)
+
+    def test_empty_verification_cannot_crash_failure_reporting(self):
+        self.verify_failure('verification',None)
+
+    def test_foreign_verification_type_cannot_get_success(self):
+        self.verify_failure('verification',['foreign receipt'])
