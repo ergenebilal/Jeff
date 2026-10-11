@@ -183,7 +183,7 @@ def normalize_tool_params(raw_args: any) -> dict:
 import uuid
 
 from pablo_task_guard import TaskGuard, allowed_ip, is_approval_required, GUI_ACTIONS
-from pablo_outcome_observer import observe_current
+from pablo_outcome_observer import observe_current, observe_plan
 from pablo_task_criterion import read_criterion
 
 _task_guard = None
@@ -737,7 +737,7 @@ class PabloWorkcopyTaskGuard(TaskGuard):
         self.intent_guard = get_intent_guard()
 
     def execute(self, action, params, request_id=None, parent_id=None):
-        if isinstance(params, dict) and request_id:
+        if isinstance(params, dict) and request_id and action != 'local_draft_plan':
             params["request_id"] = request_id
         return super().execute(action, params, request_id, parent_id=parent_id)
 
@@ -796,7 +796,7 @@ def execute_request(action, params, request_id=None):
     # The bounded draft has a strict schema; general text aliases would add
     # unsupported fields and change its immutable input contract.
     normalized = dict(params) if action in ('local_draft', 'local_draft_plan') and isinstance(params, dict) else normalize_tool_params(params)
-    if request_id:
+    if request_id and action != 'local_draft_plan':
         normalized["request_id"] = request_id
     result = task_guard().execute(action, normalized, request_id)
     if result.get('status') == 'APPROVAL_REQUIRED':
@@ -2327,6 +2327,15 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                     self.send_response(400)
                     self.end_headers()
                     return
+            elif urllib.parse.urlsplit(self.path).path.endswith('/plan-observation'):
+                parsed = urllib.parse.urlsplit(self.path)
+                match = re.fullmatch(r'/tasks/([A-Za-z0-9_-]{1,128})/plan-observation', parsed.path)
+                if not match or parsed.query or parsed.fragment:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                # Independent parent-bound read; never initialize or execute a guard.
+                result = observe_plan(NODE_DIR / 'task-journal.sqlite3', match[1])
             elif self.path.split('?')[0].endswith('/observation'):
                 parsed = urllib.parse.urlsplit(self.path)
                 match = re.fullmatch(r'/tasks/([A-Za-z0-9_-]{1,128})/observation', parsed.path)
