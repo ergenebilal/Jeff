@@ -388,14 +388,15 @@ class TaskGuard:
         history = db.execute('SELECT archived_at,reason FROM work_history WHERE request_id=?', (rid,)).fetchone()
         legacy_worker_history=(recorded_status=='SUCCESS' and action not in ('local_draft','local_draft_plan')
                                and status=='EXECUTION_SUCCEEDED')
+        recovered_quarantine_history=(action=='recovered_history' and recorded_status=='RECOVERY_BLOCKED')
         return dict(request_id=rid, action=action, status=status, phase=phase, open=status not in CLOSED_WORK_STATUSES,
                     outcome_verified=outcome_verified, completion_authority=outcome_verified,
                     next_step=next_step, waiting_for=waiting_for, created_at=created, updated_at=updated,
                     deadline_at=deadline, deadline_known=deadline is not None,
                     overdue=deadline is not None and deadline < self.clock() and status not in CLOSED_WORK_STATUSES,
                     observation_after=after, automatic_replay=False, events=list(reversed(events)),
-                    history_only=history is not None or legacy_worker_history, archived_at=history[0] if history else None,
-                    archive_reason=history[1] if history else ('legacy_worker_success_outcome_unverified' if legacy_worker_history else None),
+                    history_only=history is not None or legacy_worker_history or recovered_quarantine_history, archived_at=history[0] if history else None,
+                    archive_reason=history[1] if history else ('legacy_worker_success_outcome_unverified' if legacy_worker_history else ('recovered_history_execution_blocked' if recovered_quarantine_history else None)),
                     recorded_status=recorded_status,
                     runtime_interruption=({'process_started_at':interruption[0],'detected_at':interruption[1]}
                                           if interruption and recorded_status=='IN_PROGRESS' else None))
