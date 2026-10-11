@@ -278,6 +278,9 @@ def source_context(args, *, session_id='', turn_id='', **ignored):
 
 
 def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id='', **ignored):
+    if tool_name == 'plan_outcome':
+        return plan_tool_execution(tool_name=tool_name, args=args, next_call=next_call,
+                                   session_id=session_id, turn_id=turn_id)
     if tool_name != 'source_context':
         return next_call(args)
     scope = (session_id, turn_id) if source_identifier(session_id) and source_identifier(turn_id) else None
@@ -286,6 +289,160 @@ def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id=
         return next_call(args)
     finally:
         _source_dispatch_scope.reset(token)
+
+
+
+PLAN_RECEIPT_READER_PATH = Path('/home/hermes/jeff_repo/scripts/pablo_plan_receipts.py')
+PLAN_DECISION_READER_PATH = Path('/home/hermes/jeff_repo/scripts/plan_decision_client.py')
+_plan_receipt_reader = None
+_plan_decision_reader = None
+_plan_dispatch_scope = ContextVar('plan_outcome_dispatch', default=None)
+_plan_turns = {}
+_plan_seen_turns = set()
+_plan_lock = RLock()
+_plan_clock = monotonic
+PLAN_TTL = 120
+PLAN_TURN_LIMIT = 64
+PLAN_SEEN_TURN_LIMIT = 4096
+PLAN_OUTCOME_HINT = (
+    'Bu konuşmadaki açık plan kimliğinin ilk çağıran girdisine bağlı sonucu plan_outcome ile '
+    'salt okunur kontrol edebilirsin. Araç argümanları boştur. İlk istek kaydı, sahibin hedefi '
+    'onayladığını, isteğin kabul edildiğini veya işin tamamlandığını kanıtlamaz. '
+    'Kayıt ya da güncel okuma yoksa sonuç bilinmiyor; işi tekrar çalıştırma.'
+)
+PLAN_OUTCOME_SCHEMA = {
+    'name': 'plan_outcome',
+    'description': 'Read the current private owner turn bound draft-plan outcome against its '
+                   'independently captured original dispatch input. No task identity, digest, path '
+                   'or authority may be supplied by the model. Captured input is not owner approval, '
+                   'submission acceptance or semantic goal verification. No retry or execution.',
+    'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}
+}
+_RECEIPT_FIELDS = {'schema_version', 'request_id', 'action', 'input_digest',
+                   'request_bytes_sha256', 'captured_at', 'criterion_source', 'read_only',
+                   'semantic_goal_verified', 'owner_approval_verified', 'submission_verified'}
+
+
+def explicit_plan_id(text):
+    markers = list(re.finditer(r'(?<![\w-])plan:', text))
+    if len(markers) != 1:
+        return None
+    value = re.match(r'([A-Za-z0-9_-]{1,128})(?=$|[\s,;!?])', text[markers[0].end():])
+    return value[1] if value else None
+
+
+def original_plan_receipt(plan_id):
+    global _plan_receipt_reader
+    if _plan_receipt_reader is None:
+        spec = importlib.util.spec_from_file_location('_jeff_original_plan_receipts', PLAN_RECEIPT_READER_PATH)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _plan_receipt_reader = module.read_original
+    return _plan_receipt_reader(plan_id)
+
+
+def original_plan_digest(value, plan_id):
+    if (not isinstance(value, dict) or set(value) != _RECEIPT_FIELDS
+            or type(value['schema_version']) is not int or value['schema_version'] != 1
+            or value['request_id'] != plan_id or value['action'] != 'local_draft_plan'
+            or value['criterion_source'] != 'original_dispatch_input' or value['read_only'] is not True
+            or any(value[k] is not False for k in ('semantic_goal_verified', 'owner_approval_verified', 'submission_verified'))
+            or any(not isinstance(value[k], str) or not re.fullmatch('[0-9a-f]{64}', value[k])
+                   for k in ('input_digest', 'request_bytes_sha256'))
+            or type(value['captured_at']) not in (int, float) or not math.isfinite(value['captured_at'])
+            or value['captured_at'] <= 0):
+        return None
+    return value['input_digest']
+
+
+def authorize_plan_turn(text, *, original_text, platform, session_id, sender_id, turn_id):
+    plan_id = explicit_plan_id(text)
+    if (not plan_id or not source_identifier(session_id) or not source_identifier(turn_id)
+            or not isinstance(original_text, str) or len(original_text) > 2000):
+        return False
+    key = (session_id, turn_id)
+    now = _plan_clock()
+    with _plan_lock:
+        prior = _plan_turns.get(key)
+        if prior:
+            # Context collection neither changes an original criterion nor renews a read.
+            return (prior['deadline'] > now and prior['request'] == text
+                    and prior['platform'] == platform and prior['sender_id'] == sender_id)
+        # Retiring an expired scope must not resurrect an old runtime turn later.
+        if key in _plan_seen_turns or len(_plan_seen_turns) >= PLAN_SEEN_TURN_LIMIT:
+            return False
+        for stale in [k for k, v in _plan_turns.items() if v['deadline'] <= now]:
+            del _plan_turns[stale]
+        if len(_plan_turns) >= PLAN_TURN_LIMIT:
+            return False
+        _plan_seen_turns.add(key)
+        try:
+            digest = original_plan_digest(original_plan_receipt(plan_id), plan_id)
+        except Exception:
+            digest = None
+        _plan_turns[key] = dict(request=text, request_id=plan_id, input_digest=digest,
+                               platform=platform, sender_id=sender_id,
+                               deadline=now + PLAN_TTL, remaining=1)
+    return True
+
+
+def plan_decision(plan_id, digest):
+    global _plan_decision_reader
+    if _plan_decision_reader is None:
+        source = '/home/hermes/jeff_repo'
+        if source not in sys.path:
+            sys.path.insert(0, source)
+        spec = importlib.util.spec_from_file_location('_jeff_plan_decision_client', PLAN_DECISION_READER_PATH)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _plan_decision_reader = module.read_plan
+    return _plan_decision_reader(plan_id, input_digest=digest)
+
+
+def plan_outcome(args, *, session_id='', turn_id='', **ignored):
+    out = {'status': 'plan_scope_unavailable', 'new_task_outcome': 'unknown',
+           'original_input_binding_matched': False,
+           'all_step_bytes_matched_during_read_window': False,
+           'semantic_goal_verified': False, 'execution_verified': False,
+           'customer_delivery_verified': False, 'owner_approval_verified': False,
+           'submission_verified': False, 'read_only': True,
+           'execution_authorized': False, 'reexecution_authorized': False}
+    dispatch = _plan_dispatch_scope.get()
+    if (not isinstance(args, dict) or args or not source_identifier(session_id)
+            or not dispatch or dispatch[0] != session_id or turn_id and dispatch[1] != turn_id):
+        return dump(out)
+    with _plan_lock:
+        scope = _plan_turns.get(dispatch)
+        if (not scope or scope['deadline'] <= _plan_clock() or scope['remaining'] <= 0
+                or not owner_scope(scope['platform'], session_id, scope['sender_id'])):
+            return dump(out)
+        scope['remaining'] -= 1
+        plan_id, digest = scope['request_id'], scope['input_digest']
+    out.update(status='criterion_required', request_id=plan_id,
+               criterion_source='original_dispatch_input', owner_turn_bound=True,
+               criterion_scope='first_dispatch_input_only_not_owner_approval_or_submission_acceptance')
+    if digest is None:
+        return dump(out)
+    try:
+        value = plan_decision(plan_id, digest)
+        # Consumer is a fixed runtime dependency, never a model selected tool argument.
+        if not isinstance(value, dict) or value.get('request_id') != plan_id:
+            raise ValueError('Unknown observation')
+        out.update(value)
+    except Exception:
+        out.update(status='unavailable', new_task_outcome='unknown')
+    return dump(out)
+
+
+def plan_tool_execution(*, tool_name, args, next_call, session_id='', turn_id='', **ignored):
+    if tool_name != 'plan_outcome':
+        return next_call(args)
+    scope = (session_id, turn_id) if source_identifier(session_id) and source_identifier(turn_id) else None
+    context = _plan_dispatch_scope.set(scope)
+    try:
+        return next_call(args)
+    finally:
+        _plan_dispatch_scope.reset(context)
 
 
 def memory_brief(query, reader=None, budget=5000):
@@ -375,13 +532,18 @@ def pre(*, user_message='', platform='', session_id='', sender_id='', turn_id=''
     task_id = explicit_task_id(text) if isinstance(original_text, str) and len(original_text) <= 2000 else None
     source_ready = authorize_source_turn(text, original_text=original_text, platform=platform,
                                          session_id=session_id, sender_id=sender_id, turn_id=turn_id)
+    plan_ready = authorize_plan_turn(text, original_text=original_text, platform=platform,
+                                      session_id=session_id, sender_id=sender_id, turn_id=turn_id)
     if not text or (not substantive(text) and not task_id):
-        return {'context': SOURCE_CONTEXT_HINT} if source_ready else None
+        hints = ([SOURCE_CONTEXT_HINT] if source_ready else []) + ([PLAN_OUTCOME_HINT] if plan_ready else [])
+        return {'context': '\n'.join(hints)} if hints else None
     context = CONTRACT + '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(text))
     if task_id:
         context += '\nİlk iş kaydına bağlı bağımsız kontrol (yalnız özel taslak; bu alanlar açıklamayla başarıya çevrilemez): ' + dump(task_decision(task_id))
     if source_ready:
         context += '\n' + SOURCE_CONTEXT_HINT
+    if plan_ready:
+        context += '\n' + PLAN_OUTCOME_HINT
     return {'context': context}
 
 
@@ -441,6 +603,10 @@ def register(ctx):
     ctx.register_middleware('llm_request', middleware)
 
     ctx.register_middleware('tool_execution', source_tool_execution)
+    plan_registered = ctx.register_tool('plan_outcome', 'pablo_observation', PLAN_OUTCOME_SCHEMA, plan_outcome,
+                                        description='Original dispatch bound private plan observation', emoji='🔎')
+    if plan_registered is None:
+        raise RuntimeError('Plan outcome tool registration unavailable')
     registered = ctx.register_tool('source_context', 'source_memory', SOURCE_CONTEXT_SCHEMA, source_context,
                                    description='Private owner source-backed memory search', emoji='📚')
     if registered is None:
