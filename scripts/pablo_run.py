@@ -93,7 +93,7 @@ for i in range(40):
     except Exception as e:
         print("cozumleme hatasi:", e)
         print(row[:600])
-        break
+        sys.exit(2)
 
     print(f"\nsure: {2*(i+1)} sn")
     if isinstance(lvl3, dict):
@@ -112,3 +112,7 @@ for i in range(40):
     break
 else:
     print("zaman asimi — sonuc gelmedi")
+    sys.exit(2)
+
+if not isinstance(lvl2,dict) or lvl2.get("ok") is not True:
+    sys.exit(2)

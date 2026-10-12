@@ -2725,11 +2725,15 @@ def handle_bridge_task(task: dict):
         params = {'value': params}
     if task.get('reconcile_only'):
         result = task_guard().reconcile(rid)
-        if result['status'] in ('NOT_FOUND', 'IN_PROGRESS'):
-            log('WARN', f'Bridge task {rid} requires manual reconciliation: {result["status"]}')
-            return
+        if result['status']=='IN_PROGRESS':return
+        if result['status']=='NOT_FOUND':
+            result={'ok':False,'status':'OUTCOME_UNKNOWN','request_id':rid,'outcome_verified':False,
+                'replayed':False,'reason':'No local execution record for an already delivered task; no automatic repeat.'}
     else:
-        result = execute_request(action, params, rid)
+        try:result = execute_request(action, params, rid)
+        except Exception as exc:
+            result={'ok':False,'status':'OUTCOME_UNKNOWN','request_id':rid,'outcome_verified':False,
+                'replayed':False,'error':type(exc).__name__,'reason':'Task handling failed; do not assume execution or repeat.'}
     payload = dict(result, type=task.get('type'), result=json.dumps(result),
                    digest=task.get('digest'), worker_id=CONFIG['node_id'],
                    attempt=task.get('attempt'))

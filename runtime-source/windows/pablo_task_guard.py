@@ -599,9 +599,8 @@ class TaskGuard:
                 if not bound:
                     return self.response(rid, 'CONFLICT', error='Invalid parent step binding')
             result = self.response(rid, 'IN_PROGRESS')
-            db.execute('INSERT INTO requests(id,digest,action,params,status,response) VALUES(?,?,?,?,?,?)',
-                       (rid, digest, action, json.dumps(params), result['status'], json.dumps(result)))
-            db.execute('UPDATE requests SET created_at=? WHERE id=?',(self.clock(),rid))
+            db.execute('INSERT INTO requests(id,digest,action,params,status,response,created_at) VALUES(?,?,?,?,?,?,?)',
+                       (rid, digest, action, json.dumps(params), result['status'], json.dumps(result),self.clock()))
             db.execute('UPDATE requests SET parent_id=? WHERE id=?', (parent_id, rid))
             self._phase(db, rid, 'claimed')
             if action in ('local_draft', 'local_draft_plan'):
