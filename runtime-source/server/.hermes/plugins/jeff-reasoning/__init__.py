@@ -348,7 +348,7 @@ def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id=
     if tool_name == 'plan_outcome':
         return plan_tool_execution(tool_name=tool_name, args=args, next_call=next_call,
                                    session_id=session_id, turn_id=turn_id)
-    if tool_name != 'source_context':
+    if tool_name not in ('source_context','current_work'):
         return next_call(args)
     scope = (session_id, turn_id) if source_identifier(session_id) and source_identifier(turn_id) else None
     token = _source_dispatch_scope.set(scope)
@@ -357,6 +357,79 @@ def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id=
     finally:
         _source_dispatch_scope.reset(token)
 
+
+
+WORK_READER_PATH = Path('/home/hermes/jeff_repo/scripts/pablo_work_status.py')
+WORK_READER_SHA256 = '148be7e80d3d8d46031e89f75dff1ab32e0c222c5cf705c2c9c7fdbd86f65157'
+_work_reader = None
+CURRENT_WORK_HINT = (
+    'Güncel Pablo işlem kayıtları için current_work salt okunur aracını kullanabilirsin. '
+    'Başarı bildirimi veya açık kayıt aktif ticari iş/kanıtlanmış sonuç değildir; '
+    'bu araç tarihli kayıt görünümünü verir, başka süreçleri veya iş hedefini doğrulamaz. '
+    'Eksik okuma iş yok anlamına gelmez. Hata veya belirsizlikte işi tekrar başlatma.'
+)
+CURRENT_WORK_SCHEMA = {
+    'name': 'current_work',
+    'description': 'Read the current authenticated private owner turn bound Pablo open-parent '
+                   'record projection only. Classifies execution claims, recorded errors and waits. '
+                   'No closed-record, business-goal, live-process-health or independent outcome inventory. '
+                   'An empty/unavailable read does not establish no work. No execution, replay or approval.',
+    'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}
+}
+
+
+def work_request(text):
+    value=text.casefold().replace('ı','i').replace('i\u0307','i')
+    # Explicit current-state/list request only; business strategy alone does not need a node poll.
+    nouns=re.search(r'\b(?:iş|işler|görev|görevler|pablo)\b',value)
+    state=re.search(r'\b(?:durum|durumu|durumunu|durumda|bekliyor|bekleyen|göster|listele|özet|özeti)\b',value)
+    inventory=re.search(r'\b(?:ne|hangi) (?:iş|işler|görev|görevler) var\b',value)
+    return bool((nouns and state) or inventory
+                or re.fullmatch(r'bugün (?:ne var|neler var|ne yapacağiz|neler yapacağiz)',value.strip(' \t\r\n.!?')))
+
+
+def work_brief():
+    global _work_reader
+    try:
+        if _work_reader is None:
+            raw=WORK_READER_PATH.read_bytes()
+            if hashlib.sha256(raw).hexdigest()!=WORK_READER_SHA256:
+                raise ValueError('Current work reader source changed')
+            # Resolve the existing sibling credential helper; compile the exact validated bytes once.
+            sys.path.insert(0,str(WORK_READER_PATH.parent.parent))
+            import types
+            module=types.ModuleType('scripts._jeff_current_work_reader')
+            module.__package__='scripts';module.__file__=str(WORK_READER_PATH)
+            exec(compile(raw,str(WORK_READER_PATH),'exec'),module.__dict__)
+            _work_reader=module.read_current_work
+        return _work_reader()
+    except Exception:
+        return {'status':'unavailable','reason_code':'work_reader_unavailable',
+                'active_business_work_count':None,'read_only':True,
+                'execution_authorized':False,'reexecution_authorized':False}
+
+
+def current_work(args, *, session_id='', turn_id='', **ignored):
+    denied={'status':'work_scope_unavailable','active_business_work_count':None,
+            'read_only':True,'execution_authorized':False,'reexecution_authorized':False}
+    if not isinstance(args,dict) or args or not source_identifier(session_id):
+        return dump(denied)
+    dispatch=_source_dispatch_scope.get()
+    if not dispatch or dispatch[0]!=session_id or turn_id and dispatch[1]!=turn_id:
+        return dump(denied)
+    key=dispatch
+    with _source_lock:
+        scope=_source_turns.get(key)
+        if not scope or scope['deadline']<=_source_clock() or scope['remaining']<=0:
+            return dump(denied)
+        if not owner_scope(scope['platform'],session_id,scope['sender_id']):
+            return dump(denied)
+        scope['remaining']-=1
+        project=scope['project']
+    result=work_brief()
+    result['scope']={'owner_turn_bound':True,'owner_requested_project':project,
+                     'project_filter_applied':False,'source':'Pablo open parent record projection only'}
+    return dump(result)
 
 
 PLAN_RECEIPT_READER_PATH = Path('/home/hermes/jeff_repo/scripts/pablo_plan_receipts.py')
@@ -599,19 +672,27 @@ def pre(*, user_message='', platform='', session_id='', sender_id='', turn_id=''
     original_text = wrapped[0]['trusted_user_request'] if wrapped else user_message
     followup = owner_followup(text, conversation_history)
     query = followup['retrieval_query'] if followup else text
+    work_question = work_request(text) or bool(followup and work_request(followup['prior_owner_request']))
     # Current owner request alone selects task/plan identity and authority.
     task_id = explicit_task_id(text) if isinstance(original_text, str) and len(original_text) <= 2000 else None
     source_ready = authorize_source_turn(query, original_text=original_text, platform=platform,
                                          session_id=session_id, sender_id=sender_id, turn_id=turn_id)
     plan_ready = authorize_plan_turn(text, original_text=original_text, platform=platform,
                                       session_id=session_id, sender_id=sender_id, turn_id=turn_id)
-    if not text or (not substantive(text) and not operational_question(text) and not followup and not task_id):
+    if not text or (not substantive(text) and not operational_question(text) and not work_request(text) and not followup and not task_id):
         hints = ([SOURCE_CONTEXT_HINT] if source_ready else []) + ([PLAN_OUTCOME_HINT] if plan_ready else [])
         return {'context': '\n'.join(hints)} if hints else None
     context = CONTRACT
     if followup:
         context += '\nSahibin aynı konuşmadaki hedef bağı (yalnız bağlam; yeni icra/onay değil): ' + dump(followup)
     context += '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(query))
+    if source_ready and work_question:
+        current=source_tool_execution(tool_name='current_work',args={},
+            next_call=lambda args: current_work(args,session_id=session_id,turn_id=turn_id),
+            session_id=session_id,turn_id=turn_id)
+        context += '\nGüncel işlem kayıtları (veri; iş hedefi veya sonuç kanıtı değil): ' + current
+    if source_ready:
+        context += '\n' + CURRENT_WORK_HINT
     if task_id:
         context += '\nİlk iş kaydına bağlı bağımsız kontrol (yalnız özel taslak; bu alanlar açıklamayla başarıya çevrilemez): ' + dump(task_decision(task_id))
     if source_ready:
@@ -681,6 +762,10 @@ def register(ctx):
                                         description='Original dispatch bound private plan observation', emoji='🔎')
     if plan_registered is None:
         raise RuntimeError('Plan outcome tool registration unavailable')
+    work_registered = ctx.register_tool('current_work','pablo_observation',CURRENT_WORK_SCHEMA,current_work,
+        description='Private owner current record projection; no execution or outcome acceptance',emoji='📋')
+    if work_registered is None:
+        raise RuntimeError('Current work tool registration unavailable')
     registered = ctx.register_tool('source_context', 'source_memory', SOURCE_CONTEXT_SCHEMA, source_context,
                                    description='Private owner source-backed memory search', emoji='📚')
     if registered is None:
