@@ -341,3 +341,25 @@ def should_run_cognitive(user_message: str, config: Optional[Dict[str, Any]] = N
     if _is_trivial(user_message):
         return False
     return bool(_looks_strategic(str(user_message)))
+
+
+def review_outreach_draft(message: str, company_name: str = '', observed_facts=None) -> Dict[str, Any]:
+    """Actual fast ADE path for a produced draft; no strategic dry-run/Board."""
+    started=time.perf_counter()
+    try:
+        from .ade import review_customer_message
+        result=review_customer_message(message,company_name,observed_facts)
+        if result.get('status')=='REVISION_REQUIRED':
+            first=result
+            result=review_customer_message(first['suggested_body'],company_name,observed_facts)
+            result['raw_review']=first
+            result['revised']=True
+        else:result['revised']=False
+        result['latency_ms']=round((time.perf_counter()-started)*1000,3)
+        if result['latency_ms']>=3000:
+            result.update(status='UNAVAILABLE',ready_for_founder_review=False,reason='Müşteri kontrolü süre sınırını aştı.')
+        return result
+    except Exception:
+        return {'status':'UNAVAILABLE','ready_for_founder_review':False,'ready_for_send':False,
+                'founder_inner_approval':None,'dry_run':False,'reason':'Müşteri kontrolü tamamlanamadı.',
+                'latency_ms':round((time.perf_counter()-started)*1000,3)}

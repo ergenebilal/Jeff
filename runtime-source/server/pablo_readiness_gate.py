@@ -32,8 +32,13 @@ def admission(action, *, inbox=INBOX, clock=time.time):
             if action not in READ_ACTIONS:
                 out.update(status='RECOVERY_READ_ONLY',reason='Eksik iş geçmişi inceleniyor. Şimdilik yalnız okuma yapılabilir; bu iş başlatılmadı.')
                 return out
-        elif mode!='normal' or health.get('missing_interval_reconciled') is not True:
+        elif mode!='normal':
             return out
+        elif health.get('missing_interval_reconciled') is not True:
+            # New work may proceed across the preserved historical quarantine only
+            # with the authenticated fresh-work boundary and immutable old rows.
+            if checks.get('fresh_execution_boundary') is not True or checks.get('recovery_write_lock') is not True:
+                return out
         out.update(admitted=True,status='ADMITTED',execution_authorized=True,
                    reason='Güncel çalışma durumu bu okuma işlemine izin veriyor.' if mode=='read_only_recovery' else 'Güncel çalışma kontrolleri geçti.')
     except (OSError,ValueError,TypeError,AttributeError):

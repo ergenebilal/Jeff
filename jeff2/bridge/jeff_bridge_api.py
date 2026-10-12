@@ -577,6 +577,21 @@ async def get_aider_task(task_id: str, x_bridge_key: Optional[str] = Header(defa
     return dict(row)
 
 
+class OutreachReviewRequest(BaseModel):
+    message: str = Field(min_length=1,max_length=12000)
+    company_name: str = Field(default='',max_length=100)
+
+
+@app.post('/ade/outreach-review')
+async def outreach_review(body: OutreachReviewRequest, x_bridge_key: Optional[str] = Header(default=None)):
+    require_key(x_bridge_key)
+    import sys
+    source_root=str(Path(__file__).resolve().parents[2])
+    if source_root not in sys.path:sys.path.insert(0,source_root)
+    from jeff_cognitive.hook import review_outreach_draft
+    return review_outreach_draft(body.message,body.company_name)
+
+
 class AlfredTaskRequest(BaseModel):
     task_id: Optional[str] = None
     type: str  # WHATSAPP_DRAFT, SCREENSHOT_REQUEST, BROWSER_ACTION, etc.
@@ -692,12 +707,17 @@ async def alfred_task_result(task_id: str, x_bridge_key: Optional[str] = Header(
 @app.get("/alfred/tasks")
 async def alfred_get_tasks(
     timeout: int = 30,
+    created_after: Optional[float] = None,
     x_bridge_key: Optional[str] = Header(default=None),
     x_worker_id: Optional[str] = Header(default=None),
 ):
     require_key(x_bridge_key)
     if not x_worker_id or len(x_worker_id) > 128:
         raise HTTPException(status_code=422, detail='X-Worker-ID required')
+    import math
+    if created_after is not None and (not math.isfinite(created_after) or created_after<=0 or created_after>time.time()+30):
+        raise HTTPException(status_code=422,detail='Invalid activation cutoff')
+    cutoff=datetime.fromtimestamp(created_after,timezone.utc).isoformat() if created_after is not None else None
     start_time = time.time()
     max_wait = min(max(timeout, 1), 60)
 
@@ -706,8 +726,8 @@ async def alfred_get_tasks(
             db.row_factory = aiosqlite.Row
             await db.execute('BEGIN IMMEDIATE')
             async with db.execute(
-                "SELECT * FROM alfred_events WHERE status='pending' OR (status='delivered' AND worker_id=? AND delivered_at < ?) ORDER BY created_at ASC LIMIT 10",
-                (x_worker_id, time.time() - ALFRED_REDELIVER_SEC),
+                "SELECT * FROM alfred_events WHERE (status='pending' OR (status='delivered' AND worker_id=? AND delivered_at < ?)) AND (? IS NULL OR created_at>=?) ORDER BY created_at ASC LIMIT 10",
+                (x_worker_id, time.time() - ALFRED_REDELIVER_SEC, cutoff, cutoff),
             ) as cur:
                 rows = await cur.fetchall()
 

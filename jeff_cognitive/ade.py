@@ -227,3 +227,46 @@ def challenge(
     if state is not None:
         state.decisions.append({"kind": "ade_challenge", **proposal.to_dict(), **out})
     return out
+
+
+def review_customer_message(message: str, company_name: str = '', observed_facts=None) -> Dict[str, Any]:
+    """Bounded customer-language review; never founder approval or loss verification."""
+    import re
+    import time
+    started = time.perf_counter()
+    if not isinstance(message, str) or not message.strip() or len(message)>12000:
+        return {'status':'UNAVAILABLE','ready_for_founder_review':False,'ready_for_send':False,
+                'reason':'Geçerli mesaj metni yok.','founder_inner_approval':None,'latency_ms':0}
+    body=message.strip(); lower=body.casefold().replace('i̇','i'); objections=[]
+    patterns=(
+        ('unsupported_claim',r'%\s*\d+|yüzde\s+\d+|garanti(?:li|sidir)?|hatasız|asla\s+(?:kaç|hata)|\d+\s*(?:kat|saniyede|dakikada)\s*(?:art|kaz|tasarruf|yanıt|cevap)', 'Ölçülmemiş oran veya sonuç sözü var; çıkaralım.'),
+        ('technology_praise',r'yapay zek[aâ]nın gücü|devrim yarat|ileri teknoloji|son teknoloji|rakiplerin(?:izin)? ön|mükemmel çözüm', 'İşletmenin derdi yerine teknoloji övgüsü öne çıkıyor.'),
+        ('accusation',r'müşteri(?:lerinizi|lerinizi)? kaçır|para kaybediyorsunuz|yetişemiyorsunuz|kötü yönet|rakipleriniz.*geris', 'İşletmeyi suçlayan veya kanıtsız kayıp atfeden dil var.'),
+        ('sales_pressure',r'hemen satın|kaçırmayın|son fırsat|acele edin|sınırlı teklif|mutlaka.*(?:görüş|almalı)', 'İlk temasta baskı var; karşı tarafın alanını koruyalım.'),
+    )
+    for kind,pattern,note in patterns:
+        match=re.search(pattern,lower)
+        if match:objections.append({'kind':kind,'excerpt':body[match.start():match.end()],'note':note})
+    if len(body.split())>90:objections.append({'kind':'attention','note':'Yoğun işletme sahibi için mesaj uzun; tek soruya indirelim.'})
+    relevant=bool(re.search(r'randevu|mesaj|yoğun|dönüş|iletişim|takip',lower))
+    if not relevant:objections.append({'kind':'relevance','note':'İşletmenin günlük işiyle bağlantı açık değil; gerçek bir soruya dönelim.'})
+    question_body=re.sub(r'https?://\S+','',body)
+    if '?' not in question_body:objections.append({'kind':'listening','note':'Karşı tarafı dinleyecek açık bir soru yok.'})
+    logic_clear=not any(o['kind'] in ('unsupported_claim','accusation') for o in objections)
+    tone_clear=not objections
+    clean_name=' '.join(str(company_name).split())[:100]
+    salutation=('Merhaba '+clean_name+' ekibi,') if clean_name else 'Merhaba,'
+    suggested=(salutation+"\n\nBen Bilal, CyberGene’den yazıyorum. Randevu soruları mesajla geldiğinde, yoğun saatlerde bunlara nasıl dönüş yapıyorsunuz?\n\nBu iş sizin için zaman alıyorsa konuşmak isterim. Uygun değilse sorun değil.\n\nİyi çalışmalar.") if objections else body
+    elapsed=round((time.perf_counter()-started)*1000,3)
+    return {'status':'REVISION_REQUIRED' if objections else 'READY_FOR_FOUNDER_REVIEW',
+            'method':'bounded_customer_language_review','dry_run':False,
+            'logic':{'language_claims_clear':logic_clear,'facts_independently_verified':False,
+                     'note':'İfade kontrolüdür; işletmeye ait gerçekler ayrıca kaynakla doğrulanır.'},
+            'inner_filter':{'tone_clear':tone_clear,'founder_inner_approval':None},
+            'customer_questions':[
+                {'question':'Yoğun işletme sahibi Bana ne der mi?','clear':relevant and len(body.split())<=90},
+                {'question':'Abartı, AI övgüsü veya suçlama var mı?','clear':not any(o['kind'] in ('unsupported_claim','technology_praise','accusation') for o in objections)},
+                {'question':'Gerçek bir derdi dinliyor mu, satışa mı itiyor?','clear':relevant and '?' in question_body and not any(o['kind']=='sales_pressure' for o in objections)}],
+            'objections':objections,'suggested_body':suggested,'ready_for_founder_review':tone_clear and logic_clear,
+            'ready_for_send':False,'founder_inner_approval':None,'customer_problem_verified':False,
+            'latency_ms':elapsed,'within_latency_budget':elapsed<3000,'model_calls':0}
