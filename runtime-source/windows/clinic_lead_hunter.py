@@ -91,7 +91,7 @@ class ClinicLeadHunter:
             f"İyi çalışmalar,\nBilal Ergene — CyberGene\n{ClinicLeadHunter.SITE}"
         )
         review=MarketingPipeline.review_message(body,company_name)
-        return {"subject":subject,"body":review.get('suggested_body',body),"raw_body":body,
+        return {"subject":"Randevu mesajları hakkında bir soru","body":review.get('suggested_body',body),"raw_body":body,
                 "customer_review":review,"ready_for_founder_review":review.get('ready_for_founder_review') is True,
                 "ready_for_send":False,"value_prop":niche["value_prop"]}
 
@@ -128,7 +128,8 @@ class ClinicLeadHunter:
             if not name or district not in ('nilüfer','nilufer','mudanya') or website in seen:continue
             seen.add(website);parsed=urllib.parse.urlparse(website)
             prior=next((l for l in existing if l['company_name'].casefold()==name.casefold() or l.get('website','').rstrip('/')==website.rstrip('/')),None)
-            if prior and note_for(prior).get('radar_day')==day:continue
+            if prior and note_for(prior).get('stage')=='radar':
+                skipped.append({'company_name':name,'reason':'Already observed candidate; do not count again as new.'});continue
             if prior:name=prior['company_name']
             try:
                 if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:raise ValueError('Public business source required')

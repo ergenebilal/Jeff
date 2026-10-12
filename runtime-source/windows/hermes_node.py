@@ -2288,7 +2288,7 @@ def action_marketing_draft(params):
     from clinic_lead_hunter import ClinicLeadHunter
     lead=MarketingPipeline.get_lead(int(params['lead_id']))
     if not lead:return {'ok':False,'error':'Unknown lead'}
-    pitch=ClinicLeadHunter.generate_clinic_pitch(lead['company_name'],params.get('niche','beauty'))
+    pitch=ClinicLeadHunter.generate_clinic_pitch(lead['company_name'],params.get('niche','beauty_center'))
     review=pitch['customer_review']
     if not review.get('ready_for_founder_review'):return {'ok':False,'result':{'status':'REVIEW_BLOCKED','review':review}}
     cid=MarketingPipeline.create_campaign(lead_id=lead['id'],channel='email',recipient_target=lead.get('verified_email') or '',
@@ -2744,12 +2744,12 @@ def handle_bridge_task(task: dict):
         result = task_guard().reconcile(rid)
         if result['status']=='IN_PROGRESS':return
         if result['status']=='NOT_FOUND':
-            result={'ok':False,'status':'OUTCOME_UNKNOWN','request_id':rid,'outcome_verified':False,
+            result={'ok':False,'status':'OUTCOME_UNKNOWN','request_id':rid,'task_id':rid,'outcome_verified':False,
                 'replayed':False,'reason':'No local execution record for an already delivered task; no automatic repeat.'}
     else:
         try:result = execute_request(action, params, rid)
         except Exception as exc:
-            result={'ok':False,'status':'OUTCOME_UNKNOWN','request_id':rid,'outcome_verified':False,
+            result={'ok':False,'status':'OUTCOME_UNKNOWN','request_id':rid,'task_id':rid,'outcome_verified':False,
                 'replayed':False,'error':type(exc).__name__,'reason':'Task handling failed; do not assume execution or repeat.'}
     payload = dict(result, type=task.get('type'), result=json.dumps(result),
                    digest=task.get('digest'), worker_id=CONFIG['node_id'],
