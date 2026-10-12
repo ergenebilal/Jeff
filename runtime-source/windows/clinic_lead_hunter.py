@@ -90,7 +90,85 @@ class ClinicLeadHunter:
             f"önerebiliriz. Yanıt vermeniz gerekmiyor; ilginizi çekmezse bu mesajı yok sayabilirsiniz.\n\n"
             f"İyi çalışmalar,\nBilal Ergene — CyberGene\n{ClinicLeadHunter.SITE}"
         )
-        return {"subject": subject, "body": body, "value_prop": niche["value_prop"]}
+        review=MarketingPipeline.review_message(body,company_name)
+        return {"subject":subject,"body":review.get('suggested_body',body),"raw_body":body,
+                "customer_review":review,"ready_for_founder_review":review.get('ready_for_founder_review') is True,
+                "ready_for_send":False,"value_prop":niche["value_prop"]}
+
+
+    @staticmethod
+    def quick_radar(candidates: List[Dict[str, Any]], limit: int = 10) -> Dict[str, Any]:
+        """One bounded public business-page check; no reviews/LLM/deep work."""
+        import urllib.request
+        import socket
+        import ipaddress
+        from html.parser import HTMLParser
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self,*args,**kwargs):return None
+        class Links(HTMLParser):
+            def __init__(self):super().__init__();self.links=[];self.text=[]
+            def handle_starttag(self,tag,attrs):
+                if tag=='a':
+                    a=dict(attrs)
+                    if a.get('href'):self.links.append(a['href'])
+            def handle_data(self,data):self.text.append(data)
+        def note_for(lead):
+            raw=lead.get('capacity_notes') or ''
+            try:
+                val=json.loads(raw)
+                return val if isinstance(val,dict) else {'previous_notes':raw}
+            except (ValueError,TypeError):return {'previous_notes':raw} if raw else {}
+        clean=[];skipped=[];seen=set();day=time.strftime('%Y-%m-%d');limit=max(1,min(int(limit),10))
+        existing=MarketingPipeline.list_leads();used=sum(note_for(l).get('radar_day')==day for l in existing)
+        remaining=max(0,limit-used);opener=urllib.request.build_opener(NoRedirect())
+        for candidate in candidates[:50]:
+            if len(clean)>=remaining:break
+            start=time.monotonic();name=' '.join(str(candidate.get('company_name','')).split())[:120]
+            website=str(candidate.get('website','')).strip();district=str(candidate.get('district','')).casefold().replace('i̇','i')
+            if not name or district not in ('nilüfer','nilufer','mudanya') or website in seen:continue
+            seen.add(website);parsed=urllib.parse.urlparse(website)
+            prior=next((l for l in existing if l['company_name'].casefold()==name.casefold() or l.get('website','').rstrip('/')==website.rstrip('/')),None)
+            if prior and note_for(prior).get('radar_day')==day:continue
+            if prior:name=prior['company_name']
+            try:
+                if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:raise ValueError('Public business source required')
+                addresses=socket.getaddrinfo(parsed.hostname,parsed.port or (443 if parsed.scheme=='https' else 80),type=socket.SOCK_STREAM)
+                if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):raise ValueError('Public business source required')
+                if parsed.hostname.casefold().endswith(('instagram.com','facebook.com','google.com')):raise ValueError('Authorized platform feed required; no profile scraping')
+                request=urllib.request.Request(website,headers={'User-Agent':'CyberGene business contact check','Accept':'text/html'})
+                with opener.open(request,timeout=10) as response:
+                    if 'html' not in response.headers.get('Content-Type','').lower():raise ValueError('Business HTML page required')
+                    raw=response.read(512001)
+                    if len(raw)>512000:raise ValueError('Page exceeds bounded contact check')
+                    text=raw.decode('utf-8',errors='replace');source=response.geturl()
+                parser=Links();parser.feed(text);visible=' '.join(parser.text).casefold().replace('i̇','i')
+                district_words=('nilüfer','nilufer') if district in ('nilüfer','nilufer') else ('mudanya','bademli')
+                name_words=[w.casefold() for w in name.split() if len(w)>3 and w.casefold() not in ('bursa','kliniği','güzellik','merkezi','estetik','clinic')]
+                if not any(d in visible for d in district_words) or not name_words or not any(w in visible for w in name_words):raise ValueError('Business identity/location not observed on source page')
+                links=[urllib.parse.urljoin(source,x) for x in parser.links]
+                whatsapp=next((x for x in links if urllib.parse.urlparse(x).hostname in ('wa.me','api.whatsapp.com','web.whatsapp.com')),'')
+                instagram=next((x for x in links if (urllib.parse.urlparse(x).hostname or '').casefold() in ('instagram.com','www.instagram.com')),'')
+                phone=next((x[4:] for x in links if x.startswith('tel:')),'')
+                appointment=next((x for x in links if any(k in x.casefold() for k in ('randevu','appointment','booking','booknow'))),'')
+                direct=bool(whatsapp or appointment);contact='direct_link' if direct else 'phone_only' if phone else 'instagram_link_only'
+                if not (whatsapp or phone or instagram):raise ValueError('No clean contact observed')
+                elapsed=time.monotonic()-start
+                if elapsed>=60:raise TimeoutError('Single contact check exceeded limit')
+                meta={'stage':'radar','radar_day':day,'source':source,'observed_at':time.time(),'district':district,
+                      'instagram':instagram,'whatsapp':whatsapp,'phone':phone,'appointment_link':appointment,
+                      'contact_mode':contact,'single_check_seconds':round(elapsed,3),'model_calls':0,'loss_verified':False,
+                      'dm_availability_verified':False,'source_presence_only':True}
+                preserved=note_for(prior or {});preserved.update(meta)
+                lead_id=MarketingPipeline.add_or_update_lead(company_name=name,website=source,
+                    industry=(prior or {}).get('industry') or str(candidate.get('industry','beauty_or_clinic')),location=(prior or {}).get('location') or 'Bursa / '+district,
+                    verified_phone=phone or (prior or {}).get('verified_phone') or '',verified_whatsapp=whatsapp or (prior or {}).get('verified_whatsapp') or '',verified_email=(prior or {}).get('verified_email') or '',
+                    capacity_notes=json.dumps(preserved,ensure_ascii=False),
+                    facts_verified=json.loads((prior or {}).get('facts_verified') or '[]')+[{'level':'OBSERVED','source':source,'claim':'Business identity, district and contact link observed','observed_at':meta['observed_at']}],
+                    assumptions=json.loads((prior or {}).get('assumptions') or '[]'),fact_check_status=(prior or {}).get('fact_check_status') or 'CONTACT_OBSERVED')
+                clean.append({'lead_id':lead_id,'company_name':name,**meta})
+            except (OSError,ValueError,TimeoutError) as exc:skipped.append({'company_name':name,'reason':type(exc).__name__})
+        return {'ok':True,'stage':'radar','candidates':clean,'clean_count':len(clean),'skipped':skipped,
+                'daily_limit':limit,'already_observed_today':used,'model_calls':0,'deep_analysis_triggered':False}
 
     @staticmethod
     def seed_initial_verified_clinics():

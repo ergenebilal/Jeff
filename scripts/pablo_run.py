@@ -28,6 +28,14 @@ KEY = bridge_key()
 H = {"X-Bridge-Key": KEY, "Content-Type": "application/json"}
 
 argv = sys.argv[1:]
+payload_json = None
+if '--payload-json' in argv:
+    at=argv.index('--payload-json')
+    if at+1>=len(argv):raise SystemExit('Missing JSON payload')
+    try:payload_json=json.loads(argv[at+1])
+    except ValueError:raise SystemExit('Invalid JSON payload')
+    if not isinstance(payload_json,dict):raise SystemExit('Expected JSON object')
+    argv=argv[:at]+argv[at+2:]
 tt = "shell"
 if argv and argv[0] == "--type":
     tt = argv[1]
@@ -54,7 +62,7 @@ def get(path):
 readiness = _p109_admission(tt)
 if readiness['admitted'] is not True:
     print(json.dumps(readiness, ensure_ascii=False)); sys.exit(3)
-payload = {"cmd": CMD} if tt == "shell" else {}
+payload = payload_json if payload_json is not None else ({"cmd": CMD} if tt == "shell" else {})
 r = post("/pablo/task", {"type": tt, "payload": payload, "policy": {}})
 tid = r.get("task_id")
 if not tid:

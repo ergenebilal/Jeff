@@ -775,8 +775,17 @@ def current_recovery_mode():
                 return 'unavailable'
             if 'recovery_boundary' not in tables:
                 return 'normal'
-            row = db.execute('SELECT mode FROM recovery_boundary').fetchone()
-            return 'read_only_recovery' if row and row[0] == 'read_only_recovery' else 'unavailable'
+            row = db.execute('SELECT mode,snapshot_finished_at FROM recovery_boundary').fetchone()
+            if not row or row[0]!='read_only_recovery':return 'unavailable'
+            if CONFIG.get('execution_mode')!='normal':return 'read_only_recovery'
+            import math
+            cutoff=CONFIG.get('execution_activated_at')
+            expected=CONFIG.get('execution_activation_trigger_sha256',{})
+            observed={name:hashlib.sha256(sql.encode()).hexdigest() for name,sql in db.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name IN ('recovery_requests_insert','recovery_requests_update')")}
+            valid=(type(cutoff) in (int,float) and math.isfinite(cutoff) and type(row[1]) in (int,float) and cutoff>row[1]
+                and isinstance(expected,dict) and set(expected)=={'recovery_requests_insert','recovery_requests_update'} and observed==expected)
+            return 'normal' if valid else 'unavailable' 
     except (OSError, sqlite3.Error):
         return 'unavailable'
 
@@ -789,10 +798,20 @@ def recovery_admission(action):
             'execution_authorized': False, 'replayed': False,
             'reason': 'Historical recovery or missing runtime state; do not execute or replay.'}
 
+def current_request_is_fresh(request_id):
+    cutoff=CONFIG.get('execution_activated_at')
+    if not cutoff:return True
+    with sqlite3.connect((NODE_DIR/'task-journal.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=2) as db:
+        row=db.execute('SELECT created_at FROM requests WHERE id=?',(request_id,)).fetchone()
+    return row is None or (type(row[0]) in (int,float) and row[0]>=cutoff)
+
+
 def execute_request(action, params, request_id=None):
     blocked = recovery_admission(action)
     if blocked is not None:
         return dict(blocked, request_id=request_id, task_id=request_id)
+    if request_id and not current_request_is_fresh(request_id):
+        return {'status':'RECOVERY_BLOCKED','ok':False,'request_id':request_id,'replayed':False,'reason':'Pre-activation work is retained, never restarted.'}
     # The bounded draft has a strict schema; general text aliases would add
     # unsupported fields and change its immutable input contract.
     normalized = dict(params) if action in ('local_draft', 'local_draft_plan') and isinstance(params, dict) else normalize_tool_params(params)
@@ -2246,6 +2265,28 @@ def action_antigravity(params: dict) -> dict:
     return execute(params)
 
 
+def action_clinic_radar(params):
+    from clinic_lead_hunter import ClinicLeadHunter
+    return ClinicLeadHunter.quick_radar(params.get('candidates',[]),params.get('limit',10))
+
+
+def action_marketing_deep_prepare(params):
+    from marketing_pipeline import MarketingPipeline
+    return MarketingPipeline.prepare_deep_analysis(int(params['lead_id']))
+
+
+def action_marketing_deep_analyze(params):
+    from marketing_pipeline import MarketingPipeline
+    return MarketingPipeline.analyze_eligible_lead(int(params['lead_id']),params.get('sources',[]),
+        params.get('appointment_records',[]),params['request_id'])
+
+
+def action_marketing_contact_event(params):
+    from marketing_pipeline import MarketingPipeline
+    event=MarketingPipeline.record_contact_event(int(params['lead_id']),params['kind'],params['source'],params['request_id'],params.get('detail',''))
+    return {'ok':True,'event_id':event,'recorded_owner_confirmation':True,'customer_outcome_verified':False}
+
+
 ACTIONS = {
     "antigravity": action_antigravity,
     "run_antigravity": action_antigravity,
@@ -2284,6 +2325,10 @@ ACTIONS = {
     "youtube_play": action_youtube_play,
     "whatsapp_send": action_whatsapp_send,
     "whatsapp_draft": action_whatsapp_draft,
+    "clinic_radar": action_clinic_radar,
+    "marketing_deep_prepare": action_marketing_deep_prepare,
+    "marketing_deep_analyze": action_marketing_deep_analyze,
+    "marketing_contact_event": action_marketing_contact_event,
     "marketing_list": action_marketing_list,
     "marketing_send_approval": action_marketing_send_approval,
     "marketing_playbook": action_marketing_playbook,
@@ -2495,6 +2540,13 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/work/'):
                 route = self.path.rsplit('/', 1)[1]
                 rid = urllib.parse.unquote(self.path[len('/work/'):-(len(route)+1)])
+                if not current_request_is_fresh(rid):
+                    self.send_response(409)
+                    self.send_header('Content-Type','application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'ok':False,'status':'RECOVERY_BLOCKED','replayed':False,
+                        'reason':'Pre-activation work is retained, never restarted.'}).encode())
+                    return
                 if route == 'signal':
                     import hmac
                     from pablo_work_plans import WorkPlans, DraftError
@@ -2573,7 +2625,7 @@ def run_bridge_worker():
         try:
             now = time.time()
             if now - last_recovery >= 60:
-                task_guard().recover_pending()
+                task_guard().recover_pending(created_after=CONFIG.get('execution_activated_at'))
                 last_recovery = now
             task_guard().flush_results(send_bridge_result)
 
@@ -2601,7 +2653,7 @@ def run_bridge_worker():
 
             # 2. Task Poll (Long Polling)
             req = urllib.request.Request(
-                f"{jeff_bridge_url}/alfred/tasks?timeout=15",
+                f"{jeff_bridge_url}/alfred/tasks?timeout=15&created_after={CONFIG['execution_activated_at']}",
                 headers={"X-Bridge-Key": bridge_key, "X-Worker-ID": CONFIG["node_id"]}
             )
             try:
@@ -2653,6 +2705,12 @@ def handle_bridge_task(task: dict):
         'FILE_LIST': 'file_list',
         'LIST_FILES': 'file_list'
     }
+    import datetime as _activation_clock
+    cutoff=CONFIG.get('execution_activated_at')
+    if cutoff:
+        try:created=_activation_clock.datetime.fromisoformat(str(task.get('created_at','')).replace('Z','+00:00')).timestamp()
+        except (ValueError,TypeError):return
+        if created<cutoff:return
     action = aliases.get(task.get('type'), task.get('type'))
     rid = task.get('task_id')
     if not rid:
@@ -2934,12 +2992,14 @@ def main():
         bridge_thread.start()
 
         # 2. Telegram thread başlat
-        telegram_thread = threading.Thread(target=run_telegram_worker, daemon=True)
-        telegram_thread.start()
+        if CONFIG.get('enable_pablo_telegram_worker',False):
+            telegram_thread = threading.Thread(target=run_telegram_worker, daemon=True)
+            telegram_thread.start()
 
         # 3. Tailscale Watchdog thread başlat
-        ts_watchdog_thread = threading.Thread(target=run_tailscale_watchdog, daemon=True)
-        ts_watchdog_thread.start()
+        if CONFIG.get('enable_tailscale_watchdog',False):
+            ts_watchdog_thread = threading.Thread(target=run_tailscale_watchdog, daemon=True)
+            ts_watchdog_thread.start()
 
     else:
         log('INFO', 'Read-only recovery: background workers not started')

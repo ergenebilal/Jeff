@@ -7,6 +7,7 @@ LEGACY_ACTIONS=frozenset({
     'screenshot','vision_grounding','browser_open','browser_read','browser_act','browser_session',
     'pilot_run_session','pilot_status','youtube_play','whatsapp_send','whatsapp_draft',
     'marketing_list','marketing_send_approval','marketing_playbook',
+    'clinic_radar','marketing_deep_prepare', 'marketing_deep_analyze','marketing_contact_event',
 })
 ACCEPTED_CONTRACTS={
     'local_draft':{'approval_boundary':'private_local_draft_only','outcome_contract':'exact_input_bound_file_hash_and_size',
