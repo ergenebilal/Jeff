@@ -38,7 +38,10 @@ def check_runtime(manifest,ping):
 
 
 def report_ok(data,now,expected):
-    if data.get('version')!=1 or data.get('ok') is not True or data.get('remote_manifest_verified') is not True:return False
+    if data.get('version')!=1 or data.get('ok') is not True:return False
+    if data.get('backup_location')=='local_only':
+        if data.get('local_archive_verified') is not True or data.get('remote_transfer_performed') is not False or data.get('remote_manifest_verified') is not False:return False
+    elif data.get('remote_manifest_verified') is not True:return False
     ts=data.get('verified_at')
     if type(ts) not in (int,float) or not math.isfinite(ts) or not 0<=now-ts<=30*3600:return False
     for key in ('local_retention','remote_retention'):
@@ -50,7 +53,7 @@ def read_report(path,source='/home/hermes/jeff_repo/pablo',now=None):
     try:
         expected={n:hashlib.sha256((Path(source)/n).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for n in LOADED}
         good=report_ok(json.loads(Path(path).read_text()),time.time() if now is None else now,expected)
-        return good,('son ozel Windows kurtarma kopyasi dogrulandi ve kaynakla uyumlu' if good else 'Windows kurtarma kopyasi eski, uyumsuz veya dogrulanmadi')
+        return good,('Yerel Windows kurtarma kopyası doğrulandı ve kaynakla uyumlu' if good else 'Windows kurtarma kopyasi eski, uyumsuz veya dogrulanmadi')
     except Exception:return False,'Windows kurtarma kopyasi bilinmiyor'
 
 
@@ -94,7 +97,7 @@ print(json.dumps(REPORT))
 '''
 
 
-def run(live,storage,report):
+def run(live,storage,report,*,remote_copy=False):
     live=Path(live);storage=Path(storage);report=Path(report)
     public={'version':1,'ok':False,'observed_at':time.time(),'notification_policy':'dashboard_only','workers_started':False}
     phase='snapshot'
@@ -119,32 +122,48 @@ def run(live,storage,report):
         if sys.platform!='win32':archive.chmod(0o600)
         public.update(source_release=manifest['source_release'],loaded_source_sha256=loaded,archive_sha256=digest(archive),archive_bytes=archive.stat().st_size,
                       cross_database_atomic_snapshot=False,private_settings_in_archive=True)
-        base=REMOTE_ROOT+'/'+name
-        prepare='from pathlib import Path;import os;os.umask(0o077);root=Path('+repr(REMOTE_ROOT)+');assert root.is_dir() and not root.is_symlink();root.chmod(0o700);(root/'+repr(name)+').mkdir(mode=0o700)'
-        phase='remote_prepare'
-        remote(prepare)
-        phase='archive_transfer'
-        transfer_started=time.monotonic()
-        try:
-            transfer=subprocess.run(['scp','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ConnectTimeout=15','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=2',str(archive),'hermes:'+base+'/windows-snapshot.zip'],capture_output=True,timeout=TRANSFER_TIMEOUT_SECONDS,creationflags=_NO_WINDOW)
-        finally:
-            public['archive_transfer_seconds']=time.monotonic()-transfer_started
-        if transfer.returncode:raise RuntimeError('Private archive transport failed')
-        code='BASE='+repr(base)+'\nEXPECTED='+repr(public['archive_sha256'])+'\nREPORT='+repr(public)+'\n'+VERIFY_REMOTE
-        phase='remote_archive_verification'
-        verified=remote(code)
-        if not isinstance(verified,dict) or verified.get('ok') is not True:raise RuntimeError('No verification receipt')
-        public=verified
-        phase='local_acceptance'
-        record_verified(dest,storage,'local',public,validate)
-        try:public['local_retention']=prune(storage,name,validate)
-        except Exception as exc:public['local_retention']={'ok':False,'failure_class':type(exc).__name__}
+        if not remote_copy:
+            phase='local_archive_verification'
+            with zipfile.ZipFile(archive) as bundle:
+                expected={'manifest.json'}|{e['path'] for e in manifest['entries']}
+                if set(bundle.namelist())!=expected or bundle.testzip() is not None:raise ValueError('Local archive inventory/CRC mismatch')
+                for entry in manifest['entries']:
+                    with bundle.open(entry['path']) as source:
+                        if hashlib.file_digest(source,'sha256').hexdigest()!=entry['sha256']:raise ValueError('Local archive member mismatch')
+            validate(dest)
+            public.update(ok=True,backup_location='local_only',local_archive_verified=True,
+                remote_manifest_verified=False,remote_transfer_performed=False,verified_at=time.time(),
+                archive_path=str(archive),local_files=len(manifest['entries']),
+                local_retention={'ok':True,'preserved_all':True,'current_image_preserved':True,'removed_verified_images':0})
+        else:
+            base=REMOTE_ROOT+'/'+name
+            prepare='from pathlib import Path;import os;os.umask(0o077);root=Path('+repr(REMOTE_ROOT)+');assert root.is_dir() and not root.is_symlink();root.chmod(0o700);(root/'+repr(name)+').mkdir(mode=0o700)'
+            phase='remote_prepare'
+            remote(prepare)
+            phase='archive_transfer'
+            transfer_started=time.monotonic()
+            try:
+                transfer=subprocess.run(['scp','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ConnectTimeout=15','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=2',str(archive),'hermes:'+base+'/windows-snapshot.zip'],capture_output=True,timeout=TRANSFER_TIMEOUT_SECONDS,creationflags=_NO_WINDOW)
+            finally:
+                public['archive_transfer_seconds']=time.monotonic()-transfer_started
+            if transfer.returncode:raise RuntimeError('Private archive transport failed')
+            code='BASE='+repr(base)+'\nEXPECTED='+repr(public['archive_sha256'])+'\nREPORT='+repr(public)+'\n'+VERIFY_REMOTE
+            phase='remote_archive_verification'
+            verified=remote(code)
+            if not isinstance(verified,dict) or verified.get('ok') is not True:raise RuntimeError('No verification receipt')
+            public=verified
+            phase='local_acceptance'
+            record_verified(dest,storage,'local',public,validate)
+            try:public['local_retention']=prune(storage,name,validate)
+            except Exception as exc:public['local_retention']={'ok':False,'failure_class':type(exc).__name__}
     except Exception as exc:
         public.update(ok=False,failure_class=type(exc).__name__,failure_phase=phase)
         # Report failure without secrets. Preserve all prior valid archives.
-        try:
-            remote('from pathlib import Path;import json,os;data='+repr(public)+';p=Path('+repr(REMOTE_REPORT)+');t=p.with_suffix(".failure-pending");t.write_text(json.dumps(data,indent=2));t.chmod(0o600);os.replace(t,p)')
-        except Exception:public['failure_report_published']=False
+        if remote_copy:
+            try:
+                remote('from pathlib import Path;import json,os;data='+repr(public)+';p=Path('+repr(REMOTE_REPORT)+');t=p.with_suffix(".failure-pending");t.write_text(json.dumps(data,indent=2));t.chmod(0o600);os.replace(t,p)')
+            except Exception:public['failure_report_published']=False
+
     pending=report.with_suffix('.pending');pending.write_text(json.dumps(public,indent=2));pending.replace(report)
     return public
 
@@ -152,7 +171,8 @@ def run(live,storage,report):
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--live',default=r'C:\CyberGene\HermesNode');ap.add_argument('--storage',required=True);ap.add_argument('--report',required=True)
-    args=ap.parse_args(argv);result=run(args.live,args.storage,args.report);print(json.dumps(result));return 0 if result['ok'] else 1
+    ap.add_argument('--remote-copy',action='store_true',help='Explicit opt-in only; default backups stay on this computer')
+    args=ap.parse_args(argv);result=run(args.live,args.storage,args.report,remote_copy=args.remote_copy);print(json.dumps(result));return 0 if result['ok'] else 1
 
 
 if __name__=='__main__':raise SystemExit(main())
