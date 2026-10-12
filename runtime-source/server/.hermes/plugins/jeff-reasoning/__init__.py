@@ -85,7 +85,7 @@ def substantive(text):
     # Personal sharing alone is not a request to optimize the owner's life.
     return bool(re.search(
         r'karar|stratej|neden|niçin|nasil|hatir|öncelik|plan|seç|sec|risk|alternatif|'
-        r'hangisi|ne yapmali|incele|analiz|öner|araştir|karşilaştir|çöz|çoz|düzelt|onar|tasarla', normalized))
+        r'hangisi|\bhangi\b|ne yapmali|incele|analiz|öner|araştir|karşilaştir|çöz|çoz|düzelt|onar|tasarla', normalized))
 
 
 def owner_scope(platform, session_id, sender_id='', voice_db=VOICE_DB):
@@ -179,6 +179,73 @@ def automatic_memory(query):
     if scope == 'explicit':
         return reader(query, strict=True, project=project)
     return reader(query, strict=True)
+
+
+def operational_question(text):
+    """Bounded direct work/status requests missed by the advisory keyword gate."""
+    normalized = text.casefold().replace('ı', 'i').replace('i\u0307', 'i')
+    return bool(re.search(
+        r'\b(?:iş|işler|görev|görevler|haber|haberler|firsat|firsatlar|randevu|aday|adaylar)\b', normalized)
+        and re.search(r'\b(?:ne|hangi|var|durum|durumda|özet|özeti|göster|listele|bekliyor)\b', normalized))
+
+
+def continuation_request(text):
+    """Small owner follow-ups only; no assistant/source text or inferred authority."""
+    if not isinstance(text, str) or len(text) > 200:
+        return False
+    value = text.casefold().replace('ı', 'i').replace('i\u0307', 'i').strip(' \t\r\n.!?')
+    if re.search(r'başka konu|yeni konu|konuyu değiş|bunu unut|onu unut', value):
+        return False
+    value = re.sub(r'^(?:(?:peki|tamam|evet|hadi)[,; ]+)', '', value)
+    return bool(
+        re.fullmatch(r'(?:kald[iı]ğ[iı]n yerden )?devam(?: et| edebilirsin)?', value)
+        or re.fullmatch(r'(?:neden|niçin|nasil|hangisi)(?: daha (?:iyi|mantikli|uygun))?', value)
+        or (re.search(r'\b(?:bunu|onu|buna|ona|bunun|onun|bunlar[iı]|onlar[iı])\b', value)
+            and (substantive(text) or operational_question(text)
+                 or re.search(r'\b(?:yap|uygula|hazirla|göster|listele|devam|ne|kaç|kac|fiyat|maliyet)\b', value))))
+
+
+def owner_followup(text, history):
+    """Use the nearest owner goal only as retrieval context, never as new permission.
+
+    The runtime supplies the current session's original conversation messages.
+    No persistent state, extra history read, assistant inference or model call.
+    A new standalone request or an intervening unrelated owner message breaks linkage.
+    """
+    if not continuation_request(text) or not isinstance(history, list):
+        return None
+    current_scope, _ = explicit_project_scope(text)
+    if current_scope != 'unbound':
+        return None
+    skipped_current = False
+    for message in reversed(history[-16:]):
+        if not isinstance(message, dict) or message.get('role') != 'user':
+            continue
+        raw = message.get('content')
+        if not isinstance(raw, str):
+            return None
+        wrapped = envelope(raw)
+        original = wrapped[0]['trusted_user_request'] if wrapped else raw
+        if not isinstance(original, str) or len(original) > 2000:
+            return None
+        prior = user_request(raw)
+        if not skipped_current and prior == text:
+            skipped_current = True
+            continue
+        skipped_current = True
+        if not prior or explicit_project_scope(prior)[0] == 'invalid':
+            return None
+        if continuation_request(prior):
+            continue
+        if not (substantive(prior) or operational_question(prior)):
+            return None
+        # Preserve a leading explicit project header and bound the combined search.
+        query = prior[:1500] + '\nTakip sorusu: ' + text
+        return {'current_request': text, 'prior_owner_request': prior[:1500],
+                'prior_request_truncated': len(prior) > 1500,
+                'retrieval_query': query, 'basis': 'same_session_original_owner_messages',
+                'execution_authorized': False, 'approval_inherited': False}
+    return None
 
 
 SOURCE_CONTEXT_HINT = (
@@ -523,21 +590,28 @@ def task_decision(task_id):
                 'execution_authorized': False, 'reexecution_authorized': False}
 
 
-def pre(*, user_message='', platform='', session_id='', sender_id='', turn_id='', **ignored):
+def pre(*, user_message='', platform='', session_id='', sender_id='', turn_id='',
+        conversation_history=None, **ignored):
     if not owner_scope(platform, session_id, sender_id):
         return None
     text = user_request(user_message)
     wrapped = envelope(user_message)
     original_text = wrapped[0]['trusted_user_request'] if wrapped else user_message
+    followup = owner_followup(text, conversation_history)
+    query = followup['retrieval_query'] if followup else text
+    # Current owner request alone selects task/plan identity and authority.
     task_id = explicit_task_id(text) if isinstance(original_text, str) and len(original_text) <= 2000 else None
-    source_ready = authorize_source_turn(text, original_text=original_text, platform=platform,
+    source_ready = authorize_source_turn(query, original_text=original_text, platform=platform,
                                          session_id=session_id, sender_id=sender_id, turn_id=turn_id)
     plan_ready = authorize_plan_turn(text, original_text=original_text, platform=platform,
                                       session_id=session_id, sender_id=sender_id, turn_id=turn_id)
-    if not text or (not substantive(text) and not task_id):
+    if not text or (not substantive(text) and not operational_question(text) and not followup and not task_id):
         hints = ([SOURCE_CONTEXT_HINT] if source_ready else []) + ([PLAN_OUTCOME_HINT] if plan_ready else [])
         return {'context': '\n'.join(hints)} if hints else None
-    context = CONTRACT + '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(text))
+    context = CONTRACT
+    if followup:
+        context += '\nSahibin aynı konuşmadaki hedef bağı (yalnız bağlam; yeni icra/onay değil): ' + dump(followup)
+    context += '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(query))
     if task_id:
         context += '\nİlk iş kaydına bağlı bağımsız kontrol (yalnız özel taslak; bu alanlar açıklamayla başarıya çevrilemez): ' + dump(task_decision(task_id))
     if source_ready:
