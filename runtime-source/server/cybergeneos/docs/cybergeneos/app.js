@@ -629,19 +629,68 @@ async function playOnce(text){
   vq.add(text); vq.close();
 }
 
+// Pure NDJSON state reader: HTTP EOF is not a successful terminal event.
+function jeffStreamDecoder(onData, onJob){
+  let pending = '', pieces = 0, terminal = null;
+  const event = line => {
+    if (!line.trim()) return;
+    const ev = JSON.parse(line);
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev) || terminal) throw new Error('gecersiz_akis');
+    if (ev.t === 'd') {
+      if (typeof ev.x !== 'string' || !ev.x) throw new Error('gecersiz_akis');
+      pieces++; onData(ev.x);
+    } else if (ev.t === 'job') onJob(ev);
+    else if (ev.t === 'end') {
+      if (!Number.isInteger(ev.pieces) || ev.pieces < 0 || ev.pieces !== pieces) throw new Error('eksik_akis');
+      terminal = 'end';
+    } else if (ev.t === 'err') {
+      terminal = 'err';
+      throw new Error(typeof ev.e === 'string' ? ev.e : 'jeff_ulasilamadi');
+    } else throw new Error('gecersiz_akis');
+  };
+  return {
+    push(text){
+      pending += text;
+      if (pending.length > 262144) throw new Error('gecersiz_akis');
+      let i;
+      while ((i = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, i); pending = pending.slice(i + 1); event(line);
+      }
+    },
+    finish(){
+      if (pending.trim()) event(pending);
+      pending = '';
+      if (terminal !== 'end') throw new Error('eksik_akis');
+      return {pieces, terminal};
+    }
+  };
+}
+
+let selectedEntity = null; // {type: 'opp' | 'lead' | 'news', id: string}
 let jeffOpportunityId = null;
+let isAsking = false;
 let askSeq = 0;
 async function ask(text, opts = {}){
   text = text.trim(); if (!text) return;
-  if (opts.opportunityId !== undefined) jeffOpportunityId = opts.opportunityId;
+  if (isAsking) { toast('Önceki yanıt hazırlanıyor; bu istek henüz gönderilmedi.'); return; }
+  isAsking = true;
+  let tick = null, seq = null, vq = null;
+  try {
+  if (opts.selectedEntity !== undefined) {
+    selectedEntity = opts.selectedEntity;
+    jeffOpportunityId = opts.selectedEntity && opts.selectedEntity.type === 'opp' ? opts.selectedEntity.id : null;
+  } else if (opts.opportunityId !== undefined) {
+    jeffOpportunityId = opts.opportunityId;
+    selectedEntity = opts.opportunityId ? {type: 'opp', id: opts.opportunityId} : null;
+  }
   abortListening(); stopAudio();
-  const seq = ++askSeq, token = spk.token;
+  seq = ++askSeq; const token = spk.token;
   const speaking = voiceOn();
   if (speaking) audioCtx();
   if (!opts.fromVoice) msg('u', esc(opts.displayText || text));
   setJeff('thinking', 'Düşünüyor');
   const t0 = Date.now();
-  const tick = setInterval(() => { if (seq === askSeq && $('#jeff').dataset.state === 'thinking') $('#jeff-state').textContent = 'Yanıt hazırlanıyor... ' + Math.round((Date.now() - t0) / 1000) + ' sn'; }, 1000);
+  tick = setInterval(() => { if (seq === askSeq && $('#jeff').dataset.state === 'thinking') $('#jeff-state').textContent = 'Yanıt hazırlanıyor... ' + Math.round((Date.now() - t0) / 1000) + ' sn'; }, 1000);
   let bubble = null, shown = '', revealed = 0;
   const sentences = [];
   const show = s => {
@@ -649,36 +698,56 @@ async function ask(text, opts = {}){
     shown += (shown ? ' ' : '') + s; bubble.querySelector('.t').textContent = shown; $('#thread').scrollTop = 1e6;
   };
   const reveal = s => { if (seq !== askSeq) return; revealed++; show(s); };
-  const vq = speaking ? voiceQueue(token, reveal, voiceFallbackNotice) : null;
+  vq = speaking ? voiceQueue(token, reveal, voiceFallbackNotice) : null;
   spk.flush = () => { if (seq !== askSeq) return; sentences.slice(revealed).forEach(show); revealed = sentences.length; clearInterval(tick); setJeff('idle', 'Hazır'); };
   const voiceActive = () => vq && token === spk.token;
   let buf = '', carry = '';
   const emit = s => { sentences.push(s); if (voiceActive()) vq.add(s); else { revealed++; show(s); } };
   const onSentence = (s, final) => { s = carry ? (s ? carry + ' ' + s : carry) : s; carry = ''; if (!s) return; if (!final && s.length < 28) { carry = s; return; } emit(s); };
   const ac = new AbortController(); spk.streamAbort = ac;
-  let failed = false;
+  let failed = false, streamErr = null, reader = null;
   try {
-    const r = await fetch('/api/jeff/stream', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text, ...(jeffOpportunityId ? {opportunity_id: jeffOpportunityId} : {})}), signal: ac.signal});
-    if (r.status === 401) { location.href = '/login'; return; }
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'hata');
-    const reader = r.body.getReader(), dec = new TextDecoder(); let line = '';
-    for (;;) {
-      const {done, value} = await reader.read(); if (done) break;
-      line += dec.decode(value, {stream: true});
-      let i;
-      while ((i = line.indexOf('\n')) >= 0) {
-        const ev = JSON.parse(line.slice(0, i)); line = line.slice(i + 1);
-        if (ev.t === 'd') { buf += ev.x; const p = splitSentences(buf.replace(/^\s+/, ''), false); buf = p.rest; p.done.forEach(s => onSentence(s, false)); }
-        else if (ev.t === 'job') onScanEvent(ev);
-        else if (ev.t === 'err') failed = true;
-      }
+    const reqBody = {text};
+    if (selectedEntity) {
+      reqBody.entity_type = selectedEntity.type === 'opp' ? 'opportunity' : selectedEntity.type;
+      reqBody.entity_id = selectedEntity.id;
+      if (selectedEntity.type === 'opp') reqBody.opportunity_id = selectedEntity.id;
+      else if (selectedEntity.type === 'lead') reqBody.lead_id = selectedEntity.id;
+      else if (selectedEntity.type === 'news') reqBody.news_id = selectedEntity.id;
+    } else if (jeffOpportunityId) {
+      reqBody.opportunity_id = jeffOpportunityId;
     }
-    const p = splitSentences(buf.replace(/^\s+/, ''), true); p.done.forEach(s => onSentence(s, true));
-    onSentence('', true);
+    const r = await fetch('/api/jeff/stream', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(reqBody), signal: ac.signal});
+    if (r.status === 401) { location.href = '/login'; return; }
+    if (!r.ok) {
+      const errObj = await r.json().catch(() => ({}));
+      streamErr = errObj.error || 'hata';
+      throw new Error(streamErr);
+    }
+    reader = r.body.getReader(); const dec = new TextDecoder('utf-8', {fatal: true});
+    const stream = jeffStreamDecoder(piece => {
+      buf += piece;
+      const p = splitSentences(buf.replace(/^\s+/, ''), false);
+      buf = p.rest; p.done.forEach(s => onSentence(s, false));
+    }, onScanEvent);
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) { stream.push(dec.decode()); stream.finish(); break; }
+      stream.push(dec.decode(value, {stream: true}));
+    }
   } catch (e) {
     if (e.name === 'AbortError') return;
     failed = true;
+    if (!streamErr) streamErr = e.message || 'hata';
+  } finally {
+    if (reader) {
+      if (failed) await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
+  // Preserve even the last incomplete sentence as a partial response on failure.
+  const finalParts = splitSentences(buf.replace(/^\s+/, ''), true);
+  finalParts.done.forEach(s => onSentence(s, true)); onSentence('', true);
   clearInterval(tick);
   setTimeout(pollJobs, 400);  // Jeff may have started a scan; show it on the radar right away
   if (seq !== askSeq) return;
@@ -686,17 +755,41 @@ async function ask(text, opts = {}){
   vq?.close();
   if (failed && !sentences.length) {
     setJeff('idle', 'Hazır'); spk.flush = null;
-    msg('j', D.jeff === 'kapali' ? 'Jeff\'in anahtarı tanımlı olmadığı için şu an konuşamıyorum.' : 'Şu an Jeff\'e ulaşamadım. Birkaç saniye sonra tekrar deneyin.', 'Bağlantı yok');
+    let desc = 'Şu an Jeff\'e ulaşılamadı. Birkaç saniye sonra tekrar deneyin.';
+    if (streamErr === 'firsat_kaydi_yok' || streamErr === 'isletme_kaydi_yok' || streamErr === 'haber_kaydi_yok' || streamErr === 'eksik_baglam') {
+      desc = 'Seçilen kayıt sistemde bulunamadı veya silinmiş (eksik bağlam).';
+    } else if (streamErr === 'anahtar_yok') {
+      desc = 'Jeff\'in anahtarı tanımlı olmadığı için şu an konuşamıyorum.';
+    } else if (streamErr === 'ses_kotasi' || streamErr === 'cok_sik') {
+      desc = 'İstek kotası aşıldı. Lütfen bekleyin.';
+    }
+    msg('j', desc, 'Eksik / Hata');
     return;
   }
-  if (failed) toast('Jeff\'in cevabı yarıda kesildi.');
+  if (failed) {
+    show(' (Cevap yarıda kesildi; doğrulanmış sonuç alınamadı.)');
+    toast('Jeff\'in cevabı yarıda kesildi (sonuç doğrulanmadı).');
+  } else if (!sentences.length && !buf.trim()) {
+    setJeff('idle', 'Hazır'); spk.flush = null;
+    msg('j', 'Jeff boş yanıt döndü (sonuç üretilmedi).', 'Boş yanıt');
+    return;
+  }
   if (!vq) setJeff('idle', 'Hazır');
+  } catch (e) {
+    if (seq === null || seq === askSeq) {
+      setJeff('idle', 'Hazır'); spk.flush = null;
+      msg('j', 'Yanıt hazırlanamadı; tamamlanmış sonuç yok.', 'Eksik / Hata');
+    }
+  } finally {
+    clearInterval(tick);
+    isAsking = false;
+  }
 }
 $('#quick').addEventListener('click', e => { const b = e.target.closest('button'); if (b) ask(b.textContent); });
-$('#composer').addEventListener('submit', e => { e.preventDefault(); const a = $('#ask'); ask(a.value); a.value = ''; });
+$('#composer').addEventListener('submit', e => { e.preventDefault(); const a = $('#ask'); if (isAsking) { toast('Önceki yanıt hazırlanıyor; yazdığınız soru gönderilmedi ve korundu.'); return; } const text = a.value; ask(text); if (text.trim()) a.value = ''; });
 $('#ask').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#composer').requestSubmit(); } });
 $('#new-chat').addEventListener('click', async () => {
-  abortListening(); stopAudio(); askSeq++; lastReply = ''; jeffOpportunityId = null;
+  abortListening(); stopAudio(); askSeq++; lastReply = ''; jeffOpportunityId = null; selectedEntity = null;
   try { await api('jeff/reset', {}); } catch (e) {}
   $('#thread').innerHTML = ''; setJeff('idle', 'Hazır'); initJeff(); toast('Yeni sohbet başladı.');
 });
@@ -957,7 +1050,7 @@ $('#opp-list').addEventListener('click', e => { const b = e.target.closest('[dat
 $('#opp-detail').addEventListener('click', async e => {
   const b = e.target.closest('[data-oa]'); if (!b) return;
   const o = D.opps.find(x => x.id === state.opp); if (!o) return;
-  if (b.dataset.oa === 'talk') { go('komuta'); return ask('Seçtiğim fırsatı konuşalım. Kartında neden fırsat gördüğünü, beklenen faydayı ve ilk küçük adımı açıkla. Önceki değerlendirmeni değiştirdiysen nedenini de söyle.', {opportunityId: o.id, displayText: `"${o.title}" fırsatını konuşalım.`}); }
+  if (b.dataset.oa === 'talk') { if (isAsking) { toast('Önceki yanıt hazırlanıyor; seçilen fırsat değiştirilmedi.'); return; } go('komuta'); return ask('Seçtiğim fırsatı konuşalım. Kartında neden fırsat gördüğünü, beklenen faydayı ve ilk küçük adımı açıkla. Önceki değerlendirmeni değiştirdiysen nedenini de söyle.', {opportunityId: o.id, selectedEntity: {type: 'opp', id: o.id}, displayText: `"${o.title}" fırsatını konuşalım.`}); }
   await act(`opp/${o.id}/${b.dataset.oa}`, {}, {track: 'Takibe alındı.', done: 'Yapıldı olarak işaretlendi.', skip: 'Geçildi.', restore: 'Açık fırsatlara geri alındı.'}[b.dataset.oa]);
 });
 
@@ -969,8 +1062,23 @@ function openSheet(html, narrow){
   $('#overlay').querySelector('.sheet [data-close]')?.focus();
 }
 function closeSheet(){ ++leadOpenSequence; $('#overlay').innerHTML = ''; sheetKind = null; lastFocus?.focus?.(); lastFocus = null; }
-$('#overlay').addEventListener('click', async e => { if (e.target.closest('[data-close]')) closeSheet(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#overlay').innerHTML) closeSheet(); });
+$('#overlay').addEventListener('click', async e => {
+  const lt = e.target.closest('[data-lead-talk]');
+  if (lt) {
+    if (isAsking) { toast('Önceki yanıt hazırlanıyor; seçilen işletme değiştirilmedi.'); return; }
+    const lid = lt.dataset.leadTalk;
+    const l = (typeof fullLead === 'function' ? fullLead(lid) : null) || D.leads.find(x => x.id === lid);
+    if (!l) return;
+    closeSheet();
+    go('komuta');
+    return ask(`"${l.name}" işletmesini konuşalım. Güncel analizini, önerilen yaklaşımı ve dikkat edilmesi gereken noktaları açıkla.`, {
+      selectedEntity: {type: 'lead', id: l.id},
+      displayText: `"${l.name}" işletmesini konuşalım.`
+    });
+  }
+  if (e.target.closest('[data-close]')) closeSheet();
+});
 let sheetKind = null;
 
 function form(title, fields, submitLabel, onSubmit, extra = ''){
@@ -1456,7 +1564,7 @@ async function openLead(id){
         <p class="kicker">${esc([leadKind(l), [l.district, l.city].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || 'İşletme')}</p>
         <h2>${esc(l.name)}</h2>
       </div>
-      <div class="row head-acts">${nav}<button class="icon-btn" type="button" data-close aria-label="Kapat"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+      <div class="row head-acts">${nav}<button class="btn btn-primary btn-sm" type="button" data-lead-talk="${esc(l.id)}"><i class="ph ph-chats-circle" aria-hidden="true"></i>Jeff'le konuş</button><button class="icon-btn" type="button" data-close aria-label="Kapat"><i class="ph ph-x" aria-hidden="true"></i></button></div>
     </div>
     <div class="sheet-body work">${leadSide(l, s)}${reportCol(l, s)}${messageCol(l)}</div>`, decisionFirst(l) ? 'lead decision-first' : 'lead');
   if (decisionFirst(l)) organizeDecisionCard(l);
@@ -1684,11 +1792,24 @@ function renderNews(){
   $('#news-sub').textContent = D.radar.last_run ? `Yapay zekâ dünyasında son iki günde olanlar, Jeff'in dilinden. Son derleme ${ago(D.radar.last_run)}.` : 'Radar çalışınca Jeff burada günün özetini yazar.';
   $('#digest').innerHTML = D.digest ? esc(D.digest) : (state.loaded ? 'Henüz özet yok. Radar haber bulunca Jeff burada günün özetini yazar.' : 'Yükleniyor');
   $('#news-basis').hidden = !basis.length;
-  $('#news-n').textContent = basis.length ? basis.length + ' başlık' : '';
-  $('#news-list').innerHTML = basis.map(n => `<li>${safeUrl(n.url) ? `<a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : esc(n.title)}<small>${esc(n.src)}, ${ago(n.ts)}</small></li>`).join('');
+  $('#news-list').innerHTML = basis.map(n => `<li>${safeUrl(n.url) ? `<a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : esc(n.title)} <button class="btn btn-text btn-xs" type="button" data-news-talk="${esc(n.id)}"><i class="ph ph-chats-circle" aria-hidden="true"></i>Jeff'le konuş</button><small>${esc(n.src)}, ${ago(n.ts)}</small></li>`).join('');
   $('#idea-text').textContent = D.idea || 'Haberler gelince Jeff burada bir paylaşım fikri önerir.';
   $('#idea-actions').hidden = !D.idea;
 }
+$('#news-list')?.addEventListener('click', e => {
+  const b = e.target.closest('[data-news-talk]');
+  if (b) {
+    if (isAsking) { toast('Önceki yanıt hazırlanıyor; seçilen haber değiştirilmedi.'); return; }
+    const nid = b.dataset.newsTalk;
+    const n = D.news.find(x => x.id === nid);
+    if (!n) return;
+    go('komuta');
+    return ask(`"${n.title}" haberini konuşalım. Bizim açımızdan neden önemli olduğunu açıkla.`, {
+      selectedEntity: {type: 'news', id: n.id},
+      displayText: `"${n.title}" haberini konuşalım.`
+    });
+  }
+});
 $('#idea-approve').addEventListener('click', async () => { const d = await act('idea/approve', {}, 'Taslak Onaylar listesine eklendi.'); if (d) openApprovals(); });
 
 /* ---------- Onaylar ---------- */

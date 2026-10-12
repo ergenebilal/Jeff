@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -165,9 +166,25 @@ def build_state():
             "districts": geo.DISTRICTS}
 
 
+STATUS_SUMMARY_PATTERNS = re.compile(
+    r'(durum|özet|ozet|sonuc|sonuç|rapor|ne oldu|bitti|'
+    r'calisiyor|çalışıyor|calisan|çalışan|hangi asama|hangi aşama|'
+    r'kontrol|nasil gidiyor|nasıl gidiyor)',
+    re.IGNORECASE
+)
+
+
 def scan_now(text):
-    """A clear 'scan X in Y' command starts the scan at once. Jeff is told it already runs, so he only confirms."""
+    """A clear 'scan X in Y' command starts the scan at once. Jeff is told it already runs, so he only confirms.
+    Status or summary requests must never launch a new scan."""
     if not jobs:
+        return None
+    raw = text or ""
+    norm_text = geo.norm(raw)
+    # A result/status question is a read. Preserve an explicit new scan command
+    # even when the owner also asks for a report; 'raporu getir' alone is not a scan.
+    explicit_scan = re.search(r'(?<![a-z])(?:tara|tarat|tarar misin|taratir misin)(?![a-z])', norm_text)
+    if (STATUS_SUMMARY_PATTERNS.search(norm_text) or STATUS_SUMMARY_PATTERNS.search(raw)) and not explicit_scan:
         return None
     p = intent.parse_scan(text)
     if not p:
@@ -724,15 +741,18 @@ class H(BaseHTTPRequestHandler):
             if started:
                 emit({"t": "job", **{k: v for k, v in started.items() if k != "note"}})  # the map moves before Jeff has said a word
                 context = started["note"] + "\n\n" + context
+            pieces_sent = 0
             try:
                 for piece in jeff.stream_reply(text, context):
-                    emit({"t": "d", "x": piece})
-                emit({"t": "end"})
+                    if piece:
+                        pieces_sent += 1
+                        emit({"t": "d", "x": piece})
+                emit({"t": "end", "pieces": pieces_sent})
             except (BrokenPipeError, ConnectionResetError):
                 raise
             except Exception as e:
                 sys.stderr.write("[cgos] jeff stream error: %s\n" % type(e).__name__)
-                emit({"t": "err", "e": "jeff_ulasilamadi"})
+                emit({"t": "err", "e": "jeff_ulasilamadi", "pieces": pieces_sent})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
             return
