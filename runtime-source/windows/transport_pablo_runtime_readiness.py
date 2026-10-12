@@ -39,16 +39,28 @@ def inspect(root, ping, *, clock=time.time):
             if 'recovery_boundary' in tables:
                 row=db.execute('SELECT mode,snapshot_finished_at FROM recovery_boundary').fetchone()
                 out['mode'] = row[0] if row else 'unavailable'
+                out['historical_recovery_mode']=out['mode']
+                if out['mode']=='read_only_recovery' and config.get('execution_mode')=='normal':out['mode']='normal'
                 out['historical_requests_retained'] = db.execute('SELECT count(*) FROM recovery_original_requests').fetchone()[0]
                 out['historical_snapshot_finished_at'] = row[1] if row else None
                 triggers={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
                 out['checks']['recovery_write_lock'] = {'recovery_requests_insert','recovery_requests_update','recovery_requests_delete'}<=triggers
+                if out['mode']=='normal':
+                    expected=config.get('execution_activation_trigger_sha256',{})
+                    observed={name:hashlib.sha256(sql.encode()).hexdigest() for name,sql in db.execute(
+                        "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name IN ('recovery_requests_insert','recovery_requests_update')")}
+                    out['checks']['activation_triggers']=(isinstance(expected,dict) and set(expected)=={'recovery_requests_insert','recovery_requests_update'} and observed==expected)
+
             else:
                 out['mode']='normal';out['missing_interval_reconciled']=True
         with closing(sqlite3.connect((root/'intent_guard.sqlite3').resolve().as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
             db.execute('PRAGMA query_only=ON')
             out['checks']['intent_schema'] = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='intent_leases'").fetchone())
             out['checks']['intent_integrity'] = db.execute('PRAGMA quick_check').fetchone()[0]=='ok'
+        if out['mode']=='normal' and 'historical_requests_retained' in out:
+            import math
+            cutoff=config.get('execution_activated_at')
+            out['checks']['fresh_execution_boundary']=(type(cutoff) in (int,float) and math.isfinite(cutoff) and cutoff>out.get('historical_snapshot_finished_at',0))
         out['runtime_ready'] = all(value is True for value in out['checks'].values()) and out['mode'] in ('normal','read_only_recovery')
         out['reason']='Only reading admitted; missing history remains unresolved' if out['mode']=='read_only_recovery' else 'Current runtime checks passed' if out['runtime_ready'] else 'Runtime checks failed'
     except (OSError,ValueError,TypeError,KeyError,sqlite3.Error):

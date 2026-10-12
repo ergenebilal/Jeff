@@ -1,4 +1,4 @@
-"""Fixed private-policy launcher; read-only recovery only, no replay."""
+"""Fixed private-policy launcher; accepted normal or read-only recovery, no historical replay."""
 import hashlib,importlib.util,json,os
 from pathlib import Path
 import re,socket,subprocess,sys,time
@@ -60,7 +60,7 @@ def listener_present():
 
 def allowed(health,*,running):
  checks=health.get('checks',{}) if isinstance(health,dict) else {}
- if not isinstance(checks,dict) or not REQUIRED_CHECKS<=checks.keys() or health.get('mode')!='read_only_recovery':return False
+ if not isinstance(checks,dict) or not REQUIRED_CHECKS<=checks.keys() or health.get('mode') not in ('normal','read_only_recovery'):return False
  if running:return health.get('runtime_ready') is True and all(v is True for v in checks.values())
  return all(v is True for k,v in checks.items() if k not in ('release','running_sources'))
 CHILD_BOOT = '''
@@ -71,14 +71,15 @@ state=node['main'].__globals__
 original_mode=state['current_recovery_mode']
 def read_only_mode():
  mode=original_mode()
- if mode!='read_only_recovery':
-  raise RuntimeError('Accepted read-only mode required; no workers')
+ if mode not in ('normal','read_only_recovery'):
+  raise RuntimeError('Accepted runtime mode required')
  return mode
 def forbidden_worker():
  raise RuntimeError('Background work is closed in accepted startup')
 state['current_recovery_mode']=read_only_mode
-for name in ('run_bridge_worker','run_telegram_worker','run_tailscale_watchdog'):
- state[name]=forbidden_worker
+if original_mode()=='read_only_recovery':
+ for name in ('run_bridge_worker','run_telegram_worker','run_tailscale_watchdog'):
+  state[name]=forbidden_worker
 read_only_mode()
 state['main']()
 '''

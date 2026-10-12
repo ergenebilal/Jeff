@@ -173,6 +173,8 @@ def is_approval_required(action: str, params: dict) -> tuple:
     if action in ('local_draft', 'local_draft_plan'):
         # The durable guard validates this bounded, private draft contract first.
         return False, 'LOCAL_DRAFT_ONLY'
+    if action=='marketing_contact_event':
+        return True,'OWNER_CONTACT_EVIDENCE: Positive reply or meeting requires owner confirmation.'
     if action in ANTIGRAVITY_ALIASES:
         return True, 'OPAQUE_EXECUTION: Antigravity script/tool side effects require an input-bound owner decision.'
 
@@ -488,12 +490,12 @@ class TaskGuard:
                                    error=None if matches else 'Observation incomplete; do not replay')
             return self.store(db, rid, result)
 
-    def recover_pending(self):
+    def recover_pending(self, *, created_after=None):
         with self.connect() as db:
-            ids = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft' AND status='IN_PROGRESS'")]
+            ids = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft' AND status='IN_PROGRESS' AND (? IS NULL OR created_at>=?)",(created_after,created_after))]
         results = [self.reconcile(rid) for rid in ids]
         with self.connect() as db:
-            plans = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft_plan' AND status NOT IN ('SUCCESS','CANCELLED') ORDER BY created_at,id")]
+            plans = [r[0] for r in db.execute("SELECT id FROM requests WHERE action='local_draft_plan' AND status NOT IN ('SUCCESS','CANCELLED') AND (? IS NULL OR created_at>=?) ORDER BY created_at,id",(created_after,created_after))]
         from pablo_work_plans import WorkPlans
         return results + [WorkPlans(self).advance(rid) for rid in plans]
 
