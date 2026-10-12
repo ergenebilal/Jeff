@@ -58,14 +58,20 @@ def build_stream(wfile, test_mode=False, log_fn=log):
         core = jb.core_sources(HOME)                       # eksik cekirdek kaynak varsa burada patlar
         log_fn('cekirdek kaynak listesi alindi: %d dosya' % len(core))
 
-        dbs = jb.find_databases(HOME)
-        copied, errors = jb.snapshot_databases(dbs, work, log_fn)   # tutarli db anlik goruntusu (kucuk)
-        log_fn('veritabani anlik goruntusu: %d adet' % len(copied))
+        if test_mode:
+            # TEST: veritabani anlik goruntusu ALINMAZ (diskte yer tutmamasi icin)
+            dbs, copied, errors = [], {}, []
+            log_fn('TEST MODU: veritabani anlik goruntusu atlandi')
+        else:
+            dbs = jb.find_databases(HOME)
+            copied, errors = jb.snapshot_databases(dbs, work, log_fn)   # tutarli db anlik goruntusu (kucuk)
+            log_fn('veritabani anlik goruntusu: %d adet' % len(copied))
 
         # 'w|gz' = akis modu: geri sarma yok, diske yazmaz
         tar = tarfile.open(fileobj=wfile, mode='w|gz', compresslevel=3)
         try:
-            tar.add(work / 'db', arcname='db')
+            if not test_mode:
+                tar.add(work / 'db', arcname='db')
 
             data = json.dumps(core, indent=1).encode('utf-8')
             info = tarfile.TarInfo('etc/CORE-SOURCES.json')
@@ -76,7 +82,7 @@ def build_stream(wfile, test_mode=False, log_fn=log):
             for extra in jb.etc_files():
                 if not Path(extra).is_file():
                     continue
-                if jb.add_system_file(tar, extra, time.time(), log_fn):
+                if jb.add_system_file(tar, extra, time.time, log_fn):
                     etc_manifest[jb.etc_arcname(extra)[len('etc/'):]] = str(extra)
             mb = json.dumps(etc_manifest, indent=1).encode('utf-8')
             info = tarfile.TarInfo('etc/MANIFEST.json')
