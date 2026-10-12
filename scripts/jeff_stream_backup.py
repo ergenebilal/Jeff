@@ -200,7 +200,6 @@ def main(argv=None):
         return 0 if (ok and size > 1000) else 1
 
     log('AKIS PENCERESI ACIK  %s:%d  (%.0f dakika, tek kullanim)' % (a.bind, a.port, a.minutes))
-    log('JETON: %s' % TOKEN)
     srv = ThreadingHTTPServer((a.bind, a.port), Handler)
     srv.daemon_threads = True
     try:
