@@ -2272,19 +2272,35 @@ def action_clinic_radar(params):
 
 def action_marketing_deep_prepare(params):
     from marketing_pipeline import MarketingPipeline
-    return MarketingPipeline.prepare_deep_analysis(int(params['lead_id']))
+    result=MarketingPipeline.prepare_deep_analysis(int(params['lead_id']))
+    return {'ok':result['ok'],'result':result}
 
 
 def action_marketing_deep_analyze(params):
     from marketing_pipeline import MarketingPipeline
-    return MarketingPipeline.analyze_eligible_lead(int(params['lead_id']),params.get('sources',[]),
+    result=MarketingPipeline.analyze_eligible_lead(int(params['lead_id']),params.get('sources',[]),
         params.get('appointment_records',[]),params['request_id'])
+    return {'ok':result['ok'],'result':result}
+
+
+def action_marketing_draft(params):
+    from marketing_pipeline import MarketingPipeline
+    from clinic_lead_hunter import ClinicLeadHunter
+    lead=MarketingPipeline.get_lead(int(params['lead_id']))
+    if not lead:return {'ok':False,'error':'Unknown lead'}
+    pitch=ClinicLeadHunter.generate_clinic_pitch(lead['company_name'],params.get('niche','beauty'))
+    review=pitch['customer_review']
+    if not review.get('ready_for_founder_review'):return {'ok':False,'result':{'status':'REVIEW_BLOCKED','review':review}}
+    cid=MarketingPipeline.create_campaign(lead_id=lead['id'],channel='email',recipient_target=lead.get('verified_email') or '',
+        subject=pitch['subject'],message_body=pitch['body'],value_prop=pitch['value_prop'],status='DRAFTED')
+    return {'ok':True,'result':{'campaign_id':cid,'raw_body':pitch['raw_body'],'final_body':pitch['body'],
+        'customer_review':review,'ready_for_send':False,'founder_inner_approval':None}}
 
 
 def action_marketing_contact_event(params):
     from marketing_pipeline import MarketingPipeline
     event=MarketingPipeline.record_contact_event(int(params['lead_id']),params['kind'],params['source'],params['request_id'],params.get('detail',''))
-    return {'ok':True,'event_id':event,'recorded_owner_confirmation':True,'customer_outcome_verified':False}
+    return {'ok':True,'result':{'event_id':event,'recorded_owner_confirmation':True,'customer_outcome_verified':False}}
 
 
 ACTIONS = {
@@ -2326,6 +2342,7 @@ ACTIONS = {
     "whatsapp_send": action_whatsapp_send,
     "whatsapp_draft": action_whatsapp_draft,
     "clinic_radar": action_clinic_radar,
+    "marketing_draft": action_marketing_draft,
     "marketing_deep_prepare": action_marketing_deep_prepare,
     "marketing_deep_analyze": action_marketing_deep_analyze,
     "marketing_contact_event": action_marketing_contact_event,

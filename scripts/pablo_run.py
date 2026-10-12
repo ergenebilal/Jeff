@@ -109,10 +109,11 @@ for i in range(40):
             print("  ek:", json.dumps(extra, ensure_ascii=False)[:400])
     else:
         print("  ham:", str(lvl3)[:600])
+    print("  sonuç yetkisi: yalnız işçi yanıtı; bağımsız sonuç kabulü değildir")
     break
 else:
     print("zaman asimi — sonuc gelmedi")
     sys.exit(2)
 
-if not isinstance(lvl2,dict) or lvl2.get("ok") is not True:
+if not isinstance(lvl2,dict) or not (lvl2.get("ok") is True or lvl2.get("worker_action_succeeded") is True):
     sys.exit(2)
