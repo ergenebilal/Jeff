@@ -237,7 +237,7 @@ def briefing(store):
     appr = [a for a in store.approvals() if a["status"] == "Bekliyor"]
     parts = []
     if not store.get_meta("last_run"):
-        return {"text": "Merhaba. Radar henüz hiç çalışmadı. Radar ekranından ilk taramayı başlatabilirsiniz.", "focus": None}
+        return {"text": "Merhaba. Panel radarında çalışma kaydı yok. Bu, şirketin genel gündeminin boş olduğunu göstermez.", "focus": None}
     h = datetime.datetime.now().hour
     hello = "Günaydın" if h < 12 else "İyi günler" if h < 18 else "İyi akşamlar"
     parts.append(f"{hello}.")
@@ -253,7 +253,7 @@ def briefing(store):
         focus = {"opp": o["id"], "city": o["city"]}
         parts.append(f"Fırsatlarda öne çıkan: {o['title']}.")
     if not (opps or appr or mine):
-        parts.append("Şu an sizi bekleyen bir şey yok.")
+        parts.append("Panelde şu an sizi bekleyen kayıtlı bir adım görünmüyor; diğer iş kaynakları bundan çıkarılamaz.")
     return {"text": " ".join(parts), "focus": focus}
 
 
