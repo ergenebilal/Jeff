@@ -133,6 +133,122 @@ def read_current_work(*, loader=None, clock=time.time):
         return unknown_work()
 
 
+# Shared agenda uses existing panel readers; current_work above remains technical.
+from pathlib import Path
+from threading import RLock
+import hashlib
+import types
+
+_SHARED_PANEL_DIRECTORY = Path('/home/hermes/cybergeneos/docs/cybergeneos/server')
+_SHARED_PANEL_DB = Path('/home/hermes/cybergeneos-data/cgos.db')
+_SHARED_PRIVATE_CONFIG = Path('/home/hermes/cybergeneos-data/approval-gateway.json')
+_SHARED_PLAN = Path('/home/hermes/raporlar/JEFF_TO_JARVIS.md')
+_SHARED_SOURCE_HASHES = {
+    'work_agenda.py': 'ecd10c588497239e2f7b06a8aaa7fcd3490b35447a34df610d2002d1bc0c6800',
+    'briefing.py': 'c98c675632fe3a44430d1468f13fb06b73f52e7c2684fa5992c513eeef91308b',
+    'store.py': 'cee04dfde82c26b082c6ebae266ea7235ff9475cbce64e09802994f398ab641b',
+}
+_shared_sources_cache = None
+_shared_sources_lock = RLock()
+_SHARED_PACKAGE = '_pablo_verified_shared_agenda'
+
+
+def _shared_unavailable(reason='SharedAgendaUnavailable'):
+    return {'status':'unavailable','observed_at':None,'read_only':True,
+            'scope':'recorded_panel_next_steps_windows_candidates_current_plan_header',
+            'panel':{'known':False,'failure_class':reason},
+            'marketing':{'known':False,'total_records':None,'candidate_count':None,'items':[],
+                         'failure_class':reason,'outcome_verified':False},
+            'plan':{'known':False,'failure_class':reason},
+            'current_truth_verified':False,'semantic_goal_verified':False,
+            'customer_delivery_verified':False,'owner_approval_verified':False,
+            'submission_verified':False,'execution_authorized':False,'reexecution_authorized':False,
+            'automatic_replay':False,'source_instruction_authority':'none'}
+
+
+def _load_shared_sources():
+    """Recheck all three source byte pins on every read, even with cached modules.
+
+    Only existing source definitions are loaded. No panel app/main, adapter
+    installation or Store initializer is called. Existing domain dependencies
+    imported by briefing remain existing panel code, not new business rules.
+    """
+    global _shared_sources_cache
+    with _shared_sources_lock:
+        sources={}
+        for name,expected in _SHARED_SOURCE_HASHES.items():
+            path=_SHARED_PANEL_DIRECTORY/name
+            if path.is_symlink():raise ValueError('Shared source changed')
+            with path.open('rb') as handle:raw=handle.read(262145)
+            if len(raw)>262144 or hashlib.sha256(raw).hexdigest()!=expected:
+                raise ValueError('Shared source changed')
+            sources[name]=raw
+        identity=(str(_SHARED_PANEL_DIRECTORY),tuple(sorted(_SHARED_SOURCE_HASHES.items())))
+        if _shared_sources_cache is not None and _shared_sources_cache[0]==identity:
+            return _shared_sources_cache[1]
+        # The namespace points only at the existing panel source directory.
+        package=types.ModuleType(_SHARED_PACKAGE);package.__path__=[str(_SHARED_PANEL_DIRECTORY)]
+        sys.modules[_SHARED_PACKAGE]=package
+        modules={}
+        try:
+            for name in ('store.py','work_agenda.py','briefing.py'):
+                short=name[:-3];qualified=_SHARED_PACKAGE+'.'+short
+                module=types.ModuleType(qualified);module.__package__=_SHARED_PACKAGE
+                module.__file__=str(_SHARED_PANEL_DIRECTORY/name)
+                sys.modules[qualified]=module
+                exec(compile(sources[name],module.__file__,'exec'),module.__dict__)
+                modules[short]=module
+            _shared_sources_cache=(identity,modules)
+            return modules
+        except Exception:
+            for short in ('store','work_agenda','briefing'):sys.modules.pop(_SHARED_PACKAGE+'.'+short,None)
+            _shared_sources_cache=None
+            raise
+
+
+def _shared_existing_key():
+    """One existing private panel field. No sudo, helper, fallback or key output."""
+    try:
+        if _SHARED_PRIVATE_CONFIG.is_symlink():raise ValueError('Credential source unavailable')
+        with _SHARED_PRIVATE_CONFIG.open('rb') as handle:raw=handle.read(16385)
+        if len(raw)>16384:raise ValueError('Credential source exceeds bound')
+        def unique(pairs):
+            result={}
+            for name,value in pairs:
+                if name in result:raise ValueError('Duplicate configuration field')
+                result[name]=value
+            return result
+        def invalid(_):raise ValueError('Invalid configuration number')
+        value=json.loads(raw.decode('utf-8'),object_pairs_hook=unique,parse_constant=invalid)
+        key=value.get('auth_token') if isinstance(value,dict) else None
+        return key if isinstance(key,str) and key and all(ord(c)>=32 for c in key) else None
+    except Exception:return None
+
+
+def read_shared_agenda():
+    """No caller/model arguments: same three read-only panel source boundaries.
+
+    Source byte equality and saved stages do not establish business need, a new
+    goal, permission, completed work, customer reply or delivery. Missing sources
+    are unknown. Technical current_work is a separate projection and unchanged.
+    """
+    try:
+        sources=_load_shared_sources();work=sources['work_agenda']
+        # Initializing Store can migrate data and mark jobs. Never call __init__.
+        store=object.__new__(sources['store'].Store);store.path=str(_SHARED_PANEL_DB)
+        result=work.read(store,sources['briefing'].steps,plan=_SHARED_PLAN,
+                         marketing_reader=lambda:work.read_marketing_agenda(key=_shared_existing_key()))
+        if not isinstance(result,dict):raise ValueError('Invalid shared reader output')
+        known=[result.get(name,{}).get('known') is True for name in ('panel','marketing','plan')]
+        result.update(status='observed' if all(known) else 'observed_partial' if any(known) else 'unavailable',
+            shared_source_bytes_verified=True,shared_source_sha256=dict(_SHARED_SOURCE_HASHES),
+            current_truth_verified=False,semantic_goal_verified=False,customer_delivery_verified=False,
+            owner_approval_verified=False,submission_verified=False,execution_authorized=False,
+            reexecution_authorized=False,automatic_replay=False,source_instruction_authority='none')
+        return result
+    except Exception as exc:return _shared_unavailable(type(exc).__name__)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--summary', action='store_true', help='Bounded read-only current projection summary; no work or replay')

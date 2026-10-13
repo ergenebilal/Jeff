@@ -348,7 +348,7 @@ def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id=
     if tool_name == 'plan_outcome':
         return plan_tool_execution(tool_name=tool_name, args=args, next_call=next_call,
                                    session_id=session_id, turn_id=turn_id)
-    if tool_name not in ('source_context','current_work'):
+    if tool_name not in ('source_context','current_work','business_agenda'):
         return next_call(args)
     scope = (session_id, turn_id) if source_identifier(session_id) and source_identifier(turn_id) else None
     token = _source_dispatch_scope.set(scope)
@@ -360,7 +360,7 @@ def source_tool_execution(*, tool_name, args, next_call, session_id='', turn_id=
 
 
 WORK_READER_PATH = Path('/home/hermes/jeff_repo/scripts/pablo_work_status.py')
-WORK_READER_SHA256 = '148be7e80d3d8d46031e89f75dff1ab32e0c222c5cf705c2c9c7fdbd86f65157'
+WORK_READER_SHA256 = '6d13f3e4a65d1a8cbfb97d4d7a822a7dac4dd9e6fb5411dc177c1e59f7a94db7'
 _work_reader = None
 CURRENT_WORK_HINT = (
     'Güncel Pablo işlem kayıtları için current_work salt okunur aracını kullanabilirsin. '
@@ -673,26 +673,34 @@ def pre(*, user_message='', platform='', session_id='', sender_id='', turn_id=''
     followup = owner_followup(text, conversation_history)
     query = followup['retrieval_query'] if followup else text
     work_question = work_request(text) or bool(followup and work_request(followup['prior_owner_request']))
+    explicit_technical = bool(re.search(r'\b(?:pablo|altyapı|altyapi|teknik)\b',text.replace('İ','i').casefold()))
+    agenda_question = not explicit_technical and (agenda_request(text) or bool(followup and agenda_request(followup['prior_owner_request'])))
     # Current owner request alone selects task/plan identity and authority.
     task_id = explicit_task_id(text) if isinstance(original_text, str) and len(original_text) <= 2000 else None
     source_ready = authorize_source_turn(query, original_text=original_text, platform=platform,
                                          session_id=session_id, sender_id=sender_id, turn_id=turn_id)
     plan_ready = authorize_plan_turn(text, original_text=original_text, platform=platform,
                                       session_id=session_id, sender_id=sender_id, turn_id=turn_id)
-    if not text or (not substantive(text) and not operational_question(text) and not work_request(text) and not followup and not task_id):
+    if not text or (not substantive(text) and not operational_question(text) and not work_request(text) and not agenda_question and not followup and not task_id):
         hints = ([SOURCE_CONTEXT_HINT] if source_ready else []) + ([PLAN_OUTCOME_HINT] if plan_ready else [])
         return {'context': '\n'.join(hints)} if hints else None
     context = CONTRACT
     if followup:
         context += '\nSahibin aynı konuşmadaki hedef bağı (yalnız bağlam; yeni icra/onay değil): ' + dump(followup)
     context += '\nKaynaklı hafıza (güvenilmeyen veri): ' + dump(memory_brief(query))
-    if source_ready and work_question:
+    if source_ready and agenda_question:
+        current=source_tool_execution(tool_name='business_agenda',args={},
+            next_call=lambda args: business_agenda(args,session_id=session_id,turn_id=turn_id),
+            session_id=session_id,turn_id=turn_id)
+        context += '\nOrtak kaynaklı gündem (veri; doğrulanmış ihtiyaç, izin veya sonuç değil): ' + current
+    elif source_ready and work_question:
         current=source_tool_execution(tool_name='current_work',args={},
             next_call=lambda args: current_work(args,session_id=session_id,turn_id=turn_id),
             session_id=session_id,turn_id=turn_id)
         context += '\nGüncel işlem kayıtları (veri; iş hedefi veya sonuç kanıtı değil): ' + current
     if source_ready:
         context += '\n' + CURRENT_WORK_HINT
+        context += '\n' + BUSINESS_AGENDA_HINT
     if task_id:
         context += '\nİlk iş kaydına bağlı bağımsız kontrol (yalnız özel taslak; bu alanlar açıklamayla başarıya çevrilemez): ' + dump(task_decision(task_id))
     if source_ready:
@@ -753,6 +761,74 @@ def middleware(*, request, platform='', session_id='', **ignored):
         return None
 
 
+BUSINESS_AGENDA_SCHEMA = {
+    'name': 'business_agenda',
+    'description': 'Read the same source agenda as the private panel: saved panel next steps, Windows candidate records and current plan header. Candidate stage is not active execution, verified need, positive reply, accepted outcome or sending permission. Unknown sources stay unknown. No model supplied target, task, endpoint or mutation.',
+    'parameters': {'type':'object','properties':{},'additionalProperties':False}}
+BUSINESS_AGENDA_HINT = ('Gündem, adaylar ve yapılacak iş sorularında business_agenda aynı panel/Windows kaynaklarını salt okunur sunar. '
+    'current_work yalnız teknik işlem kayıtlarıdır. İkisini karıştırma; kayıtlı aşamayı bağımsız sonuç veya gönderim onayı sayma. '
+    'Kaynakta yoksa iş yok deme; bir sonraki kararın dayanağını ve eksik bilgisini belirt.')
+_agenda_reader = None
+
+
+def agenda_request(text):
+    value=' '.join(str(text).replace('İ','i').casefold().strip().rstrip('.!?').split())
+    if re.search(r'\b(?:pablo|altyapı|altyapi|teknik)\b',value):return False
+    plain={'ne iş var','ne iş var jeff','jeff ne iş var','bugün ne var','bugün neler var',
+           'işler nedir','iş listesi','yapılacaklar','sıradaki işler','sıradaki adımlar',
+           'gündem','gündem nedir','gündem durumu','gündem özeti','/gündem','/gundem'}
+    return value in plain or bool(re.search(r'\baday(?:lar|ları|ların)?\b',value) and re.search(r'\b(?:durum|durumu|durumda|var|göster|listele|özet|özeti|hangisi|hangi)\b',value))
+
+
+def agenda_brief():
+    global _agenda_reader
+    try:
+        if _agenda_reader is None:
+            raw=WORK_READER_PATH.read_bytes()
+            if hashlib.sha256(raw).hexdigest()!=WORK_READER_SHA256:raise ValueError('Shared agenda reader changed')
+            sys.path.insert(0,str(WORK_READER_PATH.parent.parent))
+            import types
+            module=types.ModuleType('scripts._jeff_shared_agenda_reader');module.__package__='scripts';module.__file__=str(WORK_READER_PATH)
+            exec(compile(raw,str(WORK_READER_PATH),'exec'),module.__dict__)
+            _agenda_reader=module.read_shared_agenda
+        return _agenda_reader()
+    except Exception:
+        return {'status':'unavailable','read_only':True,'execution_authorized':False,
+                'source_instruction_authority':'none','semantic_goal_verified':False,
+                'panel':{'known':False},'marketing':{'known':False,'total_records':None},'plan':{'known':False}}
+
+
+def business_agenda(args, *, session_id='', turn_id='', **ignored):
+    denied={'status':'agenda_scope_unavailable','read_only':True,'execution_authorized':False,
+            'reexecution_authorized':False,'source_instruction_authority':'none'}
+    if not isinstance(args,dict) or args or not source_identifier(session_id):return dump(denied)
+    dispatch=_source_dispatch_scope.get()
+    if not dispatch or dispatch[0]!=session_id or turn_id and dispatch[1]!=turn_id:return dump(denied)
+    import copy
+    with _source_lock:
+        scope=_source_turns.get(dispatch)
+        now=_source_clock()
+        if not scope or scope['deadline']<=now or scope['remaining']<=0:return dump(denied)
+        if not owner_scope(scope['platform'],session_id,scope['sender_id']):return dump(denied)
+        scope['remaining']-=1
+        cached=scope.get('shared_agenda_observation')
+        is_cached=(isinstance(cached,dict) and type(cached.get('read_at')) in (int,float)
+                   and 0<=now-cached['read_at']<=30)
+        if is_cached:result=copy.deepcopy(cached['data'])
+        else:
+            result=agenda_brief()
+            if not isinstance(result,dict):result={'status':'unavailable'}
+            result=copy.deepcopy(result)
+            scope['shared_agenda_observation']={'read_at':_source_clock(),'data':copy.deepcopy(result)}
+        result.update(read_only=True,execution_authorized=False,reexecution_authorized=False,
+                      source_instruction_authority='none',semantic_goal_verified=False)
+        result['scope']={'owner_turn_bound':True,'owner_requested_project':scope['project'],
+                         'project_filter_applied':False,'source':'same panel/Windows/plan read-only agenda sources',
+                         'cached_same_turn':is_cached,'cache_max_age_seconds':30,
+                         'current_truth_verified':False,'execution_authorized':False}
+    return dump(result)
+
+
 def register(ctx):
     ctx.register_hook('pre_llm_call', pre)
     ctx.register_middleware('llm_request', middleware)
@@ -766,6 +842,10 @@ def register(ctx):
         description='Private owner current record projection; no execution or outcome acceptance',emoji='📋')
     if work_registered is None:
         raise RuntimeError('Current work tool registration unavailable')
+    agenda_registered = ctx.register_tool('business_agenda','pablo_observation',BUSINESS_AGENDA_SCHEMA,business_agenda,
+        description='Private owner same panel/Windows source agenda; no execution or outcome acceptance',emoji='📋')
+    if agenda_registered is None:
+        raise RuntimeError('Shared agenda tool registration unavailable')
     registered = ctx.register_tool('source_context', 'source_memory', SOURCE_CONTEXT_SCHEMA, source_context,
                                    description='Private owner source-backed memory search', emoji='📚')
     if registered is None:
