@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -88,7 +89,58 @@ def substantive(text):
         r'hangisi|\bhangi\b|ne yapmali|incele|analiz|öner|araştir|karşilaştir|çöz|çoz|düzelt|onar|tasarla', normalized))
 
 
-def owner_scope(platform, session_id, sender_id='', voice_db=VOICE_DB):
+PRIVATE_OWNER_POLICY = Path('/home/hermes/.hermes/jeff-private-owner.json')
+PRIVATE_OWNER_SESSION_DB = Path('/home/hermes/.hermes/state.db')
+
+
+def private_telegram_owner(session_id, sender_id, *, policy_path=PRIVATE_OWNER_POLICY,
+                           session_db=PRIVATE_OWNER_SESSION_DB):
+    """Explicit private owner policy AND current authenticated DM routing evidence.
+
+    Bot allowlist membership alone never grants private memory access. No home
+    notification setting or group sender is promoted into owner authority.
+    """
+    try:
+        sender=str(sender_id) if type(sender_id) in (int,str) else ''
+        if not isinstance(session_id,str) or not source_identifier(session_id):return False
+        policy_path=Path(policy_path);session_db=Path(session_db)
+        if policy_path.is_symlink() or session_db.is_symlink():return False
+        with policy_path.open('rb') as handle:raw=handle.read(4097)
+        if len(raw)>4096:return False
+        def unique(pairs):
+            result={}
+            for name,value in pairs:
+                if name in result:raise ValueError('Duplicate owner policy field')
+                result[name]=value
+            return result
+        def invalid(_):raise ValueError('Invalid policy number')
+        policy=json.loads(raw.decode('utf8'),object_pairs_hook=unique,parse_constant=invalid)
+        if (not isinstance(policy,dict) or set(policy)!={'version','owner_user_id','private_dm_only','approval_source'}
+                or type(policy['version']) is not int or policy['version']!=1
+                or policy['private_dm_only'] is not True
+                or policy['approval_source']!='Bilal-explicit-private-owner'
+                or not isinstance(policy['owner_user_id'],str)
+                or re.fullmatch(r'[1-9][0-9]{0,19}',policy['owner_user_id']) is None):return False
+        owner=policy['owner_user_id']
+        allowed=[v.strip() for v in os.environ.get('TELEGRAM_ALLOWED_USERS','').split(',') if v.strip()]
+        if sender!=owner or owner not in allowed or any(re.fullmatch(r'[1-9][0-9]{0,19}',v) is None for v in allowed):return False
+        with closing(sqlite3.connect(session_db.resolve().as_uri()+'?mode=ro',uri=True,timeout=.2)) as db:
+            db.execute('PRAGMA query_only=ON')
+            rows=db.execute('SELECT source,user_id,chat_id,session_key FROM sessions WHERE id=? LIMIT 2',(session_id,)).fetchall()
+        if len(rows)!=1:return False
+        platform,user,chat,key=rows[0]
+        if (platform!='telegram' or str(user or '')!=owner or str(chat or '')!=owner
+                or not isinstance(key,str) or not 1<=len(key)<=400 or any(ord(c)<32 for c in key)):return False
+        parts=key.split(':')
+        # Exact observed runtime format: agent:<agent>:telegram:dm:<owner>.
+        return (len(parts)==5 and parts[0]=='agent'
+                and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}',parts[1]) is not None
+                and parts[2:] == ['telegram','dm',owner])
+    except (OSError,ValueError,TypeError,RecursionError,sqlite3.Error):return False
+
+
+def owner_scope(platform, session_id, sender_id='', voice_db=VOICE_DB,
+                owner_policy=PRIVATE_OWNER_POLICY, session_db=PRIVATE_OWNER_SESSION_DB):
     """Exact authenticated voice conversation or explicitly configured private owner DM."""
     if platform == 'api_server':
         try:
@@ -98,6 +150,12 @@ def owner_scope(platform, session_id, sender_id='', voice_db=VOICE_DB):
         except (OSError, sqlite3.Error):
             return False
     if platform == 'telegram' and sender_id:
+        # An installed explicit policy is authoritative; invalid policy never falls back.
+        try:
+            path=Path(owner_policy)
+            if path.is_symlink() or path.exists():
+                return private_telegram_owner(session_id,sender_id,policy_path=path,session_db=session_db)
+        except (OSError,TypeError,ValueError):return False
         try:
             from hermes_cli.config import load_config_readonly
             home = (load_config_readonly() or {}).get('platforms', {}).get('telegram', {}).get('home_channel', {})
