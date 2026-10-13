@@ -2228,6 +2228,81 @@ def action_pilot_status(params: dict) -> dict:
     }
 
 
+# ── MARKETING AGENDA (P137): sabit, salt okunur aday görünümü ─────────────────
+# Paneldeki işletmeler ile Windows Marketing defterindeki adaylar AYRI kaynaktır;
+# bu görünüm yalnız ikincisini, sabit dosyadan mode=ro okuyarak özetler.
+MARKETING_AGENDA_DB = Path(r"C:\CyberGene\Marketing\marketing_pipeline.db")
+AGENDA_LIMIT_MAX = 100
+AGENDA_CONTACT_MODES = ("direct_link", "phone_only", "instagram_link_only")
+
+
+def read_marketing_agenda(offset=0, limit=20, *, db_path=None):
+    """Fixed read-only candidate projection; no task, approval or result authority."""
+    if type(offset) is not int or type(limit) is not int or not 0 <= offset <= 1_000_000 or not 1 <= limit <= AGENDA_LIMIT_MAX:
+        raise ValueError('Invalid agenda page')
+    out = {'schema_version': 1, 'status': 'unavailable', 'observed_at': None,
+           'total_records': None, 'offset': offset, 'next_offset': None, 'items': []}
+    path = Path(db_path) if db_path else MARKETING_AGENDA_DB
+    from contextlib import closing
+    from urllib.parse import urlsplit
+    import math
+    def pairs(items):
+        obj={}
+        for key,value in items:
+            if key in obj:raise ValueError('Duplicate observation field')
+            obj[key]=value
+        return obj
+    def invalid_constant(value):raise ValueError('Nonfinite observation')
+    try:
+        with closing(sqlite3.connect(path.absolute().as_uri() + '?mode=ro', uri=True, timeout=2)) as db:
+            db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+            total = db.execute('SELECT count(*) FROM leads').fetchone()[0]
+            if type(total) is not int or not 0<=total<=1_000_000:return out
+            # Bounds apply before decoding untrusted historical columns.
+            rows = db.execute(
+                'SELECT id,substr(company_name,1,256),substr(capacity_notes,1,8193) FROM leads ORDER BY id LIMIT ? OFFSET ?',
+                (limit, offset)).fetchall()
+    except (OSError, sqlite3.Error):
+        return out
+    partial=False;items=[];read_time=time.time()
+    for rid, company, notes in rows:
+        if type(rid) is not int or rid<=0:
+            partial=True;continue
+        name=' '.join(company.split())[:120] if isinstance(company,str) else ''
+        if not name:partial=True
+        observed={}
+        if notes not in (None,''):
+            if not isinstance(notes,str) or len(notes)>8192:
+                partial=True
+            else:
+                try:
+                    parsed=json.loads(notes,object_pairs_hook=pairs,parse_constant=invalid_constant)
+                    if isinstance(parsed,dict):observed=parsed
+                    else:partial=True
+                except (ValueError,TypeError,RecursionError):
+                    if notes.lstrip()[:1] in ('{','['):partial=True
+        # Unknown or damaged observations do not inherit a stage or a source.
+        district=observed.get('district');district=district.strip()[:60] if isinstance(district,str) and district.strip() else None
+        stage=observed.get('stage');stage=stage.strip()[:40] if isinstance(stage,str) and stage.strip() else None
+        url=observed.get('source');source_url=None
+        if isinstance(url,str) and len(url)<=300:
+            try:
+                parsed=urlsplit(url)
+                if parsed.scheme in ('http','https') and parsed.hostname and not parsed.username and not parsed.password:source_url=url
+            except ValueError:pass
+        stamp=observed.get('observed_at')
+        stamp=float(stamp) if type(stamp) in (int,float) and math.isfinite(stamp) and 0<stamp<=read_time+5 else None
+        if observed.get('observed_at') is not None and stamp is None:partial=True
+        mode=observed.get('contact_mode');mode=mode if mode in AGENDA_CONTACT_MODES else None
+        items.append({'id':rid,'company_name':name,'district':district,'stage':stage,'source_url':source_url,
+                      'source_observed_at':stamp,'contact_mode':mode,'loss_verified':False if observed.get('loss_verified') is False else None})
+    # Cursor follows consumed source rows, not the number surviving projection.
+    consumed=len(rows)
+    out.update(status='observed_partial' if partial else 'observed',observed_at=read_time,
+               total_records=total,items=items,next_offset=offset+consumed if offset+consumed<total else None)
+    return out
+
+
 def action_marketing_list(params: dict) -> dict:
     from marketing_pipeline import MarketingPipeline
     target = params.get("type", "campaigns")
@@ -2370,7 +2445,7 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok": false, "error": "Forbidden: IP not allowed"}')
             return
 
-        if self.path.startswith('/tasks/') or self.path.split('?')[0] == '/work' or self.path.startswith('/work/') or self.path.split('?')[0] == '/draft-choices':
+        if self.path.startswith('/tasks/') or self.path.split('?')[0] == '/work' or self.path.startswith('/work/') or self.path.split('?')[0] == '/draft-choices' or self.path.split('?')[0] == '/marketing/agenda':
             import hmac
             token = self.headers.get('X-Bridge-Key') or self.headers.get('X-Alfred-Token') or ''
             expected = CONFIG.get('auth_token', '')
@@ -2385,6 +2460,19 @@ class PabloRequestHandler(BaseHTTPRequestHandler):
                     if parsed.fragment or set(query)-{'limit','offset'} or any(len(v)!=1 or not re.fullmatch(r'[0-9]{1,6}',v[0]) for v in query.values()):
                         raise ValueError('Invalid catalog page')
                     result = task_guard().draft_choices(int(query.get('limit',['20'])[0]),int(query.get('offset',['0'])[0]))
+                except ValueError:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+            elif self.path.split('?')[0] == '/marketing/agenda':
+                parsed = urllib.parse.urlsplit(self.path)
+                query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                try:
+                    if parsed.fragment or set(query) - {'offset', 'limit'} or any(
+                            len(v) != 1 or not re.fullmatch(r'[0-9]{1,7}', v[0]) for v in query.values()):
+                        raise ValueError('Invalid agenda page')
+                    result = read_marketing_agenda(int(query.get('offset', ['0'])[0]),
+                                                   int(query.get('limit', ['20'])[0]))
                 except ValueError:
                     self.send_response(400)
                     self.end_headers()
