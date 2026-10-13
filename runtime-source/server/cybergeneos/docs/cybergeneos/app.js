@@ -861,7 +861,8 @@ micHint();
 const WHO = {bilal: 'Siz', jeff: 'Jeff', zamanlayici: 'Zamanlayıcı'};
 const STARTED = {bilal: 'Siz başlattınız', jeff: 'Jeff başlattı', zamanlayici: 'Zamanlayıcı başlattı'};
 const JOB_STATE = {queued: ['Sırada', '#A2BCE7'], running: ['Çalışıyor', '#53C6D0'], done: ['Bitti', '#6EDCB6'], failed: ['Olmadı', '#F4A3A3'], cancelled: ['Durduruldu', '#8D90A0']};
-const KIND = {radar: 'Haber ve fırsat taraması', lead_scan: 'İşletme taraması'};
+const KIND = {radar: 'Haber ve fırsat taraması', lead_scan: 'İşletme taraması', insta_scan: 'Instagram taraması'};
+const FINDS = j => j.kind === 'lead_scan' || j.kind === 'insta_scan';
 const activeJobs = () => (D.jobs || []).filter(j => j.status === 'queued' || j.status === 'running');
 const clock = ts => new Date(ts * 1000).toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit'});
 let knownJobs = null, jobsTimer = null, pulseKey = '';
@@ -881,13 +882,14 @@ function scopeJob(){
 function jobLine(j){
   const r = j.result || {};
   if (j.status === 'done' && j.kind === 'lead_scan') return `${r.found ?? 0} işletme bulundu, ${r.new ?? 0} yeni lead`;
+  if (j.status === 'done' && j.kind === 'insta_scan') return `${r.candidates ?? 0} hesap denetlendi, ${r.new ?? 0} yeni lead` + (r.not_business ? `, ${r.not_business} işletme değil` : '');
   if (j.status === 'done' && j.kind === 'radar') return `${r.opps ?? 0} fırsat, ${r.news ?? 0} haber`;
   return j.note || JOB_STATE[j.status]?.[0] || '';
 }
 function blipsFor(j){
   if (!j) return [];
   /* a lead scan shows every business it found; a news scan shows each source it read and each opportunity it picked */
-  if (j.kind === 'lead_scan') return D.leads.filter(l => l.job === j.id).slice(0, 60).map(l => ({k: j.id + l.id, t: l.name, c: '#C6A1F2'}));
+  if (FINDS(j)) return D.leads.filter(l => l.job === j.id).slice(0, 60).map(l => ({k: j.id + l.id, t: l.name, c: '#C6A1F2'}));
   return j.log.map(([, t]) => ({k: j.id + t, t, c: blipColor(t)})).filter(b => b.c);
 }
 function renderScope(){
@@ -904,7 +906,7 @@ function renderScope(){
   }).join('');
   const r = j?.result || {};
   let acts = '';
-  if (j && j.status === 'done' && j.kind === 'lead_scan' && r.new) acts = `<button class="btn btn-primary btn-sm" type="button" data-show-job="${j.id}">Bulunan ${r.new} işletmeyi gör</button>`;
+  if (j && j.status === 'done' && FINDS(j) && r.new) acts = `<button class="btn btn-primary btn-sm" type="button" data-show-job="${j.id}">Bulunan ${r.new} işletmeyi gör</button>`;
   if (j && j.status === 'done' && j.kind === 'radar') acts = `${r.opps ? `<button class="btn btn-primary btn-sm" type="button" data-go="firsatlar">${r.opps} fırsata bak</button>` : ''}<button class="btn btn-glass btn-sm" type="button" data-go="haberler">Haberlere git</button>`;
   if (j && running) acts = `<button class="btn btn-text btn-sm" type="button" data-cancel="${j.id}">Durdur</button>`;
   $('#scope-kicker').textContent = j ? `${KIND[j.kind]}, ${STARTED[j.by] || STARTED.bilal}, ${clock(j.created_at)}` : 'Radar';
@@ -993,6 +995,7 @@ document.addEventListener('click', async e => {
   const sj = e.target.closest('[data-show-job]');
   if (sj) { state.leadSec = 'havuz'; state.leadSecSet = true; state.leadJob = sj.dataset.showJob; go('leadler'); renderLeadFilters(); renderLeads(); }
   if (e.target.closest('[data-scan]')) openScan();
+  if (e.target.closest('[data-insta-scan]')) openInstaScan();
 });
 
 /* ---------- Fırsatlar: only what Bilal can act on this week, ranked by Jeff ---------- */
@@ -1088,6 +1091,7 @@ function form(title, fields, submitLabel, onSubmit, extra = ''){
       ? `<textarea id="f-${f.name}" name="${f.name}" rows="${f.rows || 4}" ${f.required ? 'required' : ''} placeholder="${esc(f.ph || '')}">${esc(f.value || '')}</textarea>`
       : f.type === 'city' ? `<input id="f-${f.name}" name="${f.name}" list="cities" value="${esc(f.value || '')}" ${f.required ? 'required' : ''} placeholder="${esc(f.ph || 'Şehir (isteğe bağlı)')}" autocomplete="off">`
       : f.type === 'number' ? `<input id="f-${f.name}" name="${f.name}" type="number" min="${f.min}" max="${f.max}" value="${esc(f.value ?? '')}">`
+      : f.type === 'select' ? `<select id="f-${f.name}" name="${f.name}">${f.options.map(([v, t]) => `<option value="${esc(v)}" ${v === f.value ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`
       : `<input id="f-${f.name}" name="${f.name}" value="${esc(f.value || '')}" ${f.list ? `list="${f.list}"` : ''} ${f.required ? 'required' : ''} placeholder="${esc(f.ph || '')}" autocomplete="off">`}
       ${f.help ? `<p class="help">${esc(f.help)}</p>` : ''}<p class="err" id="e-${f.name}" hidden></p></div>`).join('')}
     <div class="actions" style="margin-top:6px;padding-top:14px"><button class="btn btn-primary" type="submit">${esc(submitLabel)}</button><button class="btn btn-text" type="button" data-x>Vazgeç</button></div></form>`;
@@ -1173,9 +1177,39 @@ function openScan(pre = {}){
         toast({sehir_ve_sektor: 'Şehri listeden seçin ve işletme türünü yazın.', zaten_calisiyor: 'Aynı tarama zaten sürüyor.'}[e.message] || 'Tarama başlatılamadı.');
         return false;
       }
-    }, `<p class="help" style="margin:-4px 0 6px">${src} Bulunan işletmeler Leadler'de "Yeni bulunanlar" listesine düşer; kimseye mesaj gitmez.</p>`);
+    }, `<p class="help" style="margin:-4px 0 6px">${src} Bulunan işletmeler Leadler'de "Yeni bulunanlar" listesine düşer; kimseye mesaj gitmez. <button class="btn btn-text btn-sm" type="button" data-insta-scan>Instagram'dan tara</button></p>`);
   const fill = () => { const c = $('#f-city')?.value.trim(); $('#districts').innerHTML = Object.entries(D.districts || {}).filter(([, p]) => p.toLocaleLowerCase('tr') === (c || '').toLocaleLowerCase('tr')).map(([d]) => `<option value="${esc(d)}">`).join(''); };
   $('#f-city')?.addEventListener('input', fill); fill();
+}
+
+function openInstaScan(pre = {}){
+  form('Instagram taraması',
+    [{name: 'hashtags', label: 'Hangi etiketler?', required: true, value: pre.hashtags, ph: 'Örn. bursaguzelliksalonu, nilufersalon', help: 'En çok 5 etiket. # yazmanıza gerek yok.'},
+     {name: 'niche', label: 'Hangi işletmeler?', required: true, list: 'niches', value: pre.niche, ph: 'Örn. güzellik salonu'},
+     {name: 'city', label: 'Şehir', type: 'city', value: pre.city, ph: 'Örn. Bursa (etiket şehri belli etmiyorsa boş bırakın)'},
+     {name: 'source', label: 'Nasıl taransın?', type: 'select', value: pre.source || 'hibrit',
+      options: [['hibrit', 'Resmî API + yerel araç (hibrit)'], ['resmi', 'Yalnız resmî Meta API'], ['yerel', 'Yalnız yerel araç']]},
+     {name: 'limit', label: 'En çok kaç hesap denetlensin?', type: 'number', min: 5, max: 60, value: pre.limit || 30}],
+    'Taramayı başlat', async d => {
+      try {
+        const r = await api('jobs', {kind: 'insta_scan', hashtags: d.hashtags, niche: d.niche, city: d.city, limit: d.limit,
+          official: d.source !== 'yerel', local: d.source !== 'resmi'});
+        state.radarJob = r.job; knownJobs?.add(r.job); go('komuta');
+        await pollJobs();
+        if (d.source !== 'resmi') toast('Yerel araç isteği sıraya alındı; bilgisayarınızdaki araç en geç 10 dakikada alır.');
+        return true;
+      } catch (e) {
+        toast({sehir_ve_sektor: 'İşletme türünü yazın.', etiket: 'En az bir geçerli etiket yazın.', zaten_calisiyor: 'Aynı tarama zaten sürüyor.'}[e.message] || 'Tarama başlatılamadı.');
+        return false;
+      }
+    }, `<p class="help" style="margin:-4px 0 6px">Resmî API etiketteki gönderilerde anılan hesapları, yerel araç (bilgisayarınızdaki test hesabı) gönderi sahiplerini bulur. Her hesap resmî Meta API ile denetlenir; yalnız işletme hesapları lead olur, kişisel hesaplar saklanmaz. Kimseye mesaj gitmez, takip ya da beğeni yapılmaz. <button class="btn btn-text btn-sm" type="button" data-insta-key>Yerel aracı bağla</button></p>`);
+  $('#dlg [data-insta-key]')?.addEventListener('click', async () => {
+    try {
+      const b = await api('insta/bridge');
+      await navigator.clipboard?.writeText(b.token).catch(() => {});
+      toast(`Köprü anahtarı panoya kopyalandı. Bilgisayarınızda: scripts\cgos_sync.py --setup. Bekleyen istek: ${b.waiting.length}.`);
+    } catch (e) { toast('Anahtar alınamadı.'); }
+  });
 }
 
 const stageIdx = s => D.stages.indexOf(s);
@@ -1846,7 +1880,7 @@ function cmds(){
   return [
     {t: 'Komuta ekranı', i: 'ph-compass', f: () => go('komuta')}, {t: 'Radar', i: 'ph-crosshair', f: () => go('radar')}, {t: 'Fırsatlar', i: 'ph-lightbulb', f: () => go('firsatlar')},
     {t: 'Leadler', i: 'ph-users-three', f: () => go('leadler')}, {t: 'Haberler (günün özeti)', i: 'ph-newspaper', f: () => go('haberler')},
-    {t: 'Onaylar', i: 'ph-seal-check', f: openApprovals}, {t: 'İşletme taraması', i: 'ph-storefront', f: () => openScan()},
+    {t: 'Onaylar', i: 'ph-seal-check', f: openApprovals}, {t: 'İşletme taraması', i: 'ph-storefront', f: () => openScan()}, {t: 'Instagram taraması', i: 'ph-instagram-logo', f: () => openInstaScan()},
     {t: 'Haber ve fırsat taraması', i: 'ph-arrow-clockwise', f: () => $('#run-radar').click()},
     ...D.leads.map(l => ({t: 'Lead: ' + l.name, i: 'ph-user', f: () => { go('leadler'); openLead(l.id); }}))
   ];

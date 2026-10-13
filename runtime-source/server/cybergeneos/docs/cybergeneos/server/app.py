@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import analysis, briefing, contact, geo, intent, jeff, llm, marketing, metrics, outreach, places, qualification, reach, sources
+from . import analysis, briefing, contact, geo, instagram_scan, intent, jeff, llm, marketing, metrics, outreach, places, qualification, reach, sources
 from .jobs import Jobs
 from .radar import Radar
 from .store import CLOSED, STAGES, Store, now
@@ -43,6 +43,7 @@ store = None
 radar = None
 jobs = None
 JEFF_TOKEN = ""
+INSTA_TOKEN = ""
 _hits = {}
 _fails = {}
 _lock = threading.Lock()
@@ -50,6 +51,10 @@ _lock = threading.Lock()
 # What Jeff may do with his own token (from the server, without the browser login). Nothing here can send a message anywhere.
 JEFF_GET = {("api", "jobs"), ("api", "summary"), ("api", "state")}
 JEFF_POST = {("api", "jobs"), ("api", "radar", "run"), ("api", "lead"), ("api", "opp", "manual")}
+# What the local Instagram tool (cg_insta, on Bilal's computer) may do with its own key: read the waiting
+# scan requests and hand in public usernames. Every username is checked with the official API before it is kept.
+INSTA_GET = {("api", "insta", "requests")}
+INSTA_POST = {("api", "insta", "candidates")}
 
 
 # ---------------- state ----------------
@@ -549,6 +554,10 @@ class H(BaseHTTPRequestHandler):
         tok = self.headers.get("X-CGOS-Token") or ""
         return bool(JEFF_TOKEN) and bool(tok) and hmac.compare_digest(tok.encode(), JEFF_TOKEN.encode())
 
+    def _insta(self):
+        tok = self.headers.get("X-CGOS-Insta-Token") or ""
+        return bool(INSTA_TOKEN) and bool(tok) and hmac.compare_digest(tok.encode(), INSTA_TOKEN.encode())
+
     def _from_proxy(self):
         return self.client_address[0] in PROXIES
 
@@ -566,7 +575,7 @@ class H(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if host not in ALLOWED:
             return False
-        if self.command == "POST" and not self._jeff():
+        if self.command == "POST" and not (self._jeff() or self._insta()):
             o = urlparse(self.headers.get("Origin") or "")
             return bool(o.hostname) and o.hostname in ALLOWED
         return True
@@ -610,6 +619,8 @@ class H(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/login":
             return self._send(200, LOGIN.replace("{msg}", "").encode(), "text/html; charset=utf-8")
+        if self._insta() and tuple(p for p in path.split("/") if p) in INSTA_GET:
+            return self._json(200, {"requests": instagram_scan.waiting(store)})
         jeff_call = self._jeff() and tuple(p for p in path.split("/") if p) in JEFF_GET
         if not (jeff_call or self._authed()):
             return self._send(302, extra={"Location": "/login"}) if not path.startswith("/api/") else self._json(401, {"error": "giris"})
@@ -631,6 +642,9 @@ class H(BaseHTTPRequestHandler):
             lid = path.split("/")[3]
             return self._json(200, {"evidence": [{k: e[k] for k in ("id", "kind", "label", "url", "text", "suspicious", "fetched_at", "expires_at")}
                                                  for e in store.evidence(lid)]})
+        if path == "/api/insta/bridge" and not jeff_call:
+            # Only Bilal's own login: the key the local tool needs, and what it has not picked up yet.
+            return self._json(200, {"token": INSTA_TOKEN, "waiting": instagram_scan.waiting(store)})
         if path == "/api/radar/status":
             return self._json(200, radar.status())
         if path == "/api/config":
@@ -678,6 +692,15 @@ class H(BaseHTTPRequestHandler):
             sys.stderr.write(f"[cgos] yanlis sifre: {ip}\n")
             return self._send(401, LOGIN.replace("{msg}", "<p>Şifre yanlış.</p>").encode(), "text/html; charset=utf-8")
         self.by = "bilal"
+        if self._insta() and tuple(p for p in path.split("/") if p) in INSTA_POST:
+            try:
+                body = json.loads(raw) if raw else {}
+                if not isinstance(body, dict):
+                    raise ValueError
+            except ValueError:
+                return self._json(400, {"error": "gecersiz"})
+            jid, e = instagram_scan.submit(store, jobs, body)
+            return self._json(400, {"error": e}) if e else self._json(200, {"ok": True, "job": jid})
         if self._jeff() and tuple(p for p in path.split("/") if p) in JEFF_POST:
             self.by = "jeff"
         elif not self._authed():
@@ -833,6 +856,21 @@ class H(BaseHTTPRequestHandler):
         return err(404, "yok")
 
 
+def insta_token():
+    """The local Instagram tool's own key, kept beside Jeff's. Bilal reads it once in the panel to set the tool up."""
+    if os.environ.get("CGOS_INSTA_TOKEN"):
+        return os.environ["CGOS_INSTA_TOKEN"]
+    f = DATA / "insta-token"
+    if not f.exists():
+        import secrets
+        f.write_text(secrets.token_urlsafe(32))
+        try:
+            os.chmod(f, 0o600)
+        except OSError:
+            pass
+    return f.read_text().strip()
+
+
 def jeff_token():
     """Jeff's own key for the panel API. Kept in the data folder (only the hermes user can read it); Jeff's skill reads the same file."""
     if os.environ.get("CGOS_JEFF_TOKEN"):
@@ -849,7 +887,7 @@ def jeff_token():
 
 
 def main():
-    global store, radar, jobs, JEFF_TOKEN
+    global store, radar, jobs, JEFF_TOKEN, INSTA_TOKEN
     if HOST not in ("127.0.0.1", "localhost") and not PASSWORD:
         sys.exit("CGOS_PASSWORD olmadan yalnızca 127.0.0.1 üzerinde çalışır.")
     DATA.mkdir(parents=True, exist_ok=True)
@@ -865,6 +903,7 @@ def main():
     from .panel_correction import install as install_panel_correction
     install_panel_correction(sys.modules[__name__])
     JEFF_TOKEN = jeff_token()
+    INSTA_TOKEN = insta_token()
     has = llm.load_key()
     radar = Radar(store)
     jobs = Jobs(store, radar)

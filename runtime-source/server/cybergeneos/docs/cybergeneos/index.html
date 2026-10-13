@@ -338,9 +338,10 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
 .dlg-head h2{font-size:22px}
 .field{display:grid;gap:6px}
 .field label{font-size:13px;font-weight:550;color:var(--soft)}
-.field input,.field textarea{width:100%;padding:11px 14px;min-height:44px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface-2);font-size:14.5px;line-height:1.55}
+.field input,.field textarea,.field select{width:100%;padding:11px 14px;min-height:44px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface-2);font-size:14.5px;line-height:1.55}
 .field textarea{resize:vertical}
-.field input:focus,.field textarea:focus{outline:none;border-color:#a2bce780}
+.field select{color:inherit;font:inherit;font-size:14.5px}
+.field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:#a2bce780}
 .field .help{margin:0}
 .err{margin:0;font-size:13px;color:var(--err)}
 
@@ -835,6 +836,7 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
     <div class="row">
       <button class="btn btn-text" type="button" id="radar-settings"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Neyi arıyoruz</button>
       <button class="btn btn-glass" type="button" id="run-radar"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>Haber ve fırsat taraması</button>
+      <button class="btn btn-glass" type="button" data-insta-scan><i class="ph ph-instagram-logo" aria-hidden="true"></i>Instagram taraması</button>
       <button class="btn btn-primary" type="button" data-scan><i class="ph ph-storefront" aria-hidden="true"></i>İşletme taraması</button>
     </div>
   </div>
