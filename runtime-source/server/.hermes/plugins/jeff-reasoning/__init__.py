@@ -260,7 +260,7 @@ def continuation_request(text):
         or re.fullmatch(r'(?:neden|niçin|nasil|hangisi)(?: daha (?:iyi|mantikli|uygun))?', value)
         or (re.search(r'\b(?:bunu|onu|buna|ona|bunun|onun|bunlar[iı]|onlar[iı])\b', value)
             and (substantive(text) or operational_question(text)
-                 or re.search(r'\b(?:yap|uygula|hazirla|göster|listele|devam|ne|kaç|kac|fiyat|maliyet)\b', value))))
+                 or re.search(r'\b(?:yap|uygula|hazirla|göster|listele|devam|ne|kaç|kac|fiyat(?:i|ini|ina|lari|larini)?|maliyet(?:i|ini|ine|leri|lerini)?|bütçe(?:si|sini|sine|yi|ye)?)\b', value))))
 
 
 def owner_followup(text, history):
@@ -276,6 +276,7 @@ def owner_followup(text, history):
     if current_scope != 'unbound':
         return None
     skipped_current = False
+    prior_followups = []
     for message in reversed(history[-16:]):
         if not isinstance(message, dict) or message.get('role') != 'user':
             continue
@@ -294,13 +295,31 @@ def owner_followup(text, history):
         if not prior or explicit_project_scope(prior)[0] == 'invalid':
             return None
         if continuation_request(prior):
+            # Preserve bounded owner refinements, not assistant/source text or permissions.
+            value = prior.casefold().replace('ı','i').replace('i\u0307','i').strip(' \t\r\n.!?')
+            value = re.sub(r'^(?:(?:peki|tamam|evet|hadi)[,; ]+)', '', value)
+            control_only = bool(re.fullmatch(
+                r'(?:kald[iı]ğ[iı]n yerden )?devam(?: et| edebilirsin)?|'
+                r'(?:neden|niçin|nasil|hangisi)(?: daha (?:iyi|mantikli|uygun))?', value))
+            if not control_only:
+                if len(prior_followups) >= 4:
+                    return None  # Cannot claim a complete target after dropping older refinements.
+                prior_followups.append(prior)
             continue
         if not (substantive(prior) or operational_question(prior)):
             return None
-        # Preserve a leading explicit project header and bound the combined search.
-        query = prior[:1500] + '\nTakip sorusu: ' + text
+        # Keep the explicit project header and every collected refinement, in order.
+        refinements = list(reversed(prior_followups))
+        suffix = ''.join('\nSahibin ara takip isteği: ' + item for item in refinements)
+        suffix += '\nTakip sorusu: ' + text
+        goal_budget = min(1500, 2000 - len(suffix))
+        if goal_budget < 256:
+            return None
+        query = prior[:goal_budget] + suffix
         return {'current_request': text, 'prior_owner_request': prior[:1500],
-                'prior_request_truncated': len(prior) > 1500,
+                'prior_request_truncated': len(prior) > goal_budget,
+                'prior_followup_requests': refinements,
+                'history_window_limited': len(history) > 16,
                 'retrieval_query': query, 'basis': 'same_session_original_owner_messages',
                 'execution_authorized': False, 'approval_inherited': False}
     return None
