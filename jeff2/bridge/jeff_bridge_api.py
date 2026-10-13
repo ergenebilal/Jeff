@@ -633,21 +633,77 @@ async def create_alfred_task(body: AlfredTaskRequest, x_bridge_key: Optional[str
     return {"task_id": task_id, "status": "queued", "type": body.type, "digest": digest}
 
 
+def advancing_plan_report(previous, current, first_payload):
+    """Permit ordered report transport, never independent outcome acceptance."""
+    try:
+        old = json.loads(previous['result'])
+        new = json.loads(current['result'])
+        first = json.loads(first_payload)
+        before, after = old['work'], new['work']
+        count_before, count_after = before['completed_count'], after['completed_count']
+        total = len(first['steps'])
+        if (type(count_before) is not int or type(count_after) is not int
+                or not 0 <= count_before <= count_after <= total
+                or before['total_steps'] != total or after['total_steps'] != total
+                or before['goal'] != first['goal'] or after['goal'] != first['goal']
+                or old['status'] != previous['status'] or new['status'] != current['status']):
+            return False
+        old_steps, new_steps = before['steps'], after['steps']
+        if len(old_steps) != total or len(new_steps) != total:
+            return False
+        for index, (a, b, step) in enumerate(zip(old_steps, new_steps, first['steps'])):
+            if a['name'] != step['name'] or b['name'] != step['name'] or a['request_id'] != b['request_id']:
+                return False
+            if index < count_before and b['status'] != 'verified':
+                return False
+            if (index < count_after) != (b['status'] == 'verified'):
+                return False
+        if sum(s['status'] == 'verified' for s in new_steps) != count_after:
+            return False
+        if current['status'] == 'SUCCESS' and (count_after != total or after.get('phase') != 'completed'):
+            return False
+        waiting = {'WAITING_FOR_EVENT', 'WAITING_FOR_TIME', 'IN_PROGRESS'}
+        terminal = {'SUCCESS', 'CANCELLED', 'NEEDS_REVIEW', 'OUTCOME_MISMATCH',
+                    'OUTCOME_UNKNOWN', 'VERIFICATION_UNAVAILABLE', 'ERROR', 'BLOCKED'}
+        return (previous['status'] in waiting
+                and (current['status'] in terminal
+                     or (current['status'] in waiting and count_after > count_before)))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 @app.post("/alfred/result")
 async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header(default=None)):
     require_key(x_bridge_key)
     now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute('BEGIN IMMEDIATE')
-        async with db.execute('SELECT type,digest,worker_id,attempt,status FROM alfred_events WHERE task_id=?', (body.task_id,)) as cursor:
+        async with db.execute('SELECT type,digest,worker_id,attempt,status,payload FROM alfred_events WHERE task_id=?', (body.task_id,)) as cursor:
             event = await cursor.fetchone()
+        report = {'result': body.result, 'status': body.status, 'ok': False,
+                  'request_id': body.request_id, 'approval_id': body.approval_id, 'error': body.error}
+        previous = None
         reason = None
         if not event:
             reason = 'unknown_task'
         elif (event[0] != body.type or event[1] != body.digest or event[2] != body.worker_id
-              or event[3] != body.attempt or event[4] != 'delivered'
+              or event[3] != body.attempt or event[4] not in ('delivered', 'unverified')
               or body.request_id != body.task_id):
             reason = 'binding_mismatch_or_late_result'
+        elif event[4] == 'unverified':
+            async with db.execute('SELECT digest,worker_id,attempt,status,payload,created_at FROM alfred_results WHERE task_id=?', (body.task_id,)) as cursor:
+                prior = await cursor.fetchone()
+            if not prior or tuple(prior[:4]) != (body.digest, body.worker_id, body.attempt, 'unverified'):
+                reason = 'recorded_result_binding_mismatch'
+            else:
+                previous = json.loads(prior[4])
+                if {key: previous.get(key) for key in report} == report:
+                    # Lost HTTP acknowledgements may retry the exact same report.
+                    # Keep the original observation time and never execute again.
+                    await db.commit()
+                    return {'status': 'unverified', 'task_id': body.task_id}
+                if body.type != 'local_draft_plan' or not advancing_plan_report(previous, report, event[5]):
+                    reason = 'non_advancing_or_terminal_report'
         if reason:
             await db.execute('INSERT INTO alfred_result_quarantine(task_id,reason,created_at) VALUES(?,?,?)',
                              (body.task_id, reason, now))
@@ -656,10 +712,14 @@ async def alfred_result(body: AlfredResult, x_bridge_key: Optional[str] = Header
         if body.status == 'APPROVAL_REQUIRED':
             await db.commit()
             return {'status': 'approval_required', 'task_id': body.task_id}
-        payload = json.dumps({'result': body.result, 'status': body.status, 'ok': False,
-                              'request_id': body.request_id, 'approval_id': body.approval_id,
-                              'error': body.error})
-        await db.execute('INSERT INTO alfred_results(task_id,digest,worker_id,attempt,status,payload,created_at) VALUES(?,?,?,?,?,?,?)',
+        if previous is not None:
+            history = previous.get('report_history', [])[-7:]
+            old_report = {key: previous.get(key) for key in report}
+            history.append({'status': previous['status'], 'recorded_at': prior[5],
+                            'sha256': hashlib.sha256(json.dumps(old_report, sort_keys=True).encode()).hexdigest()})
+            report['report_history'] = history
+        payload = json.dumps(report)
+        await db.execute('INSERT INTO alfred_results(task_id,digest,worker_id,attempt,status,payload,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at',
                          (body.task_id, body.digest, body.worker_id, body.attempt, 'unverified', payload, now))
         await db.execute("UPDATE alfred_events SET status='unverified' WHERE task_id=?", (body.task_id,))
         await db.commit()
@@ -726,19 +786,30 @@ async def alfred_get_tasks(
             db.row_factory = aiosqlite.Row
             await db.execute('BEGIN IMMEDIATE')
             async with db.execute(
-                "SELECT * FROM alfred_events WHERE (status='pending' OR (status='delivered' AND worker_id=? AND delivered_at < ?)) AND (? IS NULL OR created_at>=?) ORDER BY created_at ASC LIMIT 10",
-                (x_worker_id, time.time() - ALFRED_REDELIVER_SEC, cutoff, cutoff),
+                """SELECT * FROM alfred_events e WHERE (
+                    status='pending' OR (status='delivered' AND worker_id=? AND delivered_at < ?)
+                    OR (status='unverified' AND type='local_draft_plan' AND worker_id=? AND delivered_at < ?
+                        AND EXISTS(SELECT 1 FROM alfred_results r WHERE r.task_id=e.task_id
+                            AND r.digest=e.digest AND r.worker_id=e.worker_id AND r.attempt=e.attempt
+                            AND r.status='unverified' AND json_valid(r.payload)
+                            AND json_extract(r.payload,'$.status') IN ('WAITING_FOR_EVENT','WAITING_FOR_TIME','IN_PROGRESS')))
+                    ) AND (? IS NULL OR created_at>=?) ORDER BY created_at ASC LIMIT 10""",
+                (x_worker_id, time.time() - ALFRED_REDELIVER_SEC,
+                 x_worker_id, time.time() - min(ALFRED_REDELIVER_SEC, 15), cutoff, cutoff),
             ) as cur:
                 rows = await cur.fetchall()
 
             if rows:
                 tasks = []
                 for r in rows:
-                    reconcile_only = r['status'] == 'delivered'
+                    # A reported waiting plan is only observed again by its original
+                    # worker. This cannot authorize starting or replaying any step.
+                    reconcile_only = r['status'] in ('delivered', 'unverified')
                     attempt = (r['attempt'] or 0) if reconcile_only else 1
                     worker_id = r['worker_id'] if reconcile_only else x_worker_id
-                    await db.execute("UPDATE alfred_events SET status='delivered', delivered_at=?,worker_id=?,attempt=? WHERE id=?",
-                                     (time.time(), worker_id, attempt, r['id']))
+                    delivered_status = 'unverified' if r['status'] == 'unverified' else 'delivered'
+                    await db.execute("UPDATE alfred_events SET status=?, delivered_at=?,worker_id=?,attempt=? WHERE id=?",
+                                     (delivered_status, time.time(), worker_id, attempt, r['id']))
                     task = dict(r)
                     task.update(worker_id=worker_id, attempt=attempt, reconcile_only=reconcile_only)
                     tasks.append(task)
