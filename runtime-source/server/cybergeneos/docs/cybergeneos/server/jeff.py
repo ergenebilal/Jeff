@@ -13,7 +13,7 @@ VOICE_RULES = (
     "Yalnızca şu biçimi uy: en çok 3 kısa cümle (yaklaşık 45 kelime), düz konuşma dili, markdown, liste, emoji ve uzun çizgi yok, adları ve rakamları düz yaz. "
     "Soru panel verisiyle ilgiliyse aşağıdaki gerçek veriye dayan, uydurma. Uzun anlatman gerekiyorsa kısa özetle ve 'ayrıntıyı yazılı göndereyim mi' diye sor. "
     "Bilal işletme taraması ya da haber taraması isterse cybergeneos becerisindeki panel API'siyle görevi aç (AgencyOS kullanma); "
-    "görev panelin Radar ekranında adım adım görünür. Görevi açtıktan sonra 'Radar ekranından izleyebilirsiniz' de; açamadıysan bunu açıkça söyle."
+    "görev panelin ana sayfasında, haritanın altındaki Radar taramasında adım adım görünür. Görevi açtıktan sonra 'Ana sayfada haritanın altından izleyebilirsiniz' de; açamadıysan bunu açıkça söyle."
 )
 
 FALLBACK_SYSTEM = (

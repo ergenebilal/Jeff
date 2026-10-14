@@ -91,7 +91,31 @@ main{padding:16px clamp(16px,2.4vw,28px) 28px}
 .view-head p{margin:6px 0 0;color:var(--soft);font-size:14.5px}
 
 /* ========== KOMUTA ========== */
-.komuta{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(min(360px,100%),1fr);gap:16px;height:calc(100dvh - var(--top) - 44px);min-height:600px}
+.komuta{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(min(360px,100%),1fr);gap:16px;align-items:start}
+.home-main{display:grid;gap:16px;min-width:0}
+.komuta .map-panel{height:clamp(440px,calc(100dvh - var(--top) - 44px - 150px),760px)}
+.komuta>.jeff{position:sticky;top:calc(var(--top) + 16px);height:calc(100dvh - var(--top) - 44px);min-height:560px}
+.scan-panel{display:grid;gap:14px;padding:20px 24px 18px}
+.sp-head{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.sp-head h2{font-size:20px;margin-top:2px}
+.sp-head .help{margin:0;max-width:440px}
+.sp-form{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) 92px;gap:10px 12px;align-items:end}
+.sp-form .field{margin:0}
+.sf-src{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;border:0}
+.sf-src legend{float:left;margin-right:6px;padding:9px 0;font-size:13px;color:var(--dim)}
+.chip{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:7px 13px;border-radius:999px;border:1px solid var(--line-2);background:var(--surface-2);font-size:13.5px;color:var(--soft);cursor:pointer}
+.chip input{position:absolute;opacity:0;pointer-events:none}
+.chip:has(input:checked){border-color:#a2bce780;background:#a2bce714;color:var(--text)}
+.chip:has(input:focus-visible){outline:2px solid #a2bce7;outline-offset:2px}
+.sf-tags{grid-column:1/3}
+.sf-tags .help{margin:4px 0 0}
+.sf-go{grid-column:3/5;align-self:start;padding-top:27px}
+.sf-go .btn{width:100%;justify-content:center;white-space:nowrap}
+.sp-history summary,.news-srcs summary{cursor:pointer;color:var(--soft);font-size:13.5px}
+.sp-history .jobs-done{margin-top:10px}
+.sp-foot{margin:0}
+.news-srcs{padding:14px 18px;margin-bottom:16px}
+.news-srcs .srcs{margin-top:10px}
 .map-panel{position:relative;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;background:radial-gradient(640px 360px at 70% 40%,rgba(98,83,148,.14),transparent 70%),var(--surface)}
 .map-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;padding:22px 24px 0}
 .map-head h1{font-size:clamp(22px,2vw,28px);line-height:1.2;max-width:560px}
@@ -457,8 +481,9 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
 .evidence a{display:inline-block;margin:0 12px 10px;font-size:13px;color:var(--blue)}
 @media (max-width:640px){.gate-facts div{grid-template-columns:minmax(0,1fr);gap:2px}}
 /* Komuta: the scan in focus */
-.scan-card{position:absolute;z-index:5;top:12px;left:12px;width:min(340px,calc(100% - 24px));max-height:calc(100% - 24px);display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:var(--r-md);border:1px solid var(--line-2);background:#0d1119eb;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 24px 50px -20px #000c;animation:rise .28s var(--ease)}
-.scan-card[hidden]{display:none}
+.sp-result{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:var(--r-md);border:1px solid var(--line-2);background:var(--surface-2);animation:rise .28s var(--ease)}
+.sp-result[hidden]{display:none}
+.sp-result .sc-list{max-height:420px}
 .sc-head{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:10px;align-items:start}
 .sc-head h2{font-size:16px;line-height:1.3;margin-top:2px}
 .sc-head .icon-btn{width:34px;height:34px}
@@ -466,7 +491,7 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
 .sc-radar.on{animation:sweep 1.4s linear infinite}
 .sc-note{margin:0;font-size:13.5px;color:var(--soft)}
 .sc-list{list-style:none;margin:0 -6px;padding:0;overflow-y:auto;min-height:0;display:grid;gap:2px;scrollbar-width:thin;scrollbar-color:#ffffff1f transparent}
-.sc-list button{width:100%;display:grid;grid-template-columns:24px minmax(0,1fr) 16px 16px;gap:8px;align-items:center;padding:6px 8px;border:0;border-radius:9px;background:none;text-align:left;font-size:13.5px;color:var(--soft)}
+.sc-list button{width:100%;display:grid;grid-template-columns:24px minmax(0,1fr) 16px 16px 16px;gap:8px;align-items:center;padding:6px 8px;border:0;border-radius:9px;background:none;text-align:left;font-size:13.5px;color:var(--soft)}
 .sc-list button:hover,.sc-list button[aria-current="true"]{background:#ffffff0b;color:var(--text)}
 .sc-list b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--lav);color:#171020;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
 .sc-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -536,7 +561,11 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
   .tab span.lbl{display:inline}
   .sys,.cmd{display:none}
   .komuta{grid-template-columns:minmax(0,1fr);height:auto}
-  .map-panel{height:62vh;min-height:440px}
+  .komuta>.jeff{position:static;height:auto;min-height:0}
+  .sp-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .sf-niche,.sf-tags,.sf-go{grid-column:1/-1}
+  .sf-go{padding-top:0}
+  .map-panel,.komuta .map-panel{height:62vh;min-height:440px}
   .jeff{height:78vh;min-height:520px}
   .split{grid-template-columns:minmax(0,1fr)}
   .detail{position:static;max-height:none}
@@ -559,7 +588,6 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
   .sheet{top:0;right:0;bottom:0;width:100%;border-radius:0}
   .search{min-width:0;flex:1}
   .sec{min-width:calc(50% - 4px);flex:1}
-  .scan-card{max-height:52%}
   .contact-box{grid-template-columns:minmax(0,1fr)}
   .nrank>li{grid-template-columns:28px minmax(0,1fr);padding:14px}
 }
@@ -755,13 +783,12 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
   <a class="brand" href="#komuta" aria-label="CybergeneOS ana ekran"><span class="brand-art"><img src="/logo-480.webp" alt="CyberGene"></span><span class="os">OS</span></a>
   <nav class="tabs" aria-label="Ekranlar">
     <button class="tab" data-go="komuta" aria-label="Komuta"><i class="ph ph-compass" aria-hidden="true"></i><span class="lbl">Komuta</span></button>
-    <button class="tab" data-go="radar" aria-label="Radar"><i class="ph ph-crosshair" aria-hidden="true"></i><span class="lbl">Radar</span><span class="n live" id="n-jobs" hidden></span></button>
     <button class="tab" data-go="firsatlar" aria-label="Fırsatlar"><i class="ph ph-lightbulb" aria-hidden="true"></i><span class="lbl">Fırsatlar</span><span class="n" id="n-opp"></span></button>
     <button class="tab" data-go="leadler" aria-label="Leadler"><i class="ph ph-users-three" aria-hidden="true"></i><span class="lbl">Leadler</span><span class="n" id="n-lead"></span></button>
     <button class="tab" data-go="haberler" aria-label="Haberler"><i class="ph ph-newspaper" aria-hidden="true"></i><span class="lbl">Haberler</span></button>
   </nav>
   <div class="top-right">
-    <button class="job-pill" id="job-pill" type="button" data-go="radar" hidden><i class="ph ph-crosshair" aria-hidden="true"></i><span></span></button>
+    <button class="job-pill" id="job-pill" type="button" data-scan-panel hidden><i class="ph ph-crosshair" aria-hidden="true"></i><span></span></button>
     <span class="proto" id="data-badge" title="Radarın son taramasına göre">Yükleniyor</span>
     <button class="cmd" id="open-cmd" type="button" aria-label="Jeff'e sor" title="Jeff'e sor (Ctrl K)"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><span>Jeff'e sor</span><kbd>Ctrl K</kbd></button>
     <button class="icon-btn approvals" id="open-appr" type="button" aria-label="Onaylar"><i class="ph ph-seal-check" aria-hidden="true"></i><span class="badge" id="n-appr"></span></button>
@@ -773,6 +800,7 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
 <main>
 <!-- KOMUTA -->
 <section class="view komuta" data-view="komuta" aria-labelledby="h-komuta">
+  <div class="home-main">
   <div class="panel map-panel">
     <div class="map-head">
       <div>
@@ -787,7 +815,6 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
       <svg id="map-nodes" role="group" aria-label="Türkiye haritasında şehirlere göre sinyaller"></svg>
       <div class="map-fallback" id="map-fallback" hidden></div>
       <p class="map-empty" id="map-empty" hidden></p>
-      <aside class="scan-card" id="scan-card" aria-label="Süren işletme taraması" hidden></aside>
     </div>
     <div class="map-foot">
       <button class="btn btn-glass btn-sm" type="button" id="unlocated"></button>
@@ -797,6 +824,32 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
       </div>
       <div class="legend" id="legend"></div>
     </div>
+  </div>
+
+  <section class="panel scan-panel" id="scan-panel" aria-labelledby="h-scan">
+    <div class="sp-head">
+      <div><p class="kicker">Lead bulma: harita ve Instagram birlikte</p><h2 id="h-scan">Radar taraması</h2></div>
+      <p class="help" id="sp-src"></p>
+    </div>
+    <form class="sp-form" id="scan-form" novalidate>
+      <div class="field sf-niche"><label for="sf-niche">Hangi işletmeler?</label><input id="sf-niche" name="niche" list="niches" required placeholder="Örn. güzellik salonu" autocomplete="off"></div>
+      <div class="field"><label for="sf-city">Şehir</label><input id="sf-city" name="city" list="cities" required placeholder="Örn. Bursa" autocomplete="off"></div>
+      <div class="field"><label for="sf-district">İlçe</label><input id="sf-district" name="district" list="districts" placeholder="Tüm şehir" autocomplete="off"></div>
+      <div class="field sf-limit"><label for="sf-limit">En çok</label><input id="sf-limit" name="limit" type="number" min="5" max="200" value="60"></div>
+      <fieldset class="sf-src"><legend>Kaynaklar</legend>
+        <label class="chip"><input type="checkbox" name="src" value="harita" checked><i class="ph ph-map-trifold" aria-hidden="true"></i>Harita</label>
+        <label class="chip"><input type="checkbox" name="src" value="ig_resmi" checked><i class="ph ph-instagram-logo" aria-hidden="true"></i>Instagram, resmî API</label>
+        <label class="chip"><input type="checkbox" name="src" value="ig_yerel" checked><i class="ph ph-desktop" aria-hidden="true"></i>Instagram, yerel araç</label>
+      </fieldset>
+      <div class="field sf-tags"><label for="sf-tags">Instagram etiketleri</label><input id="sf-tags" name="hashtags" placeholder="Boş bırakırsanız önerilir" autocomplete="off"><p class="help" id="sf-tags-help"></p></div>
+      <div class="sf-go"><button class="btn btn-primary" type="submit"><i class="ph ph-crosshair" aria-hidden="true"></i>Taramayı başlat</button></div>
+    </form>
+    <p class="err" id="sf-err" hidden></p>
+    <div class="sp-result" id="scan-card" aria-live="polite" hidden></div>
+    <div id="jobs-active"></div>
+    <details class="sp-history"><summary>Son taramalar</summary><ol class="jobs-done" id="jobs-done"></ol></details>
+    <p class="help sp-foot">Bulunan her işletme kapıdan geçer ve Leadler'de "Yeni bulunanlar" listesine düşer. Instagram'da yalnız resmî API'nin işletme hesabı olarak doğruladığı hesaplar lead olur; kişisel hesaplar saklanmaz. Kimseye mesaj gitmez. <button class="btn btn-text btn-sm" type="button" data-insta-key>Yerel aracı bağla</button></p>
+  </section>
   </div>
 
   <aside class="panel jeff" id="jeff" data-state="idle" aria-label="Jeff canlı">
@@ -824,48 +877,6 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
     </form>
     <p class="mic-hint" id="mic-hint" hidden></p>
   </aside>
-</section>
-
-<!-- RADAR -->
-<section class="view" data-view="radar" aria-labelledby="h-radar" hidden>
-  <div class="view-head">
-    <div>
-      <h1 id="h-radar">Radar</h1>
-      <p id="radar-sub">Sizin, Jeff'in ve zamanlayıcının başlattığı her tarama burada adım adım görünür.</p>
-    </div>
-    <div class="row">
-      <button class="btn btn-text" type="button" id="radar-settings"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Neyi arıyoruz</button>
-      <button class="btn btn-glass" type="button" id="run-radar"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>Haber ve fırsat taraması</button>
-      <button class="btn btn-glass" type="button" data-insta-scan><i class="ph ph-instagram-logo" aria-hidden="true"></i>Instagram taraması</button>
-      <button class="btn btn-primary" type="button" data-scan><i class="ph ph-storefront" aria-hidden="true"></i>İşletme taraması</button>
-    </div>
-  </div>
-  <div class="radar-grid">
-    <div class="panel scope-panel">
-      <div class="scope" id="scope" data-state="idle">
-        <svg class="scope-grid" viewBox="0 0 200 200" aria-hidden="true">
-          <circle cx="100" cy="100" r="96"/><circle cx="100" cy="100" r="72"/><circle cx="100" cy="100" r="48"/><circle cx="100" cy="100" r="24"/>
-          <line x1="100" y1="4" x2="100" y2="196"/><line x1="4" y1="100" x2="196" y2="100"/>
-          <circle class="ring-bg" cx="100" cy="100" r="98.5"/>
-          <circle class="ring" id="scope-ring" cx="100" cy="100" r="98.5" pathLength="100" stroke-dasharray="0 100"/>
-        </svg>
-        <div class="sweep" aria-hidden="true"></div>
-        <div class="blips" id="blips"></div>
-        <div class="scope-core"><b id="scope-pct"></b></div>
-      </div>
-      <div class="scope-read" aria-live="polite">
-        <p class="kicker" id="scope-kicker">Radar</p>
-        <h2 id="scope-title">Bekliyor</h2>
-        <p id="scope-note"></p>
-      </div>
-      <div class="legend scope-legend"><span style="--c:#53C6D0"><i aria-hidden="true"></i>Kaynak okundu</span><span style="--c:#6EDCB6"><i aria-hidden="true"></i>Fırsat</span><span style="--c:#C6A1F2"><i aria-hidden="true"></i>Yeni işletme</span><span style="--c:#F4A3A3"><i aria-hidden="true"></i>Okunamadı</span></div>
-    </div>
-    <div class="radar-side">
-      <section aria-labelledby="h-active"><h2 class="side-h" id="h-active">Şu an</h2><div id="jobs-active"></div></section>
-      <section aria-labelledby="h-recent"><h2 class="side-h" id="h-recent">Son taramalar</h2><ol class="jobs-done" id="jobs-done"></ol></section>
-      <section class="panel src-panel" aria-labelledby="h-srcs"><h2 class="side-h" id="h-srcs">Kaynaklar</h2><ul class="srcs" id="srcs"></ul></section>
-    </div>
-  </div>
 </section>
 
 <!-- FIRSATLAR -->
@@ -927,7 +938,12 @@ dialog.dlg::backdrop{background:#03050899;-webkit-backdrop-filter:blur(4px);back
       <h1 id="h-news">Günün özeti</h1>
       <p id="news-sub"></p>
     </div>
+    <div class="row">
+      <button class="btn btn-text" type="button" id="radar-settings"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Neyi arıyoruz</button>
+      <button class="btn btn-glass" type="button" id="run-radar"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>Haber ve fırsat taraması</button>
+    </div>
   </div>
+  <details class="panel src-panel news-srcs"><summary class="side-h">Haber kaynakları</summary><ul class="srcs" id="srcs"></ul></details>
   <div class="today">
     <article class="digest">
       <p class="kicker"><i class="ph ph-sparkle" aria-hidden="true"></i> Jeff'in özeti</p>

@@ -65,7 +65,7 @@ def _tags(s):
 def job_view(j, pins=False):
     found = []
     if pins and j["kind"] == "lead_scan":
-        found = [{"id": l["id"], "name": l["name"], "lat": l["lat"], "lon": l["lon"], "phone": bool(l["phone"]), "web": bool(l["website"]), "gate": l["gate"]}
+        found = [{"id": l["id"], "name": l["name"], "lat": l["lat"], "lon": l["lon"], "phone": bool(l["phone"]), "web": bool(l["website"]), "gate": l["gate"], "ig": bool(l["instagram"])}
                  for l in store.leads_by_ids((j["result"] or {}).get("ids") or [])]
     return {"found": found, "id": j["id"], "kind": j["kind"], "title": j["title"], "params": j["params"], "status": j["status"], "progress": j["progress"],
             "note": j["note"], "log": j["log"][-14:], "result": j["result"], "by": j["created_by"], "created_at": j["created_at"],

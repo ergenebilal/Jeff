@@ -68,7 +68,7 @@ async function refresh(){
 }
 
 /* ---------- router ---------- */
-const VIEWS = ['komuta', 'radar', 'firsatlar', 'leadler', 'haberler'];
+const VIEWS = ['komuta', 'firsatlar', 'leadler', 'haberler'];
 function go(v){
   if (!VIEWS.includes(v)) v = 'komuta';
   $$('.view').forEach(s => s.hidden = s.dataset.view !== v);
@@ -146,7 +146,7 @@ function renderLayers(){
   const act = activeJobs();
   $('#unlocated').innerHTML = act.length ? `<i class="ph ph-crosshair" aria-hidden="true"></i>${esc(act[0].title)}, %${act[0].progress} <i class="ph ph-arrow-right" aria-hidden="true"></i>`
     : `<i class="ph ph-storefront" aria-hidden="true"></i>Bir şehirde işletme tara <i class="ph ph-arrow-right" aria-hidden="true"></i>`;
-  $('#unlocated').onclick = () => act.length ? go('radar') : openScan();
+  $('#unlocated').onclick = () => openScan();
   const none = !Object.keys(by).length;
   $('#map-empty').hidden = !none;
   $('#map-empty').hidden = !none || scanCities().length > 0;
@@ -302,14 +302,16 @@ function renderFocus(){
   const list = card.querySelector('.sc-list'), y = list ? list.scrollTop : 0;
   card.hidden = false;
   card.innerHTML = `<div class="sc-head"><span class="sc-radar ${run ? 'on' : ''}" aria-hidden="true"></span>
-      <div><p class="kicker">${esc(STARTED[j.by] || STARTED.bilal)}${j.created_at ? ', ' + clock(j.created_at) : ''}</p><h2>${esc(j.title || 'İşletme taraması')}</h2></div>
-      <button class="icon-btn" type="button" data-focus-close aria-label="Taramayı haritadan kaldır"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+      <div><p class="kicker">${esc(STARTED[j.by] || STARTED.bilal)}${j.created_at ? ', ' + clock(j.created_at) : ''}</p><h2>${esc(j.title || 'Lead taraması')}</h2></div>
+      <button class="icon-btn" type="button" data-focus-close aria-label="Bu taramayı haritadan kaldır"><i class="ph ph-x" aria-hidden="true"></i></button></div>
     <div class="bar" role="progressbar" aria-label="İlerleme" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${j.status === 'done' ? 100 : j.progress}"><i style="width:${j.status === 'done' ? 100 : j.progress}%"></i></div>
     <p class="sc-note" aria-live="polite">${esc(run ? (j.note || 'Başlıyor') : jobLine(j))}</p>
     ${all.length ? `<ol class="sc-list">${all.map((p, i) => `<li class="${focusSeen.has(p.id) ? '' : 'new'}"><button type="button" data-pin="${esc(p.id)}" aria-current="${pinPick === p.id}" title="Haritada göster; ikinci tıklamada aç">
-        <b style="background:${GATE[p.gate]?.[2] || 'var(--lav)'}" title="${p.gate ? esc(GATE[p.gate][0]) : 'Kapı bekliyor'}">${i + 1}</b><span>${esc(p.name)}</span>${p.phone ? '<i class="ph ph-phone" aria-label="Telefon var"></i>' : '<i></i>'}${p.web ? '<i class="ph ph-globe" aria-label="Web sitesi var"></i>' : '<i></i>'}</button></li>`).join('')}</ol>`
-      : `<p class="help" style="margin:0">${run ? 'İşletmeler bulundukça burada ve haritada numaralanır.' : 'Bu taramada işletme bulunmadı.'}</p>`}
-    ${!run && all.length ? `<div class="row"><button class="btn btn-glass btn-sm" type="button" data-show-job="${j.id}">Leadlerde gör</button><span class="help" style="margin:0">Bir iğneye tıklayınca işletme açılır.</span></div>` : ''}`;
+        <b style="background:${GATE[p.gate]?.[2] || 'var(--lav)'}" title="${p.gate ? esc(GATE[p.gate][0]) : 'Kapı bekliyor'}">${i + 1}</b><span>${esc(p.name)}</span>${p.phone ? '<i class="ph ph-phone" aria-label="Telefon var"></i>' : '<i></i>'}${p.web ? '<i class="ph ph-globe" aria-label="Web sitesi var"></i>' : '<i></i>'}${p.ig ? '<i class="ph ph-instagram-logo" aria-label="Instagram hesabı var"></i>' : '<i></i>'}</button></li>`).join('')}</ol>`
+      : `<p class="help" style="margin:0">${run ? 'İşletmeler bulundukça burada ve haritada numaralanır.' : (j.result?.found ? 'Bu taramanın listesi Leadler ekranında.' : 'Bu taramada işletme bulunmadı.')}</p>`}
+    ${j.result?.ig_error ? `<p class="help" style="margin:0"><i class="ph ph-warning" aria-hidden="true"></i> Instagram resmî API: ${esc(j.result.ig_error)}</p>` : ''}
+    ${j.result?.ig_local_waiting && !j.result?.ig_local_checked ? '<p class="help" style="margin:0"><i class="ph ph-desktop" aria-hidden="true"></i> Yerel aracın Instagram yanıtı bekleniyor; gelince bu listeye eklenir.</p>' : ''}
+    ${!run && (all.length || j.result?.found) ? `<div class="row"><button class="btn btn-glass btn-sm" type="button" data-show-job="${j.id}">Leadlerde gör</button><span class="help" style="margin:0">Bir iğneye tıklayınca işletme açılır.</span></div>` : ''}`;
   const nl = card.querySelector('.sc-list'); if (nl) nl.scrollTop = y;
   drawFocusPins();
 }
@@ -334,8 +336,7 @@ function drawFocusPins(){
     focusCam.n = pts.length;
     if (pts.length === 1) { gmap.panTo({lat: +pts[0].lat, lng: +pts[0].lon}); gmap.setZoom(14); return; }
     const b = new google.maps.LatLngBounds(); pts.forEach(p => b.extend({lat: +p.lat, lng: +p.lon}));
-    const wide = $('#map-wrap').clientWidth > 720;
-    gmap.fitBounds(b, {top: 50, bottom: 40, right: 40, left: wide ? 370 : 30});
+    gmap.fitBounds(b, {top: 50, bottom: 40, right: 40, left: 40});
   }
 }
 function onScanEvent(ev){
@@ -367,7 +368,7 @@ function drawMap(){
   const fj = focusJob(), fpts = focusPts(fj), fc = fj && CITY[fj.params?.city];
   const area = fpts.length > 1 ? {type: 'MultiPoint', coordinates: fpts.map(p => [+p.lon, +p.lat])}
     : fc ? {type: 'MultiPoint', coordinates: [[fc[0] - .35, fc[1] - .25], [fc[0] + .35, fc[1] + .25]]} : null;
-  const proj = d3.geoMercator().fitExtent([[w * (area && w > 720 ? .32 : .05), h * .1], [w * .95, h * .92]], area || geo.tr);
+  const proj = d3.geoMercator().fitExtent([[w * .05, h * .1], [w * .95, h * .92]], area || geo.tr);
   const off = document.createElement('canvas'); off.width = w; off.height = h;
   const oc = off.getContext('2d', {willReadFrequently: true});
   const path = d3.geoPath(proj, oc);
@@ -861,7 +862,7 @@ micHint();
 const WHO = {bilal: 'Siz', jeff: 'Jeff', zamanlayici: 'Zamanlayıcı'};
 const STARTED = {bilal: 'Siz başlattınız', jeff: 'Jeff başlattı', zamanlayici: 'Zamanlayıcı başlattı'};
 const JOB_STATE = {queued: ['Sırada', '#A2BCE7'], running: ['Çalışıyor', '#53C6D0'], done: ['Bitti', '#6EDCB6'], failed: ['Olmadı', '#F4A3A3'], cancelled: ['Durduruldu', '#8D90A0']};
-const KIND = {radar: 'Haber ve fırsat taraması', lead_scan: 'İşletme taraması', insta_scan: 'Instagram taraması'};
+const KIND = {radar: 'Haber ve fırsat taraması', lead_scan: 'Lead taraması', insta_scan: 'Instagram (yerel araç)'};
 const FINDS = j => j.kind === 'lead_scan' || j.kind === 'insta_scan';
 const activeJobs = () => (D.jobs || []).filter(j => j.status === 'queued' || j.status === 'running');
 const clock = ts => new Date(ts * 1000).toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit'});
@@ -875,48 +876,16 @@ function blipColor(t){
   if (/: \d+ kayıt$/.test(t)) return '#53C6D0';
   return null;
 }
-function scopeJob(){
-  const jobs = D.jobs || [];
-  return jobs.find(j => j.id === state.radarJob) || activeJobs().find(j => j.status === 'running') || activeJobs()[0] || jobs[0] || null;
-}
 function jobLine(j){
   const r = j.result || {};
-  if (j.status === 'done' && j.kind === 'lead_scan') return `${r.found ?? 0} işletme bulundu, ${r.new ?? 0} yeni lead`;
+  if (j.status === 'done' && j.kind === 'lead_scan') return `${r.found ?? 0} işletme bulundu, ${r.new ?? 0} yeni lead` + (r.ig_new ? `, Instagram'dan ${r.ig_new}` : '') + (r.ig_local_new ? `, yerel araçtan ${r.ig_local_new}` : '');
   if (j.status === 'done' && j.kind === 'insta_scan') return `${r.candidates ?? 0} hesap denetlendi, ${r.new ?? 0} yeni lead` + (r.not_business ? `, ${r.not_business} işletme değil` : '');
   if (j.status === 'done' && j.kind === 'radar') return `${r.opps ?? 0} fırsat, ${r.news ?? 0} haber`;
   return j.note || JOB_STATE[j.status]?.[0] || '';
 }
-function blipsFor(j){
-  if (!j) return [];
-  /* a lead scan shows every business it found; a news scan shows each source it read and each opportunity it picked */
-  if (FINDS(j)) return D.leads.filter(l => l.job === j.id).slice(0, 60).map(l => ({k: j.id + l.id, t: l.name, c: '#C6A1F2'}));
-  return j.log.map(([, t]) => ({k: j.id + t, t, c: blipColor(t)})).filter(b => b.c);
-}
-function renderScope(){
-  const j = scopeJob(), running = !!j && (j.status === 'running' || j.status === 'queued');
-  $('#scope').dataset.state = running ? 'running' : 'idle';
-  $('#scope-ring').setAttribute('stroke-dasharray', `${j ? (j.status === 'done' ? 100 : j.progress) : 0} 100`);
-  $('#scope-pct').innerHTML = !j ? '' : running ? `%${j.progress}` : j.status === 'done' ? '<i class="ph ph-check" aria-hidden="true"></i>' : j.status === 'failed' ? '<i class="ph ph-warning" aria-hidden="true"></i>' : '';
-  const bl = blipsFor(j);
-  $('#blips').innerHTML = bl.map((b, i) => {
-    const a = (hash(b.t) % 360) * Math.PI / 180, r = 0.16 + 0.3 * ((i * 0.618 + (hash(b.k) % 97) / 97) % 1) + 0.0;
-    const x = 50 + Math.cos(a) * r * 100, y = 50 + Math.sin(a) * r * 100;
-    const fresh = !seenBlips.has(b.k); seenBlips.add(b.k);
-    return `<span class="blip ${fresh && running ? 'new' : ''}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--c:${b.c}" title="${esc(b.t)}"></span>`;
-  }).join('');
-  const r = j?.result || {};
-  let acts = '';
-  if (j && j.status === 'done' && FINDS(j) && r.new) acts = `<button class="btn btn-primary btn-sm" type="button" data-show-job="${j.id}">Bulunan ${r.new} işletmeyi gör</button>`;
-  if (j && j.status === 'done' && j.kind === 'radar') acts = `${r.opps ? `<button class="btn btn-primary btn-sm" type="button" data-go="firsatlar">${r.opps} fırsata bak</button>` : ''}<button class="btn btn-glass btn-sm" type="button" data-go="haberler">Haberlere git</button>`;
-  if (j && running) acts = `<button class="btn btn-text btn-sm" type="button" data-cancel="${j.id}">Durdur</button>`;
-  $('#scope-kicker').textContent = j ? `${KIND[j.kind]}, ${STARTED[j.by] || STARTED.bilal}, ${clock(j.created_at)}` : 'Radar';
-  $('#scope-title').textContent = j ? j.title : 'Henüz tarama yok';
-  $('#scope-note').innerHTML = (j ? esc(running ? (j.note || 'Başlıyor') : jobLine(j)) : 'Haber ve fırsat taraması kendiliğinden düzenli çalışır. İşletme taramasını siz başlatırsınız ya da Jeff\'e söylersiniz.')
-    + (acts ? `<span class="row" style="justify-content:center;margin-top:12px">${acts}</span>` : '');
-}
 function jobCard(j){
   const [label, color] = JOB_STATE[j.status] || ['', '#8D90A0'];
-  return `<article class="job" data-job="${j.id}" aria-current="${scopeJob()?.id === j.id}">
+  return `<article class="job" data-job="${j.id}" aria-current="${state.focusJob === j.id}">
     <span class="m"><span class="tag" style="color:${color};border-color:${color}55">${label}</span><span class="tag who-tag">${esc(STARTED[j.by] || STARTED.bilal)}</span><span>${clock(j.created_at)}</span></span>
     <h3>${esc(j.title)}</h3>
     <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${j.progress}" aria-label="İlerleme"><i style="width:${j.progress}%"></i></div>
@@ -927,17 +896,14 @@ function jobCard(j){
 }
 function renderJobs(){
   const act = activeJobs();
-  $('#jobs-active').innerHTML = act.length ? act.map(jobCard).join('')
-    : `<div class="panel empty" style="padding:22px">Şu an çalışan tarama yok.<br>Yukarıdan başlatın ya da Jeff'e söyleyin: <b style="font-weight:500;color:var(--text)">"Bursa'da diş kliniklerini tara"</b>.</div>`;
+  $('#jobs-active').innerHTML = act.filter(j => j.id !== state.focusJob).map(jobCard).join('');
   const done = (D.jobs || []).filter(j => !act.includes(j)).slice(0, 8);
-  $('#jobs-done').innerHTML = done.length ? done.map(j => `<li><button type="button" data-job="${j.id}" aria-current="${scopeJob()?.id === j.id}"><span class="st" style="--c:${JOB_STATE[j.status]?.[1] || '#8D90A0'}" aria-hidden="true"></span>
+  $('#jobs-done').innerHTML = done.length ? done.map(j => `<li><button type="button" data-job="${j.id}" aria-current="${state.focusJob === j.id}"><span class="st" style="--c:${JOB_STATE[j.status]?.[1] || '#8D90A0'}" aria-hidden="true"></span>
       <span>${esc(j.title)}<small>${esc(jobLine(j))}</small></span><small>${esc(WHO[j.by] || 'Siz')}, ${ago(j.finished_at || j.created_at)}</small></button></li>`).join('')
     : '<li class="help" style="margin:0">Biten tarama yok.</li>';
   const n = act.length;
-  $('#n-jobs').hidden = !n; $('#n-jobs').textContent = n;
   const pill = $('#job-pill'); pill.hidden = !n;
   if (n) pill.querySelector('span').textContent = n > 1 ? `${n} tarama sürüyor` : `${act[0].title.split(':')[0]}, %${act[0].progress}`;
-  renderScope();
   const key = scanCities().join('|');
   if (key !== pulseKey) { pulseKey = key; drawMap(); }
 }
@@ -948,7 +914,7 @@ function renderSources(){
       <ul>${g.items.map(i => `<li class="${i.state === 'down' ? 'down' : ''}">${esc(i.name)}: ${i.state === 'ok' ? i.count + ' kayıt' : i.state === 'slow' ? 'hız sınırı' : i.state === 'down' ? 'okunamadı' : 'bekliyor'}</li>`).join('')}</ul></details></li>`).join('')
     || '<li><span>Kaynak yok</span></li>';
 }
-function renderRadar(){ renderJobs(); renderSources(); }
+function renderRadar(){ renderJobs(); renderSources(); renderScanForm(); }
 async function pollJobs(){
   clearTimeout(jobsTimer);
   try {
@@ -982,20 +948,23 @@ function renderRadarLine(){
 $('#run-radar').addEventListener('click', async () => {
   try {
     const d = await api('radar/run', {});
-    if (d.job) { state.radarJob = d.job; toast('Tarama başladı. İlerlemeyi burada görebilirsiniz.'); }
+    if (d.job) { state.radarJob = d.job; toast('Haber ve fırsat taraması başladı. Bitince bu ekran yenilenir.'); }
     else toast('Bir haber taraması zaten sürüyor.');
-    go('radar'); await pollJobs();
+    await pollJobs();
   } catch (e) { toast(ERRORS[e.message] || 'Tarama başlatılamadı.'); }
 });
 document.addEventListener('click', async e => {
   const c = e.target.closest('[data-cancel]');
   if (c) { e.stopPropagation(); c.disabled = true; try { await api(`jobs/${c.dataset.cancel}/cancel`, {}); toast('Durdurma isteği gönderildi.'); } catch (err) { toast('Bu tarama artık durdurulamıyor.'); } return pollJobs(); }
   const j = e.target.closest('[data-job]');
-  if (j && !e.target.closest('button[data-cancel]')) { state.radarJob = j.dataset.job; renderJobs(); if (innerWidth < 1000) $('#scope').scrollIntoView({behavior: 'smooth'}); }
+  if (j && !e.target.closest('button[data-cancel]')) {
+    const job = (D.jobs || []).find(x => x.id === j.dataset.job);
+    if (job && FINDS(job)) { startFocus(job); $('#scan-card').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
+    renderJobs();
+  }
   const sj = e.target.closest('[data-show-job]');
   if (sj) { state.leadSec = 'havuz'; state.leadSecSet = true; state.leadJob = sj.dataset.showJob; go('leadler'); renderLeadFilters(); renderLeads(); }
   if (e.target.closest('[data-scan]')) openScan();
-  if (e.target.closest('[data-insta-scan]')) openInstaScan();
 });
 
 /* ---------- Fırsatlar: only what Bilal can act on this week, ranked by Jeff ---------- */
@@ -1155,62 +1124,82 @@ $('#radar-settings').addEventListener('click', async () => {
       catch (e) { toast('Kaydedilemedi.'); return false; }
     }, '<p class="help" style="margin:-4px 0 6px">X\'teki önemli gelişmeler AINews özeti üzerinden gelir. X ya da LinkedIn\'de kendiniz gördüğünüz bir şeyi Fırsatlar ekranından ekleyebilirsiniz.</p>');
 });
-function openScan(pre = {}){
+/* ---------- Radar taraması: one lead scan under the map, every tool in one go ----------
+   The map (Google or OpenStreetMap) and Instagram (official API; the local tool on Bilal's computer answers a few
+   minutes later and its finds join the same list). The list under the button and the pins on the map carry the
+   same numbers. */
+const FOLD = {'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u', 'â': 'a', 'î': 'i', 'û': 'u', 'Ç': 'c', 'Ğ': 'g', 'İ': 'i', 'Ö': 'o', 'Ş': 's', 'Ü': 'u'};
+const slug = s => String(s || '').replace(/[çğıöşüâîûÇĞİÖŞÜ]/g, c => FOLD[c]).toLowerCase().replace(/[^a-z0-9]/g, '');
+/* the same rule as instagram_scan.suggest_tags on the server: city+niche, district+niche, city+first word */
+function suggestTags(niche, city, district){
+  const ns = slug(niche), w = String(niche || '').trim().split(/\s+/).filter(Boolean);
+  return [...new Set([city && slug(city) + ns, district && slug(district) + ns, city && w.length > 1 && slug(city) + slug(w[0])]
+    .filter(t => t && t !== ns && /^[a-z0-9]\w{0,59}$/.test(t)))].slice(0, 5);
+}
+function showScanPanel(){ go('komuta'); requestAnimationFrame(() => $('#scan-panel').scrollIntoView({behavior: 'smooth', block: 'start'})); }
+function scanSources(){ return [...$$('#scan-form [name=src]:checked')].map(x => x.value); }
+function renderScanForm(){
   const u = D.places_usage || {};
-  const src = D.places === 'google' ? `Kaynak: Google Haritalar, telefon ve web sitesi de gelir. Bu ay ${u.n} / ${u.cap} ücretsiz arama kullanıldı; sınıra gelince ücret çıkmaması için OpenStreetMap'e geçilir.`
-    : u.key ? 'Kaynak: OpenStreetMap. Google Haritalar\'ın bu ayki ücretsiz arama sınırı doldu; ay başında kendiliğinden geri döner.'
-    : 'Kaynak: OpenStreetMap (ücretsiz). Türkiye\'de kapsamı dar, telefon bilgisi az gelir.';
-  form('İşletme taraması',
-    [{name: 'niche', label: 'Hangi işletmeler?', required: true, list: 'niches', value: pre.niche, ph: 'Örn. diş kliniği, kuaför, oto servis'},
-     {name: 'city', label: 'Şehir', type: 'city', required: true, value: pre.city, ph: 'Örn. Bursa'},
-     {name: 'district', label: 'İlçe (isteğe bağlı)', list: 'districts', value: pre.district, ph: 'Boş bırakırsanız tüm şehir taranır'},
-     {name: 'limit', label: 'En çok kaç işletme?', type: 'number', min: 5, max: 200, value: pre.limit || 60}],
-    'Taramayı başlat', async d => {
-      try {
-        const r = await api('jobs', {kind: 'lead_scan', ...d});
-        state.radarJob = r.job; knownJobs?.add(r.job); go('komuta');
-        startFocus({id: r.job, kind: 'lead_scan', by: 'bilal', status: 'queued', progress: 0, note: 'Tarama başladı', title: `${d.niche} taraması: ${d.district ? d.district + ', ' : ''}${d.city}`,
-          params: {city: (Object.keys(CITY).find(c => c.toLocaleLowerCase('tr') === d.city.trim().toLocaleLowerCase('tr')) || d.city), district: d.district}, found: [], log: [], created_at: Math.floor(Date.now() / 1000)});
-        await pollJobs();
-        return true;
-      } catch (e) {
-        toast({sehir_ve_sektor: 'Şehri listeden seçin ve işletme türünü yazın.', zaten_calisiyor: 'Aynı tarama zaten sürüyor.'}[e.message] || 'Tarama başlatılamadı.');
-        return false;
-      }
-    }, `<p class="help" style="margin:-4px 0 6px">${src} Bulunan işletmeler Leadler'de "Yeni bulunanlar" listesine düşer; kimseye mesaj gitmez. <button class="btn btn-text btn-sm" type="button" data-insta-scan>Instagram'dan tara</button></p>`);
-  const fill = () => { const c = $('#f-city')?.value.trim(); $('#districts').innerHTML = Object.entries(D.districts || {}).filter(([, p]) => p.toLocaleLowerCase('tr') === (c || '').toLocaleLowerCase('tr')).map(([d]) => `<option value="${esc(d)}">`).join(''); };
-  $('#f-city')?.addEventListener('input', fill); fill();
+  $('#sp-src').textContent = D.places === 'google' ? `Harita: Google Haritalar (bu ay ${u.n} / ${u.cap} ücretsiz arama; sınıra gelince OpenStreetMap).`
+    : u.key ? 'Harita: OpenStreetMap. Google\'ın bu ayki ücretsiz sınırı doldu, ay başında geri döner.'
+    : 'Harita: OpenStreetMap (ücretsiz, Türkiye\'de telefon bilgisi az).';
+  const ig = scanSources().some(s => s.startsWith('ig_'));
+  $('#scan-form .sf-tags').hidden = !ig;
+  const f = $('#scan-form'), tags = suggestTags(f.niche.value, f.city.value.trim(), f.district.value.trim());
+  $('#sf-tags-help').textContent = f.hashtags.value.trim() ? 'Yazdığınız etiketler kullanılır (en çok 5).'
+    : tags.length ? 'Önerilen: ' + tags.map(t => '#' + t).join(' ') : 'İşletme türü ve şehri yazınca etiket önerilir.';
+  $('#districts').innerHTML = Object.entries(D.districts || {}).filter(([, p]) => p.toLocaleLowerCase('tr') === f.city.value.trim().toLocaleLowerCase('tr'))
+    .map(([d]) => `<option value="${esc(d)}">`).join('');
 }
-
-function openInstaScan(pre = {}){
-  form('Instagram taraması',
-    [{name: 'hashtags', label: 'Hangi etiketler?', required: true, value: pre.hashtags, ph: 'Örn. bursaguzelliksalonu, nilufersalon', help: 'En çok 5 etiket. # yazmanıza gerek yok.'},
-     {name: 'niche', label: 'Hangi işletmeler?', required: true, list: 'niches', value: pre.niche, ph: 'Örn. güzellik salonu'},
-     {name: 'city', label: 'Şehir', type: 'city', value: pre.city, ph: 'Örn. Bursa (etiket şehri belli etmiyorsa boş bırakın)'},
-     {name: 'source', label: 'Nasıl taransın?', type: 'select', value: pre.source || 'hibrit',
-      options: [['hibrit', 'Resmî API + yerel araç (hibrit)'], ['resmi', 'Yalnız resmî Meta API'], ['yerel', 'Yalnız yerel araç']]},
-     {name: 'limit', label: 'En çok kaç hesap denetlensin?', type: 'number', min: 5, max: 60, value: pre.limit || 30}],
-    'Taramayı başlat', async d => {
-      try {
-        const r = await api('jobs', {kind: 'insta_scan', hashtags: d.hashtags, niche: d.niche, city: d.city, limit: d.limit,
-          official: d.source !== 'yerel', local: d.source !== 'resmi'});
-        state.radarJob = r.job; knownJobs?.add(r.job); go('komuta');
-        await pollJobs();
-        if (d.source !== 'resmi') toast('Yerel araç isteği sıraya alındı; bilgisayarınızdaki araç en geç 10 dakikada alır.');
-        return true;
-      } catch (e) {
-        toast({sehir_ve_sektor: 'İşletme türünü yazın.', etiket: 'En az bir geçerli etiket yazın.', zaten_calisiyor: 'Aynı tarama zaten sürüyor.'}[e.message] || 'Tarama başlatılamadı.');
-        return false;
-      }
-    }, `<p class="help" style="margin:-4px 0 6px">Resmî API etiketteki gönderilerde anılan hesapları, yerel araç (bilgisayarınızdaki test hesabı) gönderi sahiplerini bulur. Her hesap resmî Meta API ile denetlenir; yalnız işletme hesapları lead olur, kişisel hesaplar saklanmaz. Kimseye mesaj gitmez, takip ya da beğeni yapılmaz. <button class="btn btn-text btn-sm" type="button" data-insta-key>Yerel aracı bağla</button></p>`);
-  $('#dlg [data-insta-key]')?.addEventListener('click', async () => {
-    try {
-      const b = await api('insta/bridge');
-      await navigator.clipboard?.writeText(b.token).catch(() => {});
-      toast(`Köprü anahtarı panoya kopyalandı. Bilgisayarınızda: scripts\cgos_sync.py --setup. Bekleyen istek: ${b.waiting.length}.`);
-    } catch (e) { toast('Anahtar alınamadı.'); }
-  });
+function openScan(pre = {}){
+  let last = {};
+  try { last = JSON.parse(localStorage.getItem('cgos-scan') || '{}'); } catch (e) {}
+  const v = {...last, ...pre}, f = $('#scan-form');
+  for (const k of ['niche', 'city', 'district', 'limit', 'hashtags']) if (v[k] != null && v[k] !== '') f[k].value = v[k];
+  if (Array.isArray(v.sources)) $$('#scan-form [name=src]').forEach(x => x.checked = v.sources.includes(x.value));
+  renderScanForm(); showScanPanel();
+  setTimeout(() => f.niche.focus({preventScroll: true}), 350);
 }
+const openInstaScan = openScan;
+(() => {  // the form opens with the last scan's values
+  let last = {};
+  try { last = JSON.parse(localStorage.getItem('cgos-scan') || '{}'); } catch (e) {}
+  const f = $('#scan-form');
+  for (const k of ['niche', 'city', 'district', 'limit']) if (last[k]) f[k].value = last[k];
+  if (Array.isArray(last.sources)) $$('#scan-form [name=src]').forEach(x => x.checked = last.sources.includes(x.value));
+})();
+$('#scan-form').addEventListener('input', renderScanForm);
+$('#scan-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, sources = scanSources(), err = m => { $('#sf-err').textContent = m; $('#sf-err').hidden = !m; };
+  const body = {kind: 'lead_scan', niche: f.niche.value.trim(), city: f.city.value.trim(), district: f.district.value.trim(),
+    limit: +f.limit.value || 60, sources, hashtags: f.hashtags.value.trim()};
+  if (!body.niche || !body.city) return err('İşletme türünü ve şehri yazın.');
+  if (!sources.length) return err('En az bir kaynak seçin.');
+  err('');
+  try { localStorage.setItem('cgos-scan', JSON.stringify({niche: body.niche, city: body.city, district: body.district, limit: body.limit, sources})); } catch (x) {}
+  const btn = f.querySelector('[type=submit]'); btn.disabled = true;
+  try {
+    const r = await api('jobs', body);
+    knownJobs?.add(r.job);
+    const city = Object.keys(CITY).find(c => c.toLocaleLowerCase('tr') === body.city.toLocaleLowerCase('tr')) || body.city;
+    startFocus({id: r.job, kind: 'lead_scan', by: 'bilal', status: 'queued', progress: 0, note: 'Tarama başladı', title: `${body.niche} taraması: ${body.district ? body.district + ', ' : ''}${city}`,
+      params: {city, district: body.district, sources}, found: [], log: [], created_at: Math.floor(Date.now() / 1000)});
+    $('#scan-card').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    await pollJobs();
+  } catch (x) {
+    err({sehir_ve_sektor: 'Şehri listeden seçin ve işletme türünü yazın.', zaten_calisiyor: 'Aynı tarama zaten sürüyor.', kaynak: 'En az bir kaynak seçin.'}[x.message] || 'Tarama başlatılamadı.');
+  } finally { btn.disabled = false; }
+});
+document.addEventListener('click', async e => {
+  if (e.target.closest('[data-scan-panel]')) showScanPanel();
+  if (!e.target.closest('[data-insta-key]')) return;
+  try {
+    const b = await api('insta/bridge');
+    await navigator.clipboard?.writeText(b.token).catch(() => {});
+    toast(`Köprü anahtarı panoya kopyalandı. Bilgisayarınızda: scripts\\cgos_sync.py --setup. Yerel araçta bekleyen istek: ${b.waiting.length}.`);
+  } catch (x) { toast('Anahtar alınamadı.'); }
+});
 
 const stageIdx = s => D.stages.indexOf(s);
 /* ---------- Leadler: one queue, one next step per business ---------- */
@@ -1351,7 +1340,7 @@ function renderLeads(){
     const parts = [];
     if (toAnalyze.length) parts.push(`<div class="lbanner"><p><b>${toAnalyze.length} işletme</b> analiz bekliyor. Jeff sırayla araştırır, her biri birkaç dakika sürer. Mesaj gitmez.</p><button class="btn btn-primary btn-sm" type="button" data-batch="analysis" data-ids="${toAnalyze.slice(0, 50).join(',')}">Hepsini analiz et</button></div>`);
     if (toGate) parts.push(`<div class="lbanner"><p><b>${toGate} işletme</b> kapıdan geçmedi.</p><button class="btn btn-glass btn-sm" type="button" data-batch="gate">Kapıdan geçir</button></div>`);
-    if (busy) parts.push(`<p class="lnote"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Jeff şu an ${busy} işletmeyi araştırıyor. İlerleme Radar ekranında.</p>`);
+    if (busy) parts.push(`<p class="lnote"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Jeff şu an ${busy} işletmeyi araştırıyor. İlerleme ana sayfada, haritanın altında.</p>`);
     top += parts.join('');
   }
   if (!rows.length) {
@@ -1385,10 +1374,10 @@ $('#lead-view').addEventListener('click', async e => {
     }
     if (bt.dataset.batch === 'analysis') {
       const ids = (bt.dataset.ids || '').split(',').filter(Boolean);
-      try { const r = await api('jobs', {kind: 'analysis', ids}); state.radarJob = r.job; toast(`Jeff ${ids.length} işletmeyi sırayla analiz edecek. İlerleme Radar ekranında.`); pollJobs(); }
+      try { const r = await api('jobs', {kind: 'analysis', ids}); state.radarJob = r.job; toast(`Jeff ${ids.length} işletmeyi sırayla analiz edecek. İlerleme ana sayfada, haritanın altında.`); pollJobs(); }
       catch (err) { bt.disabled = false; toast(err.message === 'zaten_calisiyor' ? 'Bu analiz zaten sürüyor.' : 'Analiz başlatılamadı.'); }
     } else {
-      try { const r = await api('jobs', {kind: 'gate', ...(bt.dataset.ids ? {ids: bt.dataset.ids.split(',').filter(Boolean)} : {})}); state.radarJob = r.job; toast('Kapı çalışıyor. İlerleme Radar ekranında.'); pollJobs(); }
+      try { const r = await api('jobs', {kind: 'gate', ...(bt.dataset.ids ? {ids: bt.dataset.ids.split(',').filter(Boolean)} : {})}); state.radarJob = r.job; toast('Kapı çalışıyor. İlerleme ana sayfada, haritanın altında.'); pollJobs(); }
       catch (err) { bt.disabled = false; toast({zaten_calisiyor: 'Kapı zaten çalışıyor.', bekleyen_yok: 'Kapıdan geçmeyi bekleyen işletme yok.'}[err.message] || 'Kapı başlatılamadı.'); }
     }
     return;
@@ -1878,9 +1867,9 @@ $('#open-appr').addEventListener('click', openApprovals);
 let palIdx = 0;
 function cmds(){
   return [
-    {t: 'Komuta ekranı', i: 'ph-compass', f: () => go('komuta')}, {t: 'Radar', i: 'ph-crosshair', f: () => go('radar')}, {t: 'Fırsatlar', i: 'ph-lightbulb', f: () => go('firsatlar')},
+    {t: 'Komuta ekranı', i: 'ph-compass', f: () => go('komuta')}, {t: 'Radar taraması', i: 'ph-crosshair', f: showScanPanel}, {t: 'Fırsatlar', i: 'ph-lightbulb', f: () => go('firsatlar')},
     {t: 'Leadler', i: 'ph-users-three', f: () => go('leadler')}, {t: 'Haberler (günün özeti)', i: 'ph-newspaper', f: () => go('haberler')},
-    {t: 'Onaylar', i: 'ph-seal-check', f: openApprovals}, {t: 'İşletme taraması', i: 'ph-storefront', f: () => openScan()}, {t: 'Instagram taraması', i: 'ph-instagram-logo', f: () => openInstaScan()},
+    {t: 'Onaylar', i: 'ph-seal-check', f: openApprovals}, 
     {t: 'Haber ve fırsat taraması', i: 'ph-arrow-clockwise', f: () => $('#run-radar').click()},
     ...D.leads.map(l => ({t: 'Lead: ' + l.name, i: 'ph-user', f: () => { go('leadler'); openLead(l.id); }}))
   ];

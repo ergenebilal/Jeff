@@ -285,7 +285,7 @@ def jeff_context(store):
     sec += f"\nGörüşme adayı hedefi: {len(shortlist['ids'])}/10. İhtiyaç ve satın alma niyeti görüşmede doğrulanmalı."
     sec += "\nAday firma kimlikleri: " + ", ".join(shortlist['ids'])
     d = store.get_meta("digest") or {}
-    return (f"Radar son çalışma: {store.get_meta('last_summary', 'henüz çalışmadı')}\n\nSon görevler (Radar ekranında görünür):\n{j_txt}\n\n"
+    return (f"Radar son çalışma: {store.get_meta('last_summary', 'henüz çalışmadı')}\n\nSon görevler (ana sayfada haritanın altında görünür):\n{j_txt}\n\n"
             f"Fırsatlar (yıldız = önem):\n{o_txt}\n\nLead listeleri: {sec}\nÜzerinde çalışılan leadler:\n{l_txt}\n\n"
             f"Yapay zekâ haberleri:\n{n_txt}\n\nOnay bekleyenler:\n{a_txt}\n\nGünün özeti: {d.get('digest', '')}")[:4200]
 
