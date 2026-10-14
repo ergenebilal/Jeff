@@ -299,7 +299,8 @@ function endFocus(){
 function stageTag(p){
   const l = D.leads.find(x => x.id === p.id);
   if (!l) return '';
-  const q = l.qualification, t = qualifying(l) ? ['Araştırılıyor', 'you'] : q?.current && q.decision === 'gorusme_adayi' ? ['Görüşme adayı', 'strong']
+  const q = l.qualification, rs = researchState(l)?.state;
+  const t = rs === 'calling' ? ['Araştırılıyor', 'you'] : rs === 'waiting' ? ['Sırada', 'mid'] : rs === 'failed' ? ['Sonuç alınamadı', 'weak'] : q?.current && q.decision === 'gorusme_adayi' ? ['Görüşme adayı', 'strong']
     : q?.current ? ['Araştırıldı', 'mid'] : !l.gate ? ['Kapı bekliyor', 'mid'] : l.gate === 'elendi' ? ['Elendi', 'weak'] : null;
   return t ? ` <small class="tag ${t[1]}">${t[0]}</small>` : '';
 }
@@ -339,7 +340,7 @@ function renderFocus(){
     ${j.result?.ig_error ? `<p class="help" style="margin:0"><i class="ph ph-warning" aria-hidden="true"></i> Instagram resmî API: ${esc(j.result.ig_error)}</p>` : ''}
     ${localLine(j)}
     ${researchLine(j)}
-    ${!run && (all.length || j.result?.found) ? `<div class="row"><button class="btn btn-glass btn-sm" type="button" data-show-job="${j.id}">Leadlerde gör</button><span class="help" style="margin:0">Bir iğneye tıklayınca işletme açılır.</span></div>` : ''}`;
+    ${!run && (all.length || j.result?.found) ? `<div class="row"><button class="btn btn-glass btn-sm" type="button" data-show-job="${j.id}">Bu taramanın görüşme adayları</button><span class="help" style="margin:0">Listedeki ya da haritadaki bir işletmeye tıklayınca kartı açılır.</span></div>` : ''}`;
   const nl = card.querySelector('.sc-list'); if (nl) nl.scrollTop = y;
   drawFocusPins();
 }
@@ -478,7 +479,7 @@ function openCity(city, x, y, w, h){
   $('#map-wrap').append(card);
   card.querySelector('h3 button').onclick = () => { card.remove(); activeCity = null; drawMap(); };
   card.querySelectorAll('[data-i]').forEach(b => b.onclick = () => items[+b.dataset.i].go());
-  card.querySelector('[data-city-all]')?.addEventListener('click', () => { state.city = city; state.leadSec = 'havuz'; state.leadSecSet = true; go('leadler'); renderLeadFilters(); renderLeads(); });
+  card.querySelector('[data-city-all]')?.addEventListener('click', () => { state.city = city; state.leadSec = 'gorusme'; state.leadSecSet = true; go('leadler'); renderLeadFilters(); renderLeads(); });
   drawMap();
   card.querySelector('[data-i]')?.focus();
 }
@@ -1135,7 +1136,7 @@ $('#add-lead').addEventListener('click', () => form('Lead ekle',
   'Lead ekle', async d => {
     try {
       const r = await api('lead', d); await refresh(); toast('Lead eklendi.');
-      state.leadSec = 'havuz'; state.leadSecSet = true; go('leadler'); openLead(r.lead);
+      state.leadSec = 'gorusme'; state.leadSecSet = true; go('leadler'); openLead(r.lead);
       api(`lead/${r.lead}/research`, {}).then(refresh).catch(() => {});
       return true;
     } catch (e) { toast(ERRORS[e.message] || 'Eklenemedi.'); return false; }
@@ -1240,18 +1241,26 @@ const GATE = {'geçti': ['Kapıdan geçti', 'strong', '#6EDCB6'], 'şüpheli': [
 const leadKind = l => l.category || l.sector || '';
 const passed = l => l.gate === 'geçti' || !!l.gate_override;
 const analysing = l => (D.jobs || []).some(j => ['analysis', 'marketing'].includes(j.kind) && (j.status === 'running' || j.status === 'queued') && (j.params?.ids || []).includes(l.id));
-const qualifying = l => (D.jobs || []).some(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status) && (j.params?.ids || []).includes(l.id) && !(l.qualification?.current && l.qualification.job_id === j.id));
-const LISTS = [['gorusme', 'Görüşme adayları', 'Hedef: hizmetimize ihtiyaç duyabilecek, gerekçesi kaynaklarla desteklenen en fazla 10 firma.'],
-  ['kapibekleyen', 'Kapı bekleyen', 'Kalite kapısı sonucu olmayan kayıtlar. Kapı puanlar; hiçbir kaydı silmez.'],
-  ['sira', 'Sırada', 'Sizin bir adım atmanızı bekleyenler.'],
-  ['havuz', 'Havuz', 'Kapıdan ve analizden geçmeyi bekleyenler. Bu işleri Jeff yapar, siz yalnızca başlatırsınız.'],
-  ['bekle', 'Yanıt bekleniyor', 'Mesaj gitti. Takip günü gelince Sırada listesine döner.'],
-  ['arsiv', 'Arşiv', 'Kapananlar, kapıda elenenler ve keskin bulgu çıkmadığı için yazılmayanlar.']];
+/* where this business stands in a running deep research: waiting, being researched now, done or failed */
+const researchState = l => {
+  const j = (D.jobs || []).find(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status) && (j.params?.ids || []).includes(l.id));
+  if (!j) return null;
+  return j.result?.states?.[l.id] || {state: 'waiting', text: j.status === 'queued' ? 'Sırada' : 'Sırada'};
+};
+const qualifying = l => ['waiting', 'calling'].includes(researchState(l)?.state) && !(l.qualification?.current && (D.jobs || []).some(j => j.id === l.qualification.job_id && ['running', 'queued'].includes(j.status)));
+/* Leadler shows only what is worth a conversation (14.10.2026, Bilal): the radar scan finds, the gate and Jeff's deep
+   research filter; raw lists stay out of this screen. Every business is still reachable from the scan list on the home page. */
+const LISTS = [['gorusme', 'Görüşme adayları', 'Radar taramasında bulunan işletmelerden, Jeff’in derin araştırmasında görüşmeye değer bulduğu ve kaynakla desteklenen en fazla 10 firma.'],
+  ['temas', 'Temasta', 'Görüşme adaylarından mesaj gönderilen, yanıt gelen, görüşmesi ayarlanan ve sonuçlananlar.']];
+const CONTACTED = ['Gönderildi', 'Yanıt geldi', 'Görüşme', 'Kazanıldı'];
 
 /* The single next step for a lead: the server works it out (briefing.next_step, the same one Jeff and the morning
    message use); the screen only adds what changes between refreshes: a running analysis and the follow-up date. */
 function nextStep(l){
-  if (qualifying(l)) return {list: 'havuz', rank: 0, text: 'Jeff görüşme gerekçesini sınayıp karşı kanıt arıyor', busy: true};
+  const rs = researchState(l);
+  if (rs?.state === 'calling') return {list: 'havuz', rank: 0, text: 'Jeff şu an bu işletmeyi araştırıyor (5–15 dk)', busy: true};
+  if (rs?.state === 'waiting') return {list: 'havuz', rank: 0, text: 'Derin araştırma sırasında; Jeff öncekileri bitirince başlar', busy: true};
+  if (rs?.state === 'failed') return {list: 'havuz', rank: 1, text: rs.text, tone: 'you'};
   if (analysing(l) && !['Gönderildi', 'Yanıt geldi', 'Görüşme', 'Kazanıldı', 'Kapandı'].includes(l.stage) && !l.optout) return {list: 'havuz', rank: 0, text: 'Jeff araştırıyor ve taslak hazırlıyor', busy: true};
   const s = l.step;
   if (s) {
@@ -1349,12 +1358,14 @@ function renderLeads(){
   const all = D.leads.map(l => [l, nextStep(l)]);
   const pool = leadPool().map(l => [l, nextStep(l)]);
   const board = D.meeting_candidates || {ids: [], target: 10, reviewed: 0};
-  const of = (rows, k) => k === 'kapibekleyen' ? rows.filter(([l]) => !l.gate) : k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id)).map(([l]) => [l, {list: 'sira', rank: 0, text: 'Görüşme gerekçesini değerlendirin', act: ['open', 'Gerekçeyi incele']}]) : rows.filter(([, s]) => s.list === k);
+  const of = (rows, k) => k === 'temas' ? rows.filter(([l]) => CONTACTED.includes(l.stage) || (l.stage === 'Kapandı' && (l.events || []).some(([, t]) => /yazıldı|gönderildi/i.test(t))))
+    : k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id) && !CONTACTED.includes(l.stage) && l.stage !== 'Kapandı').map(([l]) => [l, {list: 'sira', rank: 0, text: 'Görüşme gerekçesini değerlendirin', act: ['open', 'Gerekçeyi incele']}]) : rows.filter(([, s]) => s.list === k);
   const mine = of(all, 'sira').length;
-  if (state.leadSec === 'auto') state.leadSec = LISTS.map(([k]) => [k, of(pool, k).length]).sort((a, b) => b[1] - a[1])[0]?.[0] || 'sira';  // open where the scan's businesses are
+  if (state.leadSec === 'auto') state.leadSec = 'gorusme';  // open where the scan's businesses are
   if (!state.leadSecSet) state.leadSec = 'gorusme';
-  if (!LISTS.some(([k]) => k === state.leadSec)) state.leadSec = 'sira';
-  $('#lead-sub').textContent = !D.leads.length ? 'Henüz işletme yok.' : mine ? `${mine} işletme sizden bir adım bekliyor.` : 'Şu an sizden bekleyen bir adım yok.';
+  if (!LISTS.some(([k]) => k === state.leadSec)) state.leadSec = 'gorusme';
+  const cands = of(all, 'gorusme').length;
+  $('#lead-sub').textContent = cands ? `${cands} görüşme adayı kartından taslak ve gönderim bekliyor.` : 'Henüz görüşmeye değer aday yok. Radar taraması ve Jeff’in derin araştırması adayları buraya getirir.';
   $('#lead-sections').innerHTML = LISTS.map(([k, label]) => `<button type="button" role="tab" data-sec="${k}" aria-selected="${state.leadSec === k}">${label}<span class="n">${of(pool, k).length}</span></button>`).join('');
   $('#lead-chips').innerHTML = (state.city !== 'all' ? `<button class="chip" type="button" data-clear="city">${esc(state.city)} <i class="ph ph-x" aria-label="Kaldır"></i></button>` : '')
     + (state.leadJob ? `<button class="chip" type="button" data-clear="job">Son tarama: ${pool.length} işletme <i class="ph ph-x" aria-label="Kaldır"></i></button>` : '');
@@ -1375,14 +1386,18 @@ function renderLeads(){
     const toAnalyze = all.filter(([, s]) => s.act?.[0] === 'analyze').map(([l]) => l.id);
     const toGate = all.filter(([, s]) => s.act?.[0] === 'gate-rerun').length;
     const busy = all.filter(([, s]) => s.busy).length;
+    const qj = (D.jobs || []).find(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status));
+    const qs = Object.values(qj?.result?.states || {}), count = k => qs.filter(x => x.state === k).length;
     const parts = [];
     if (toAnalyze.length) parts.push(`<div class="lbanner"><p><b>${toAnalyze.length} işletme</b> analiz bekliyor. Jeff sırayla araştırır, her biri birkaç dakika sürer. Mesaj gitmez.</p><button class="btn btn-primary btn-sm" type="button" data-batch="analysis" data-ids="${toAnalyze.slice(0, 50).join(',')}">Hepsini analiz et</button></div>`);
     if (toGate) parts.push(`<div class="lbanner"><p><b>${toGate} işletme</b> kapıdan geçmedi.</p><button class="btn btn-glass btn-sm" type="button" data-batch="gate">Kapıdan geçir</button></div>`);
-    if (busy) parts.push(`<p class="lnote"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Jeff şu an ${busy} işletmeyi araştırıyor. İlerleme ana sayfada, haritanın altında.</p>`);
+    if (busy) parts.push(`<p class="lnote"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> ${qs.length
+      ? `Derin araştırma: ${qs.length} işletme sırayla — ${count('done')} bitti, ${count('calling')} şu an araştırılıyor, ${count('waiting')} sırada${count('failed') ? `, ${count('failed')} sonuç alınamadı` : ''}. İşletme başına 5–15 dakika.`
+      : `Jeff ${busy} işletmeyi sırayla araştırıyor. İşletme başına 5–15 dakika.`}</p>`);
     top += parts.join('');
   }
   if (!rows.length) {
-    const EMPTY = {kapibekleyen: ['Kapı kuyruğu boş', 'Kalite kapısı sonucu olmayan kayıt yok.'], gorusme: ['Henüz güçlü görüşme adayı yok', 'Jeff güncel resmî kaynakları inceler, hizmet uyumunu ve somut iş yükünü sınar. Yetersiz kanıtlı firmalar bu listeye girmez.'], sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
+    const EMPTY = {temas: ['Henüz temas yok', 'Bir görüşme adayına kartından mesaj gönderdiğinizde burada takip edilir.'], gorusme: ['Henüz güçlü görüşme adayı yok', 'Jeff güncel resmî kaynakları inceler, hizmet uyumunu ve somut iş yükünü sınar. Yetersiz kanıtlı firmalar bu listeye girmez.'], sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
       havuz: ['Havuz boş', 'Yeni işletme bulmak için bir tarama başlatın.'], bekle: ['Yanıt bekleyen mesaj yok', 'Gönderdiğiniz mesajlar burada takip edilir.'],
       arsiv: ['Arşiv boş', 'Kapanan ve elenen işletmeler burada durur.']}[state.leadSec];
     $('#lead-view').innerHTML = top + `<div class="lempty"><h3>${EMPTY[0]}</h3>${state.q || state.city !== 'all' || state.leadJob ? 'Arama ya da süzgeç yüzünden boş olabilir.' : EMPTY[1]}</div>`;
