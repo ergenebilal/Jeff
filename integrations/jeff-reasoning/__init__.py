@@ -263,6 +263,18 @@ def continuation_request(text):
                  or re.search(r'\b(?:yap|uygula|hazirla|göster|listele|devam|ne|kaç|kac|fiyat(?:i|ini|ina|lari|larini)?|maliyet(?:i|ini|ine|leri|lerini)?|bütçe(?:si|sini|sine|yi|ye)?)\b', value))))
 
 
+def runtime_history_notice(raw):
+    """Known process-registry scaffolding is neither an owner goal nor permission."""
+    if not isinstance(raw, str) or len(raw) > 100000:
+        return False
+    value = raw.strip()
+    if not value.endswith(']'):
+        return False
+    return bool(re.match(
+        r'^\[(?:IMPORTANT: Background process proc_[0-9a-f]+ [^\r\n]{1,200}\.\r?\n|'
+        r'Background process proc_[0-9a-f]+ heartbeat #[0-9]+ [^\r\n]{1,200}\r?\n)', value))
+
+
 def owner_followup(text, history):
     """Use the nearest owner goal only as retrieval context, never as new permission.
 
@@ -277,10 +289,18 @@ def owner_followup(text, history):
         return None
     skipped_current = False
     prior_followups = []
-    for message in reversed(history[-16:]):
+    examined_owner_rows = 0
+    ignored_runtime_notices = 0
+    for message in reversed(history[-256:]):
         if not isinstance(message, dict) or message.get('role') != 'user':
             continue
         raw = message.get('content')
+        if runtime_history_notice(raw):
+            ignored_runtime_notices += 1
+            continue
+        examined_owner_rows += 1
+        if examined_owner_rows > 16:
+            return None
         if not isinstance(raw, str):
             return None
         wrapped = envelope(raw)
@@ -319,7 +339,9 @@ def owner_followup(text, history):
         return {'current_request': text, 'prior_owner_request': prior[:1500],
                 'prior_request_truncated': len(prior) > goal_budget,
                 'prior_followup_requests': refinements,
-                'history_window_limited': len(history) > 16,
+                'history_window_limited': len(history) > 256,
+                'owner_history_row_budget': 16,
+                'ignored_runtime_notices': ignored_runtime_notices,
                 'retrieval_query': query, 'basis': 'same_session_original_owner_messages',
                 'execution_authorized': False, 'approval_inherited': False}
     return None
