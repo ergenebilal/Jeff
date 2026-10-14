@@ -157,7 +157,7 @@ def build_state():
                       "short": outreach.short_name(l["name"]), "due": bool(briefing.you_text(l, l["id"] in ok)),
                       "optout": l["id"] in optouts, "reviewed": bool(l["reviewed_at"]), "job": l["job_id"],
                       "section": briefing.section_of(l), "step": st[l["id"]], "summary": str(summary)[:120],
-                      "qualification": {k: q.get(k) for k in ("current", "decision", "score", "job_id")} if q else None})
+                      "qualification": {k: q.get(k) for k in ("current", "decision", "score", "job_id", "discovery_question")} if q else None})
     d = store.get_meta("digest") or {}
     return {"now": t, "opps": opps, "news": news, "leads": leads, "approvals": store.approvals(), "sources": source_view(cfg),
             "jobs": [{**j, "log": j["log"][-6:]} for j in jobs_view()], "places": places.provider(),
@@ -166,7 +166,8 @@ def build_state():
             "briefing": briefing.briefing(store), "radar": radar.status(), "voice": llm.ready(), "voices": sorted(llm.VOICES), "jeff": jeff.mode(),
             "arguments": [{k: a[k] for k in ("id", "title", "pain", "soru", "honest_limit")} for a in outreach.arguments().get("arguments", [])],
             "metrics": metrics.report(store.leads(), places.usage(), places.details_usage()),
-            "meeting_candidates": qualification.board(store, qualification_views),
+            "meeting_candidates": (mc := qualification.board(store, qualification_views)),
+            "discovery_candidates": qualification.discovery(store, qualification_views, mc["ids"]),
             "stages": STAGES, "sections": briefing.SECTIONS, "cities": {n: list(c) for n, c in geo.PROVINCES.items()},
             "districts": geo.DISTRICTS}
 

@@ -1251,6 +1251,7 @@ const qualifying = l => ['waiting', 'calling'].includes(researchState(l)?.state)
 /* Leadler shows only what is worth a conversation (14.10.2026, Bilal): the radar scan finds, the gate and Jeff's deep
    research filter; raw lists stay out of this screen. Every business is still reachable from the scan list on the home page. */
 const LISTS = [['gorusme', 'Görüşme adayları', 'Radar taramasında bulunan işletmelerden, Jeff’in derin araştırmasında görüşmeye değer bulduğu ve kaynakla desteklenen en fazla 10 firma.'],
+  ['kesif', 'Keşif görüşmesi', 'Hizmetimize uygun ve ulaşılabilir, ama ihtiyacı açık kaynaklarda görünmeyen firmalar. İhtiyaç kanıtlanmadı; görüşmede Jeff’in firmaya özel sorusuyla sınanır.'],
   ['temas', 'Temasta', 'Görüşme adaylarından mesaj gönderilen, yanıt gelen, görüşmesi ayarlanan ve sonuçlananlar.']];
 const CONTACTED = ['Gönderildi', 'Yanıt geldi', 'Görüşme', 'Kazanıldı'];
 
@@ -1324,7 +1325,7 @@ function leadPool(){
 }
 function leadRow([l, s]){
   const where = l.district || l.city || '';
-  const candidate = state.leadSec === 'gorusme' && l.qualification;
+  const candidate = ['gorusme', 'kesif'].includes(state.leadSec) && l.qualification;
   return `<li class="lrow ${s.list}${s.busy ? ' busy' : ''}">
     ${candidate ? '<div class="lrow-summary">' : ''}
     <button class="lrow-main" type="button" data-lead="${l.id}" title="${esc(l.name)}">
@@ -1359,6 +1360,7 @@ function renderLeads(){
   const pool = leadPool().map(l => [l, nextStep(l)]);
   const board = D.meeting_candidates || {ids: [], target: 10, reviewed: 0};
   const of = (rows, k) => k === 'temas' ? rows.filter(([l]) => CONTACTED.includes(l.stage) || (l.stage === 'Kapandı' && (l.events || []).some(([, t]) => /yazıldı|gönderildi/i.test(t))))
+    : k === 'kesif' ? rows.filter(([l]) => (D.discovery_candidates?.ids || []).includes(l.id)).map(([l]) => [l, {list: 'sira', rank: 1, text: 'Görüşmede sor: ' + (l.qualification?.discovery_question || 'ihtiyacı sınayın'), act: ['open', 'Kartı aç']}])
     : k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id) && !CONTACTED.includes(l.stage) && l.stage !== 'Kapandı').map(([l]) => [l, {list: 'sira', rank: 0, text: 'Görüşme gerekçesini değerlendirin', act: ['open', 'Gerekçeyi incele']}]) : rows.filter(([, s]) => s.list === k);
   const mine = of(all, 'sira').length;
   if (state.leadSec === 'auto') state.leadSec = 'gorusme';  // open where the scan's businesses are
@@ -1397,7 +1399,7 @@ function renderLeads(){
     top += parts.join('');
   }
   if (!rows.length) {
-    const EMPTY = {temas: ['Henüz temas yok', 'Bir görüşme adayına kartından mesaj gönderdiğinizde burada takip edilir.'], gorusme: ['Henüz güçlü görüşme adayı yok', 'Jeff güncel resmî kaynakları inceler, hizmet uyumunu ve somut iş yükünü sınar. Yetersiz kanıtlı firmalar bu listeye girmez.'], sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
+    const EMPTY = {kesif: ['Keşif görüşmesi adayı yok', 'Derin araştırması biten, hizmete uygun ve ulaşılabilir firmalar burada çıkar.'], temas: ['Henüz temas yok', 'Bir görüşme adayına kartından mesaj gönderdiğinizde burada takip edilir.'], gorusme: ['Henüz güçlü görüşme adayı yok', 'Jeff güncel resmî kaynakları inceler, hizmet uyumunu ve somut iş yükünü sınar. Yetersiz kanıtlı firmalar bu listeye girmez.'], sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
       havuz: ['Havuz boş', 'Yeni işletme bulmak için bir tarama başlatın.'], bekle: ['Yanıt bekleyen mesaj yok', 'Gönderdiğiniz mesajlar burada takip edilir.'],
       arsiv: ['Arşiv boş', 'Kapanan ve elenen işletmeler burada durur.']}[state.leadSec];
     $('#lead-view').innerHTML = top + `<div class="lempty"><h3>${EMPTY[0]}</h3>${state.q || state.city !== 'all' || state.leadJob ? 'Arama ya da süzgeç yüzünden boş olabilir.' : EMPTY[1]}</div>`;
@@ -1572,7 +1574,8 @@ function qualificationCol(l){
   const action = qualifying(l) ? '<p class="help">Jeff görüşme gerekçesini inceliyor.</p>' : LP('qualify', 'Görüşme gerekçesini Jeff araştırsın') + (q?.current && q.decision === 'gorusme_adayi' && !analysing(l) ? LP('prepare-qualified', 'Güncel kanıttan taslak hazırlasın') : '');
   if (!q) return `<div class="reviewbox"><h4>Görüşmeye değer mi?</h4><p class="help">Somut iş yükü, hizmet uyumu ve güncel işletme kanalı birlikte değerlendirilir.</p>${action}</div>`;
   const labels = {service_fit: 'Hizmet uyumu', need_signal: 'İhtiyaç işareti', timing: 'Zamanlama', reachability: 'Ulaşılabilirlik'};
-  return `<div class="reviewbox"><h4>${q.current ? q.decision === 'gorusme_adayi' ? 'Görüşme adayı' : 'Güçlü aday için kanıt yetersiz' : 'Değerlendirme güncelliğini kaybetti'}</h4>
+  const kesif = (D.discovery_candidates?.ids || []).includes(l.id);
+  return `<div class="reviewbox"><h4>${q.current ? q.decision === 'gorusme_adayi' ? 'Görüşme adayı' : kesif ? 'Keşif görüşmesi adayı: ihtiyaç görüşmede sınanacak' : 'Güçlü aday için kanıt yetersiz' : 'Değerlendirme güncelliğini kaybetti'}</h4>
     <p class="help">Öncelik puanı ${q.score}/90 · ${Object.entries(q.dimensions || {}).map(([k, v]) => esc(labels[k] || k) + ': ' + v).join(' · ')}. Bu bir başarı olasılığı değildir.</p>
     <p><b>İhtiyaç hipotezi:</b> ${esc(q.hypothesis || 'Yeterli gerekçe yok.')}</p><p>${esc(q.reason)}</p>
     <p><b>Neden şimdi?</b> ${esc(q.why_now)}</p><p><b>Görüşmede sor:</b> ${esc(q.discovery_question)}</p>
