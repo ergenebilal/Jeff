@@ -145,7 +145,7 @@ function renderLayers(){
   $('#legend').innerHTML = Object.values(LAYERS).map(L => `<span style="--c:${L.color}"><i aria-hidden="true"></i>${L.label}</span>`).join('') + '<span><i style="--c:transparent;box-shadow:inset 0 0 0 1.5px #F2F2F5" aria-hidden="true"></i>Halka: yeni</span><span style="--c:#53C6D0"><i aria-hidden="true"></i>Dalga: tarama sürüyor</span>';
   const act = activeJobs();
   $('#unlocated').innerHTML = act.length ? `<i class="ph ph-crosshair" aria-hidden="true"></i>${esc(act[0].title)}, %${act[0].progress} <i class="ph ph-arrow-right" aria-hidden="true"></i>`
-    : `<i class="ph ph-storefront" aria-hidden="true"></i>Bir şehirde işletme tara <i class="ph ph-arrow-right" aria-hidden="true"></i>`;
+    : `<i class="ph ph-crosshair" aria-hidden="true"></i>Radar taraması <i class="ph ph-arrow-down" aria-hidden="true"></i>`;
   $('#unlocated').onclick = () => openScan();
   const none = !Object.keys(by).length;
   $('#map-empty').hidden = !none;
@@ -284,6 +284,7 @@ function startFocus(j){
   focusMarkers.forEach(m => m.setMap(null)); focusMarkers = [];
   state.focusJob = j.id; state.focusStub = j; focusSeen = new Set(); focusCam = {n: -1, moved: false}; pinPick = null;
   closeCityCard();
+  if (gmap && mapMode === 'dots') setMapMode('google');  // at street scale the dot map turns into a meaningless grid
   const c = CITY[j.params?.city];
   if (c && gmap && mapMode === 'google') { gmap.panTo({lat: c[1], lng: c[0]}); gmap.setZoom(j.params.district ? 11 : 10); }
   renderFocus(); drawMap();
@@ -294,6 +295,31 @@ function endFocus(){
   $('#scan-card').hidden = true;
   if (gmap && mapMode === 'google') gmap.fitBounds({south: 35.9, west: 26.0, north: 42.1, east: 44.8}, 8);
   drawMap();
+}
+function stageTag(p){
+  const l = D.leads.find(x => x.id === p.id);
+  if (!l) return '';
+  const q = l.qualification, t = qualifying(l) ? ['Araştırılıyor', 'you'] : q?.current && q.decision === 'gorusme_adayi' ? ['Görüşme adayı', 'strong']
+    : q?.current ? ['Araştırıldı', 'mid'] : !l.gate ? ['Kapı bekliyor', 'mid'] : l.gate === 'elendi' ? ['Elendi', 'weak'] : null;
+  return t ? ` <small class="tag ${t[1]}">${t[0]}</small>` : '';
+}
+function researchLine(j){
+  const r = j.result?.research;
+  if (!r) return '';
+  const q = r.job && (D.jobs || []).find(x => x.id === r.job), run = q && (q.status === 'running' || q.status === 'queued');
+  const parts = [r.started ? `${r.started} işletme Jeff'in derin araştırmasında${run ? `, %${q.progress}` : q?.status === 'done' ? ', bitti' : ''}` : 'Derin araştırmaya giden yeni işletme yok',
+    r.fresh && `${r.fresh} işletmenin güncel raporu var`, r.out && `${r.out} kapıda elendi`, r.unfit && `${r.unfit} hizmete uygun değil ya da resmî kaynağı yok`,
+    r.over_cap && `${r.over_cap} günlük sınır yüzünden yarına kaldı`, r.pending?.length && !r.job && `sırada: ${r.waiting_reason || 'başka araştırma sürüyor'}`].filter(Boolean);
+  return `<p class="help" style="margin:0"><i class="ph ph-brain" aria-hidden="true"></i> ${esc(parts.join(' · '))}.</p>`;
+}
+function localLine(j){
+  /* the local tool answers minutes later; a request nobody picked up in 48 hours has expired */
+  const r = j.result || {}, p = '<p class="help" style="margin:0"><i class="ph ph-desktop" aria-hidden="true"></i> ';
+  if (r.ig_local_sent != null) return p + esc(`Yerel araç ${r.ig_local_sent} aday gönderdi` + (r.ig_local_checked != null ? `; resmî API ile ${r.ig_local_checked} hesap denetlendi, ${r.ig_local_new || 0} yeni lead.` : '; resmî API ile denetleniyor.')
+    + (r.ig_local_note ? ` Not: ${r.ig_local_note}` : '')) + '</p>';
+  if (!r.ig_local_waiting) return '';
+  if (Date.now() / 1000 - (j.finished_at || j.created_at) > 48 * 3600) return p + 'Yerel araç bu isteği 48 saat içinde almadı; istek düştü.</p>';
+  return p + 'Yerel aracın Instagram yanıtı bekleniyor; gelince bu listeye eklenir. Bilgisayarınızda araç kapalıysa beklemede kalır.</p>';
 }
 function renderFocus(){
   const j = focusJob(), card = $('#scan-card');
@@ -307,10 +333,12 @@ function renderFocus(){
     <div class="bar" role="progressbar" aria-label="İlerleme" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${j.status === 'done' ? 100 : j.progress}"><i style="width:${j.status === 'done' ? 100 : j.progress}%"></i></div>
     <p class="sc-note" aria-live="polite">${esc(run ? (j.note || 'Başlıyor') : jobLine(j))}</p>
     ${all.length ? `<ol class="sc-list">${all.map((p, i) => `<li class="${focusSeen.has(p.id) ? '' : 'new'}"><button type="button" data-pin="${esc(p.id)}" aria-current="${pinPick === p.id}" title="Haritada göster; ikinci tıklamada aç">
-        <b style="background:${GATE[p.gate]?.[2] || 'var(--lav)'}" title="${p.gate ? esc(GATE[p.gate][0]) : 'Kapı bekliyor'}">${i + 1}</b><span>${esc(p.name)}</span>${p.phone ? '<i class="ph ph-phone" aria-label="Telefon var"></i>' : '<i></i>'}${p.web ? '<i class="ph ph-globe" aria-label="Web sitesi var"></i>' : '<i></i>'}${p.ig ? '<i class="ph ph-instagram-logo" aria-label="Instagram hesabı var"></i>' : '<i></i>'}</button></li>`).join('')}</ol>`
+        <b style="background:${GATE[p.gate]?.[2] || 'var(--lav)'}" title="${p.gate ? esc(GATE[p.gate][0]) : 'Kapı bekliyor'}">${i + 1}</b><span>${esc(p.name)}${stageTag(p)}</span>${p.phone ? '<i class="ph ph-phone" aria-label="Telefon var"></i>' : '<i></i>'}${p.web ? '<i class="ph ph-globe" aria-label="Web sitesi var"></i>' : '<i></i>'}${p.ig ? '<i class="ph ph-instagram-logo" aria-label="Instagram hesabı var"></i>' : '<i></i>'}</button></li>`).join('')}</ol>`
       : `<p class="help" style="margin:0">${run ? 'İşletmeler bulundukça burada ve haritada numaralanır.' : (j.result?.found ? 'Bu taramanın listesi Leadler ekranında.' : 'Bu taramada işletme bulunmadı.')}</p>`}
+    ${j.result?.map_error ? `<p class="help" style="margin:0"><i class="ph ph-warning" aria-hidden="true"></i> Harita: ${esc(j.result.map_error)}</p>` : ''}
     ${j.result?.ig_error ? `<p class="help" style="margin:0"><i class="ph ph-warning" aria-hidden="true"></i> Instagram resmî API: ${esc(j.result.ig_error)}</p>` : ''}
-    ${j.result?.ig_local_waiting && !j.result?.ig_local_checked ? '<p class="help" style="margin:0"><i class="ph ph-desktop" aria-hidden="true"></i> Yerel aracın Instagram yanıtı bekleniyor; gelince bu listeye eklenir.</p>' : ''}
+    ${localLine(j)}
+    ${researchLine(j)}
     ${!run && (all.length || j.result?.found) ? `<div class="row"><button class="btn btn-glass btn-sm" type="button" data-show-job="${j.id}">Leadlerde gör</button><span class="help" style="margin:0">Bir iğneye tıklayınca işletme açılır.</span></div>` : ''}`;
   const nl = card.querySelector('.sc-list'); if (nl) nl.scrollTop = y;
   drawFocusPins();
@@ -366,8 +394,13 @@ function drawMap(){
   $('#map-fallback').hidden = true;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const fj = focusJob(), fpts = focusPts(fj), fc = fj && CITY[fj.params?.city];
-  const area = fpts.length > 1 ? {type: 'MultiPoint', coordinates: fpts.map(p => [+p.lon, +p.lat])}
-    : fc ? {type: 'MultiPoint', coordinates: [[fc[0] - .35, fc[1] - .25], [fc[0] + .35, fc[1] + .25]]} : null;
+  const near = fpts.length ? fpts.map(p => [+p.lon, +p.lat]) : fc ? [fc] : null;
+  let area = null;
+  if (near) {  /* never closer than about 2.6 x 1.8 degrees: a dot grid at street scale reads as noise */
+    const xs = near.map(p => p[0]), ys = near.map(p => p[1]), cx = (d3.min(xs) + d3.max(xs)) / 2, cy = (d3.min(ys) + d3.max(ys)) / 2;
+    const hx = Math.max(1.3, (d3.max(xs) - d3.min(xs)) / 2 + .3), hy = Math.max(.9, (d3.max(ys) - d3.min(ys)) / 2 + .2);
+    area = {type: 'MultiPoint', coordinates: [[cx - hx, cy - hy], [cx + hx, cy + hy]]};
+  }
   const proj = d3.geoMercator().fitExtent([[w * .05, h * .1], [w * .95, h * .92]], area || geo.tr);
   const off = document.createElement('canvas'); off.width = w; off.height = h;
   const oc = off.getContext('2d', {willReadFrequently: true});
@@ -878,7 +911,7 @@ function blipColor(t){
 }
 function jobLine(j){
   const r = j.result || {};
-  if (j.status === 'done' && j.kind === 'lead_scan') return `${r.found ?? 0} işletme bulundu, ${r.new ?? 0} yeni lead` + (r.ig_new ? `, Instagram'dan ${r.ig_new}` : '') + (r.ig_local_new ? `, yerel araçtan ${r.ig_local_new}` : '');
+  if (j.status === 'done' && j.kind === 'lead_scan') return `${r.found ?? 0} işletme bulundu: ${r.new ?? 0} yeni` + (r.known ? `, ${r.known} zaten listedeydi` : '') + (r.ig_new ? `, Instagram'dan ${r.ig_new}` : '') + (r.ig_local_new ? `, yerel araçtan ${r.ig_local_new}` : '');
   if (j.status === 'done' && j.kind === 'insta_scan') return `${r.candidates ?? 0} hesap denetlendi, ${r.new ?? 0} yeni lead` + (r.not_business ? `, ${r.not_business} işletme değil` : '');
   if (j.status === 'done' && j.kind === 'radar') return `${r.opps ?? 0} fırsat, ${r.news ?? 0} haber`;
   return j.note || JOB_STATE[j.status]?.[0] || '';
@@ -963,7 +996,7 @@ document.addEventListener('click', async e => {
     renderJobs();
   }
   const sj = e.target.closest('[data-show-job]');
-  if (sj) { state.leadSec = 'havuz'; state.leadSecSet = true; state.leadJob = sj.dataset.showJob; go('leadler'); renderLeadFilters(); renderLeads(); }
+  if (sj) { state.leadSec = 'auto'; state.leadSecSet = true; state.leadJob = sj.dataset.showJob; go('leadler'); renderLeadFilters(); renderLeads(); }
   if (e.target.closest('[data-scan]')) openScan();
 });
 
@@ -1271,9 +1304,13 @@ async function loadLeadSearch(){
   leadSearchData = new Map(leads.map(l => [l.id, l]));
   return leadSearchData;
 }
+function scanLeadIds(id){
+  const ids = (D.jobs || []).find(j => j.id === id)?.result?.ids;
+  return Array.isArray(ids) ? new Set(ids) : null;
+}
 function leadPool(){
-  const q = state.q.toLocaleLowerCase('tr');
-  return D.leads.filter(l => (state.city === 'all' || l.city === state.city) && (!state.leadJob || l.job === state.leadJob)
+  const q = state.q.toLocaleLowerCase('tr'), scan = state.leadJob ? scanLeadIds(state.leadJob) : null;
+  return D.leads.filter(l => (state.city === 'all' || l.city === state.city) && (!state.leadJob || (scan ? scan.has(l.id) : l.job === state.leadJob))
     && (!q || [l.name, l.city, l.district, leadKind(l), leadSearchData?.get(l.id)?.note, leadSearchData?.get(l.id)?.address].join(' ').toLocaleLowerCase('tr').includes(q)));
 }
 function leadRow([l, s]){
@@ -1314,12 +1351,13 @@ function renderLeads(){
   const board = D.meeting_candidates || {ids: [], target: 10, reviewed: 0};
   const of = (rows, k) => k === 'kapibekleyen' ? rows.filter(([l]) => !l.gate) : k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id)).map(([l]) => [l, {list: 'sira', rank: 0, text: 'Görüşme gerekçesini değerlendirin', act: ['open', 'Gerekçeyi incele']}]) : rows.filter(([, s]) => s.list === k);
   const mine = of(all, 'sira').length;
+  if (state.leadSec === 'auto') state.leadSec = LISTS.map(([k]) => [k, of(pool, k).length]).sort((a, b) => b[1] - a[1])[0]?.[0] || 'sira';  // open where the scan's businesses are
   if (!state.leadSecSet) state.leadSec = 'gorusme';
   if (!LISTS.some(([k]) => k === state.leadSec)) state.leadSec = 'sira';
   $('#lead-sub').textContent = !D.leads.length ? 'Henüz işletme yok.' : mine ? `${mine} işletme sizden bir adım bekliyor.` : 'Şu an sizden bekleyen bir adım yok.';
   $('#lead-sections').innerHTML = LISTS.map(([k, label]) => `<button type="button" role="tab" data-sec="${k}" aria-selected="${state.leadSec === k}">${label}<span class="n">${of(pool, k).length}</span></button>`).join('');
   $('#lead-chips').innerHTML = (state.city !== 'all' ? `<button class="chip" type="button" data-clear="city">${esc(state.city)} <i class="ph ph-x" aria-label="Kaldır"></i></button>` : '')
-    + (state.leadJob ? '<button class="chip" type="button" data-clear="job">Son tarama <i class="ph ph-x" aria-label="Kaldır"></i></button>' : '');
+    + (state.leadJob ? `<button class="chip" type="button" data-clear="job">Son tarama: ${pool.length} işletme <i class="ph ph-x" aria-label="Kaldır"></i></button>` : '');
   if (!state.loaded) { $('#lead-view').innerHTML = '<div class="lempty">Yükleniyor</div>'; return; }
   if (!D.leads.length) { $('#lead-view').innerHTML = '<div class="lempty"><h3>Henüz işletme yok</h3>"Yeni tarama" ile bir şehirde bir sektörü taratın ya da bildiğiniz bir işletmeyi elle ekleyin.</div>'; return; }
   const rows = of(pool, state.leadSec).sort(([a, s], [b, t]) => (state.leadSec === 'gorusme' ? (b.qualification?.score || 0) - (a.qualification?.score || 0) : ((s.rank ?? 9) - (t.rank ?? 9))) || ((b.updated_at || b.created_at) - (a.updated_at || a.created_at)));
@@ -1449,6 +1487,38 @@ function leadSide(l, s){
     </details>
   </section>`;
 }
+/* ---------- Derin araştırma: what was collected for this business, before Jeff's reasoning ---------- */
+const DECISION = {gorusme_adayi: 'Görüşme adayı', arastirma_gerekli: 'Güçlü aday için kanıt yetersiz'};
+function researchBox(l){
+  const g = l.gate_info || {}, site = g.site || null, gg = g.google || null, q = l.qualification, read = q?.sources_read || [];
+  const ig = q?.instagram || [];
+  const pages = read.filter(r => r.kind === 'website').length, posts = read.filter(r => r.kind === 'instagram_post').length;
+  const row = (icon, label, html) => `<li><i class="ph ${icon}" aria-hidden="true"></i><span><b>${label}</b> ${html}</span></li>`;
+  const google = gg ? `${gg.rating ?? '–'}★, ${gg.count} yorum${gg.status && gg.status !== 'OPERATIONAL' ? ', durum: ' + esc(gg.status) : ''}${safeUrl(gg.maps) ? ` · <a href="${esc(gg.maps)}" target="_blank" rel="noopener noreferrer">Google'da aç</a>` : ''}`
+    : l.gate ? 'Google kaydı bulunamadı ya da okunamadı.' : 'Kapı henüz çalışmadı.';
+  const web = !l.website ? 'Web sitesi yok.'
+    : pages ? `Derin araştırmada ${pages} sayfa okundu${(site?.has || []).length ? '; sitede görülen: ' + esc(site.has.join(', ')) : ''}.`
+    : site?.pages?.length ? `Kapıda ${site.pages.length} sayfa okundu${(site.has || []).length ? '; görülen: ' + esc(site.has.join(', ')) : ''}.`
+    : site ? `Okunamadı (${esc(site.error || 'bilinmiyor')}).` : 'Kapı henüz çalışmadı.';
+  const insta = ig.length ? ig.map(a => {
+      const h = esc(String(a.profile || '').replace(/^https:\/\/www\.instagram\.com\/|\/$/g, ''));
+      const scope = a.identity_scope === 'official_instagram_account' ? 'taramada resmî API ile doğrulanan hesap' : 'sitenin bağlantı verdiği hesap';
+      return a.status === 'readable' ? `@${h} (${scope}): ${a.coverage?.readable_captions ?? posts} gönderi açıklaması okundu.` : `@${h} (${scope}): okunamadı${a.meta_status ? ' (' + esc(a.meta_status) + ')' : ''}.`;
+    }).join(' ')
+    : l.instagram ? `@${esc(l.instagram)}: derin araştırmada okunacak.` : 'Instagram hesabı bulunamadı.';
+  const jeff = qualifying(l) ? '<i class="ph ph-circle-notch spin" aria-hidden="true"></i> Jeff kaynakları okuyor ve muhakeme ediyor.'
+    : q ? `${q.current ? esc(DECISION[q.decision] || q.decision) : 'Güncelliğini kaybetti'} · öncelik ${q.score}/90 · ${fmtDate(q.at)}. Gerekçe aşağıda.`
+    : l.gate === 'elendi' && !l.gate_override ? 'Kapıda elendiği için araştırılmadı.' : 'Henüz yapılmadı.';
+  return `<div class="reviewbox research"><h4>Derin araştırma</h4><ul class="lfacts">
+      ${row('ph-map-trifold', 'Google işletme kaydı:', google)}${row('ph-globe', 'Web sitesi:', web)}
+      ${row('ph-instagram-logo', 'Instagram:', insta)}${row('ph-brain', 'Jeff:', jeff)}</ul>
+    <details class="mini" data-evidence-for="${esc(l.id)}"><summary>Toplanan metinleri göster</summary><div id="evidence-list"></div></details></div>`;
+}
+document.addEventListener('toggle', e => {
+  const d = e.target.closest?.('[data-evidence-for]');
+  if (d && d.open) showEvidence(d.dataset.evidenceFor);
+}, true);
+
 function reportCol(l, s){
   const a = l.analysis, ext = 'target="_blank" rel="noopener noreferrer"';
   const reasons = (l.gate_reasons || []).map(r => plainReason(r.text)).join(' ');
@@ -1480,7 +1550,7 @@ function reportCol(l, s){
     const seconds = Object.values(m.steps || {}).reduce((sum, x) => sum + (x.elapsed_seconds || 0), 0);
     body += `<p class="help" aria-live="polite">${esc(m.note || 'İnceleme ve taslak görevi')}${seconds ? ` · ${Math.round(seconds)} saniye` : ''}. Kaynakta bulunan alıntı denetlenir; firmanın ihtiyacı varsayımdır.</p>`;
   }
-  return `<section class="wcol report" aria-label="Jeff'in raporu"><h3 class="wh">Jeff'in raporu ${a ? `<span class="tag ${VERDICT[a.karar][1]}">${VERDICT[a.karar][0]}</span>` : ''}</h3>${qualificationCol(l)}${body}</section>`;
+  return `<section class="wcol report" aria-label="Jeff'in raporu"><h3 class="wh">Jeff'in raporu ${a ? `<span class="tag ${VERDICT[a.karar][1]}">${VERDICT[a.karar][0]}</span>` : ''}</h3>${researchBox(l)}${qualificationCol(l)}${body}</section>`;
 }
 function qualificationCol(l){
   const q = l.qualification;
