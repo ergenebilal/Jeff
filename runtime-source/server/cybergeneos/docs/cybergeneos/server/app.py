@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import analysis, briefing, contact, geo, instagram_scan, intent, jeff, llm, marketing, metrics, outreach, places, qualification, reach, sources
+from . import analysis, briefing, contact, deep, geo, instagram_scan, intent, jeff, llm, marketing, metrics, outreach, places, qualification, reach, shortlist, sources
 from .jobs import Jobs
 from .radar import Radar
 from .store import CLOSED, STAGES, Store, now
@@ -117,6 +117,7 @@ def lead_detail(lid):
                       "gate_reasons": json.loads(l["gate_reasons"] or "[]"), "gate_info": json.loads(l["gate_info"] or "{}"),
                       "analysis": json.loads(l["analysis"] or "null"), "analysis_at": l["analysis_at"], "marketing": marketing_views.get(l['id']),
                       "qualification": qualification_views.get(l['id']),
+                      "deep": deep.report(store, l["id"]), "jeff_summary": deep.summary(l),
                       "drafts": json.loads(l["drafts"] or "null"), "contacts": json.loads(l["contacts"] or "[]"),
                       "optout": l["id"] in optouts, "wa": reach.whatsapp_number(l["phone"]),
                       "instagram": reach.instagram_of(l), "form": reach.has_form(l),
@@ -166,8 +167,7 @@ def build_state():
             "briefing": briefing.briefing(store), "radar": radar.status(), "voice": llm.ready(), "voices": sorted(llm.VOICES), "jeff": jeff.mode(),
             "arguments": [{k: a[k] for k in ("id", "title", "pain", "soru", "honest_limit")} for a in outreach.arguments().get("arguments", [])],
             "metrics": metrics.report(store.leads(), places.usage(), places.details_usage()),
-            "meeting_candidates": (mc := qualification.board(store, qualification_views)),
-            "discovery_candidates": qualification.discovery(store, qualification_views, mc["ids"]),
+            "meeting_candidates": shortlist.board(store, qualification_views, all_leads),
             "stages": STAGES, "sections": briefing.SECTIONS, "cities": {n: list(c) for n, c in geo.PROVINCES.items()},
             "districts": geo.DISTRICTS}
 
@@ -217,7 +217,7 @@ def summary():
     for s in st.values():
         counts[s["list"]] += 1
     return {"jobs": [{k: j[k] for k in ("id", "title", "status", "progress", "note")} for j in store.jobs(8)],
-            "meeting_candidates": qualification.board(store),
+            "meeting_candidates": shortlist.board(store, None, leads),
             "leads": {label: counts[k] for k, label in briefing.LISTS},
             "sizden_bekleyen": [{"isletme": outreach.short_name(l["name"]), "adim": st[l["id"]]["text"]}
                                 for l in sorted(leads, key=lambda l: st[l["id"]].get("rank", 9)) if st[l["id"]]["list"] == "sira"][:10],
@@ -314,6 +314,16 @@ def act_lead(lid, action, body):
     l = store.lead(lid)
     if not l:
         return err(404, "yok")
+    if action == 'deep':
+        jid, e = jobs.start('deep', {'ids': [lid]}, 'bilal')
+        return (200, {'ok': True, 'job': jid}) if jid else (409, {'error': 'analiz_baslamadi', 'detail': e})
+    if action == 'first-touch':
+        if contact.opted_out(store, lid):
+            return 409, {'error': 'reddedildi', 'detail': 'Bu işletme ret listesinde; mesaj yazılmaz.'}
+        try:
+            return 200, {'ok': True, 'drafts': deep.quick_messages(store, l)}
+        except (deep.Failed, RuntimeError) as e:
+            return 503, {'error': 'mesaj_yazilamadi', 'detail': str(e) or 'Mesaj yazılamadı, tekrar deneyin.'}
     if action == 'qualify':
         jid, e = jobs.start('qualification', {'ids': [lid], 'request_key': body.get('request_key')}, 'bilal')
         return (200, {'ok': True, 'job': jid}) if jid else (409, {'error': 'secim_baslamadi', 'detail': e})

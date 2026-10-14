@@ -966,7 +966,7 @@ async function pollJobs(){
     const ended = [...before].filter(id => !nowActive.has(id)).map(id => D.jobs.find(j => j.id === id)).filter(Boolean);
     if (ended.length) {
       await refresh();
-      if (sheetKind === 'lead' && openLeadId && ended.some(j => ['marketing', 'qualification'].includes(j.kind) && (j.params?.ids || []).includes(openLeadId))) openLead(openLeadId);
+      if (sheetKind === 'lead' && openLeadId && ended.some(j => ['marketing', 'qualification', 'deep'].includes(j.kind) && (j.params?.ids || []).includes(openLeadId))) openLead(openLeadId);
       const j = ended[0];
       if (j.by !== 'zamanlayici' || j.kind !== 'radar') toast(`${j.title}: ${j.status === 'done' ? jobLine(j) : j.note}`);
     } else renderJobs();
@@ -1248,11 +1248,9 @@ const researchState = l => {
   return j.result?.states?.[l.id] || {state: 'waiting', text: j.status === 'queued' ? 'Sırada' : 'Sırada'};
 };
 const qualifying = l => ['waiting', 'calling'].includes(researchState(l)?.state) && !(l.qualification?.current && (D.jobs || []).some(j => j.id === l.qualification.job_id && ['running', 'queued'].includes(j.status)));
-/* Leadler shows only what is worth a conversation (14.10.2026, Bilal): the radar scan finds, the gate and Jeff's deep
-   research filter; raw lists stay out of this screen. Every business is still reachable from the scan list on the home page. */
-const LISTS = [['gorusme', 'Görüşme adayları', 'Radar taramasında bulunan işletmelerden, Jeff’in derin araştırmasında görüşmeye değer bulduğu ve kaynakla desteklenen en fazla 10 firma.'],
-  ['kesif', 'Keşif görüşmesi', 'Hizmetimize uygun ve ulaşılabilir, ama ihtiyacı açık kaynaklarda görünmeyen firmalar. İhtiyaç kanıtlanmadı; görüşmede Jeff’in firmaya özel sorusuyla sınanır.'],
-  ['temas', 'Temasta', 'Görüşme adaylarından mesaj gönderilen, yanıt gelen, görüşmesi ayarlanan ve sonuçlananlar.']];
+/* Leadler (14.10.2026, Bilal): the scan finds, the rule gate filters, the best 10 are picked on their own (server
+   shortlist.board, no model, seconds). Raw scan results stay out; deep research starts only from a lead card. */
+const LISTS = [['gorusme', 'Görüşme adayları'], ['temas', 'Temasta']];
 const CONTACTED = ['Gönderildi', 'Yanıt geldi', 'Görüşme', 'Kazanıldı'];
 
 /* The single next step for a lead: the server works it out (briefing.next_step, the same one Jeff and the morning
@@ -1298,14 +1296,6 @@ function localStep(l){
 }
 const plainReason = t => (t || '').replace('Sitemizdeki bir argümana denk gelen görünür bir dert bulunamadı', 'Bizim çözdüğümüz türden görünür bir dert bulunamadı');
 const whyLine = l => l.summary || (l.qualification?.current && l.qualification.hypothesis ? 'İhtiyaç hipotezi: ' + l.qualification.hypothesis : '') || (l.analysis?.bulgular?.length ? 'İş hipotezi: ' + l.analysis.bulgular[0].baslik : '') || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l) || '';
-function candidateSummary(l){
-  const full = l.qualification?.hypothesis || l.summary || whyLine(l);
-  const text = String(full);
-  const colon = text.indexOf(':');
-  const start = colon >= 0 && colon < 40 ? text.slice(colon + 1).trim() : text;
-  const sentence = start.split(/[.!?](?:\s|$)|[;:]/)[0].trim();
-  return sentence.length > 180 ? sentence.slice(0, 180).replace(/\s+\S*$/, '') + '…' : sentence + (sentence ? '.' : '');
-}
 function renderLeadFilters(){ fillCities(); }  // city and last-scan filters are drawn as removable chips in renderLeads
 let leadSearchData = null;
 async function loadLeadSearch(){
@@ -1323,16 +1313,14 @@ function leadPool(){
   return D.leads.filter(l => (state.city === 'all' || l.city === state.city) && (!state.leadJob || (scan ? scan.has(l.id) : l.job === state.leadJob))
     && (!q || [l.name, l.city, l.district, leadKind(l), leadSearchData?.get(l.id)?.note, leadSearchData?.get(l.id)?.address].join(' ').toLocaleLowerCase('tr').includes(q)));
 }
+const candReason = l => D.meeting_candidates?.reasons?.[l.id] || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l);
 function leadRow([l, s]){
   const where = l.district || l.city || '';
-  const candidate = ['gorusme', 'kesif'].includes(state.leadSec) && l.qualification;
   return `<li class="lrow ${s.list}${s.busy ? ' busy' : ''}">
-    ${candidate ? '<div class="lrow-summary">' : ''}
     <button class="lrow-main" type="button" data-lead="${l.id}" title="${esc(l.name)}">
-      <span class="lrow-name"><span class="t">${esc(l.short || l.name)}</span>${l.section === 'yeni' ? '<span class="new">yeni</span>' : ''}</span>
-      <span class="lrow-why">${esc([where, candidate ? candidateSummary(l) : whyLine(l)].filter(Boolean).join(' · '))}</span>
+      <span class="lrow-name"><span class="t">${esc(l.short || l.name)}</span></span>
+      <span class="lrow-why">${esc([where, state.leadSec === 'gorusme' ? candReason(l) : whyLine(l)].filter(Boolean).join(' · '))}</span>
     </button>
-    ${candidate ? `<details class="lrow-reason"><summary>(neden?)</summary><p>${esc(whyLine(l))}</p></details></div>` : ''}
     <span class="lrow-step ${s.tone || ''}">${s.busy ? '<i class="ph ph-circle-notch spin" aria-hidden="true"></i> ' : ''}${esc(s.text)}</span>
     ${s.act ? `<button class="btn ${s.list === 'sira' ? 'btn-primary' : 'btn-glass'} btn-sm" type="button" data-row="${s.act[0]}" data-id="${l.id}">${esc(s.act[1])}</button>` : '<span></span>'}
   </li>`;
@@ -1358,55 +1346,28 @@ function renderLeads(){
   renderMetrics();
   const all = D.leads.map(l => [l, nextStep(l)]);
   const pool = leadPool().map(l => [l, nextStep(l)]);
-  const board = D.meeting_candidates || {ids: [], target: 10, reviewed: 0};
+  const board = D.meeting_candidates || {ids: [], target: 10, passed: 0, filtered_out: 0, channels: {}};
   const of = (rows, k) => k === 'temas' ? rows.filter(([l]) => CONTACTED.includes(l.stage) || (l.stage === 'Kapandı' && (l.events || []).some(([, t]) => /yazıldı|gönderildi/i.test(t))))
-    : k === 'kesif' ? rows.filter(([l]) => (D.discovery_candidates?.ids || []).includes(l.id)).map(([l]) => [l, {list: 'sira', rank: 1, text: 'Görüşmede sor: ' + (l.qualification?.discovery_question || 'ihtiyacı sınayın'), act: ['open', 'Kartı aç']}])
-    : k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id) && !CONTACTED.includes(l.stage) && l.stage !== 'Kapandı').map(([l]) => [l, {list: 'sira', rank: 0, text: 'Görüşme gerekçesini değerlendirin', act: ['open', 'Gerekçeyi incele']}]) : rows.filter(([, s]) => s.list === k);
-  const mine = of(all, 'sira').length;
-  if (state.leadSec === 'auto') state.leadSec = 'gorusme';  // open where the scan's businesses are
-  if (!state.leadSecSet) state.leadSec = 'gorusme';
-  if (!LISTS.some(([k]) => k === state.leadSec)) state.leadSec = 'gorusme';
-  const cands = of(all, 'gorusme').length;
-  $('#lead-sub').textContent = cands ? `${cands} görüşme adayı kartından taslak ve gönderim bekliyor.` : 'Henüz görüşmeye değer aday yok. Radar taraması ve Jeff’in derin araştırması adayları buraya getirir.';
+    : k === 'gorusme' ? rows.filter(([l]) => board.ids.includes(l.id)).map(([l, s]) => [l, s.busy ? s : {list: 'sira', rank: 0, text: board.channels?.[l.id] || '', act: ['open', 'Aç']}]) : rows.filter(([, s]) => s.list === k);
+  if (!state.leadSecSet || !LISTS.some(([k]) => k === state.leadSec)) state.leadSec = 'gorusme';
+  const cands = of(all, 'gorusme').length, inTouch = of(all, 'temas').length;
+  $('#lead-sub').textContent = cands || inTouch ? `${cands} aday, ${inTouch} temasta.` : 'Henüz aday yok. Bir tarama başlatın; filtreyi geçenler buraya kendiliğinden gelir.';
   $('#lead-sections').innerHTML = LISTS.map(([k, label]) => `<button type="button" role="tab" data-sec="${k}" aria-selected="${state.leadSec === k}">${label}<span class="n">${of(pool, k).length}</span></button>`).join('');
   $('#lead-chips').innerHTML = (state.city !== 'all' ? `<button class="chip" type="button" data-clear="city">${esc(state.city)} <i class="ph ph-x" aria-label="Kaldır"></i></button>` : '')
     + (state.leadJob ? `<button class="chip" type="button" data-clear="job">Son tarama: ${pool.length} işletme <i class="ph ph-x" aria-label="Kaldır"></i></button>` : '');
   if (!state.loaded) { $('#lead-view').innerHTML = '<div class="lempty">Yükleniyor</div>'; return; }
   if (!D.leads.length) { $('#lead-view').innerHTML = '<div class="lempty"><h3>Henüz işletme yok</h3>"Yeni tarama" ile bir şehirde bir sektörü taratın ya da bildiğiniz bir işletmeyi elle ekleyin.</div>'; return; }
-  const rows = of(pool, state.leadSec).sort(([a, s], [b, t]) => (state.leadSec === 'gorusme' ? (b.qualification?.score || 0) - (a.qualification?.score || 0) : ((s.rank ?? 9) - (t.rank ?? 9))) || ((b.updated_at || b.created_at) - (a.updated_at || a.created_at)));
-  let top = `<p class="lnote">${LISTS.find(([k]) => k === state.leadSec)[2]}</p>`;
-  if (state.leadSec === 'gorusme') {
-    const active = (D.jobs || []).find(j => j.kind === 'qualification' && ['queued', 'running'].includes(j.status));
-    top += `<div class="lbanner"><p><b>${board.ids.length}/10 görüşme adayı</b> · ${board.reviewed} firma güncel ölçütlerle değerlendirildi. ${active ? esc(active.note || 'Jeff seçimi sürdürüyor.') : 'Eksik yerler zayıf adaylarla doldurulmaz.'}</p><button class="btn btn-primary btn-sm" type="button" data-batch="qualification" ${active ? 'disabled' : ''}>${active ? 'Jeff adayları seçiyor' : 'Jeff görüşme adaylarını seçsin'}</button></div><p class="help">Öneriler ihtiyaç hipotezidir. Puan, görüşme veya satın alma olasılığı değildir. Kimseye mesaj gönderilmez.</p>`;
-  }
-  if (state.leadSec === 'kapibekleyen') {
-    const pending = all.filter(([l]) => !l.gate && l.stage !== 'Kapandı').map(([l]) => l.id);
-    const active = (D.jobs || []).some(j => j.kind === 'gate' && ['queued', 'running'].includes(j.status));
-    top += `<div class="lbanner"><p><b>${of(all, 'kapibekleyen').length} kayıt</b> kalite kapısının sonucunu bekliyor. Önceden değerlendirilmiş kayıtlar ve kapanan kayıtlar bu işlemde değişmez.</p><button class="btn btn-glass btn-sm" type="button" data-batch="gate" data-ids="${pending.join(',')}" ${active || !pending.length ? 'disabled' : ''}>${active ? 'Kapı değerlendiriyor' : 'Kapıdan geçmemişleri değerlendir'}</button></div>`;
-  }
-  if (state.leadSec === 'havuz') {
-    const toAnalyze = all.filter(([, s]) => s.act?.[0] === 'analyze').map(([l]) => l.id);
-    const toGate = all.filter(([, s]) => s.act?.[0] === 'gate-rerun').length;
-    const busy = all.filter(([, s]) => s.busy).length;
-    const qj = (D.jobs || []).find(j => j.kind === 'qualification' && ['running', 'queued'].includes(j.status));
-    const qs = Object.values(qj?.result?.states || {}), count = k => qs.filter(x => x.state === k).length;
-    const parts = [];
-    if (toAnalyze.length) parts.push(`<div class="lbanner"><p><b>${toAnalyze.length} işletme</b> analiz bekliyor. Jeff sırayla araştırır, her biri birkaç dakika sürer. Mesaj gitmez.</p><button class="btn btn-primary btn-sm" type="button" data-batch="analysis" data-ids="${toAnalyze.slice(0, 50).join(',')}">Hepsini analiz et</button></div>`);
-    if (toGate) parts.push(`<div class="lbanner"><p><b>${toGate} işletme</b> kapıdan geçmedi.</p><button class="btn btn-glass btn-sm" type="button" data-batch="gate">Kapıdan geçir</button></div>`);
-    if (busy) parts.push(`<p class="lnote"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> ${qs.length
-      ? `Derin araştırma: ${qs.length} işletme sırayla — ${count('done')} bitti, ${count('calling')} şu an araştırılıyor, ${count('waiting')} sırada${count('failed') ? `, ${count('failed')} sonuç alınamadı` : ''}. İşletme başına 5–15 dakika.`
-      : `Jeff ${busy} işletmeyi sırayla araştırıyor. İşletme başına 5–15 dakika.`}</p>`);
-    top += parts.join('');
-  }
+  const rows = of(pool, state.leadSec).sort(([a, s], [b, t]) => (state.leadSec === 'gorusme' ? board.ids.indexOf(a.id) - board.ids.indexOf(b.id) : ((s.rank ?? 9) - (t.rank ?? 9))) || ((b.updated_at || b.created_at) - (a.updated_at || a.created_at)));
+  // one quiet line instead of banners: how many the filter kept back
+  const foot = state.leadSec === 'gorusme' && board.passed + board.filtered_out
+    ? `<p class="lfoot">Filtreyi geçen ${board.passed} işletmeden ilk ${Math.min(board.passed, board.target)} gösteriliyor. ${board.filtered_out} işletme filtrede kaldı.</p>` : '';
   if (!rows.length) {
-    const EMPTY = {kesif: ['Keşif görüşmesi adayı yok', 'Derin araştırması biten, hizmete uygun ve ulaşılabilir firmalar burada çıkar.'], temas: ['Henüz temas yok', 'Bir görüşme adayına kartından mesaj gönderdiğinizde burada takip edilir.'], gorusme: ['Henüz güçlü görüşme adayı yok', 'Jeff güncel resmî kaynakları inceler, hizmet uyumunu ve somut iş yükünü sınar. Yetersiz kanıtlı firmalar bu listeye girmez.'], sira: ['Sizden bekleyen bir şey yok', 'Jeff analizleri bitirdikçe mesajı hazır işletmeler buraya düşer.'],
-      havuz: ['Havuz boş', 'Yeni işletme bulmak için bir tarama başlatın.'], bekle: ['Yanıt bekleyen mesaj yok', 'Gönderdiğiniz mesajlar burada takip edilir.'],
-      arsiv: ['Arşiv boş', 'Kapanan ve elenen işletmeler burada durur.']}[state.leadSec];
-    $('#lead-view').innerHTML = top + `<div class="lempty"><h3>${EMPTY[0]}</h3>${state.q || state.city !== 'all' || state.leadJob ? 'Arama ya da süzgeç yüzünden boş olabilir.' : EMPTY[1]}</div>`;
+    const EMPTY = {temas: ['Henüz temas yok', 'Bir adaya kartından mesaj gönderdiğinizde burada takip edilir.'], gorusme: ['Aday yok', 'Bir tarama başlatın; filtreyi geçen işletmeler buraya kendiliğinden gelir.']}[state.leadSec];
+    $('#lead-view').innerHTML = `<div class="lempty"><h3>${EMPTY[0]}</h3>${state.q || state.city !== 'all' || state.leadJob ? 'Arama ya da süzgeç yüzünden boş olabilir.' : EMPTY[1]}</div>` + foot;
     return;
   }
   state.leadOrder = rows.map(([l]) => l.id);
-  $('#lead-view').innerHTML = top + `<ul class="lrows">${rows.map(leadRow).join('')}</ul>`;
+  $('#lead-view').innerHTML = `<ul class="lrows">${rows.map(leadRow).join('')}</ul>` + foot;
 }
 $('#lead-sections').addEventListener('click', e => { const b = e.target.closest('[data-sec]'); if (b) { state.leadSec = b.dataset.sec; state.leadSecSet = true; renderLeads(); } });
 $('#lead-chips').addEventListener('click', e => {
@@ -1468,42 +1429,6 @@ const useSel = {};  // findings Bilal ticked for the message, per lead
 const LB = (la, t, cls = 'btn-text', extra = '') => `<button class="btn ${cls} btn-sm" type="button" data-la="${la}" ${extra}>${t}</button>`;
 const LP = (la, t, extra) => LB(la, t, 'btn-primary', extra);
 
-/* ---------- one lead, one screen: İşletme · Jeff'in raporu · Raporu özelleştir ---------- */
-function leadSide(l, s){
-  const web = safeUrl(l.website), where = [l.district, l.city].filter(Boolean).join(', ');
-  let host = ''; try { host = web ? new URL(web).hostname.replace(/^www\./, '') : ''; } catch (e) {}
-  const tel = l.phone ? l.phone.replace(/[^\d+]/g, '') : '';
-  const ext = 'target="_blank" rel="noopener noreferrer"';
-  const row = (icon, html) => `<li><i class="ph ${icon}" aria-hidden="true"></i><span>${html}</span></li>`;
-  const facts = [
-    tel && row('ph-phone', `<a href="tel:${esc(tel)}">${esc(l.phone)}</a>${l.wa ? ' <small>WhatsApp var</small>' : ' <small>sabit hat</small>'}`),
-    l.email && row('ph-envelope-simple', `<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>`),
-    l.instagram && row('ph-instagram-logo', `<a href="https://instagram.com/${encodeURIComponent(l.instagram)}" ${ext}>@${esc(l.instagram)}</a>`),
-    web && row('ph-globe', `<a href="${esc(web)}" ${ext}>${esc(host || 'Web sitesi')}</a>`),
-    (l.address || where) && row('ph-map-pin', `${esc(l.address || where)}${l.lat && l.lon ? ` <a href="https://www.google.com/maps/search/?api=1&query=${+l.lat},${+l.lon}" ${ext}>Harita</a>` : ''}`)].filter(Boolean).join('');
-  const planned = l.follow_at && l.follow_at > Date.now() / 1000 ? l.follow_at : null;
-  let acts = '';
-  if (l.stage === 'Yanıt geldi') acts = LP('meeting', 'Görüşme ayarlandı') + LB('lost', 'Olmadı, kapat');
-  else if (l.stage === 'Görüşme') acts = LP('won', 'Kazanıldı') + LB('lost', 'Kaybedildi');
-  else if (l.stage === 'Gönderildi') acts = LP('reply', 'Yanıt geldi') + LB('snooze', '3 gün ertele') + (l.you?.startsWith('Sinyal yok') ? LB('lost', 'Sinyal yok, kapat') : '');
-  else if (!['Kapandı', 'Kazanıldı'].includes(l.stage)) acts = LB('close', 'İlgilenmiyorum');
-  return `<section class="wcol side" aria-label="İşletme">
-    <h3 class="wh">İşletme</h3>
-    <ul class="lfacts">${facts || '<li><span>İletişim bilgisi yok.</span></li>'}</ul>
-    <div class="lstate"><p class="kicker">Durum</p><p class="st ${s.list}">${s.busy ? '<i class="ph ph-circle-notch spin" aria-hidden="true"></i> ' : ''}${esc(s.text)}</p>${acts ? `<div class="row">${acts}</div>` : ''}</div>
-    <label class="kicker" for="lnote">Notunuz</label>
-    <textarea class="note" id="lnote" placeholder="Bu işletme hakkında bildiğiniz bir şey">${esc(l.note)}</textarea>
-    <div class="row remind">${[[2, '2 gün sonra hatırlat'], [7, '1 hafta sonra']].map(([d, t]) => `<button class="chip" type="button" data-follow="${d}">${t}</button>`).join('')}${l.follow_at ? '<button class="chip" type="button" data-follow="0">Hatırlatmayı kaldır</button>' : ''}</div>
-    ${planned ? `<p class="help">Hatırlatma: ${fmtDay(planned)}. Yalnızca size haber verir.</p>` : ''}
-    <details class="mini"><summary>Geçmiş (${l.events.length})</summary><ol class="tl">${l.events.map(([ts, t, x]) => `<li class="real" style="--c:#A2BCE7"><b>${esc(t)}</b><span>${fmtDate(ts)}${x ? ', ' + esc(x) : ''}</span></li>`).join('')}</ol></details>
-    <details class="mini"><summary>Diğer işlemler</summary><div class="row">
-      ${LB('edit', '<i class="ph ph-pencil-simple" aria-hidden="true"></i>Bilgileri düzenle', 'btn-glass')}
-      ${l.optout ? '' : LB('optout', 'Bir daha yazma (ret listesi)')}</div>
-      <div class="field" style="margin-top:10px"><label for="lstage">Aşamayı elle değiştir</label>
-        <select class="stage-select" id="lstage">${D.stages.concat(['Kapandı']).map(x => `<option ${x === l.stage ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
-    </details>
-  </section>`;
-}
 /* ---------- Derin araştırma: what was collected for this business, before Jeff's reasoning ---------- */
 const DECISION = {gorusme_adayi: 'Görüşme adayı', arastirma_gerekli: 'Güçlü aday için kanıt yetersiz'};
 function researchBox(l){
@@ -1571,81 +1496,17 @@ function reportCol(l, s){
 }
 function qualificationCol(l){
   const q = l.qualification;
-  const action = qualifying(l) ? '<p class="help">Jeff görüşme gerekçesini inceliyor.</p>' : LP('qualify', 'Görüşme gerekçesini Jeff araştırsın') + (q?.current && q.decision === 'gorusme_adayi' && !analysing(l) ? LP('prepare-qualified', 'Güncel kanıttan taslak hazırlasın') : '');
+  const action = qualifying(l) ? '<p class="help">Jeff görüşme gerekçesini inceliyor.</p>' : LB('qualify', 'Yeniden araştır', 'btn-glass');
   if (!q) return `<div class="reviewbox"><h4>Görüşmeye değer mi?</h4><p class="help">Somut iş yükü, hizmet uyumu ve güncel işletme kanalı birlikte değerlendirilir.</p>${action}</div>`;
   const labels = {service_fit: 'Hizmet uyumu', need_signal: 'İhtiyaç işareti', timing: 'Zamanlama', reachability: 'Ulaşılabilirlik'};
-  const kesif = (D.discovery_candidates?.ids || []).includes(l.id);
-  return `<div class="reviewbox"><h4>${q.current ? q.decision === 'gorusme_adayi' ? 'Görüşme adayı' : kesif ? 'Keşif görüşmesi adayı: ihtiyaç görüşmede sınanacak' : 'Güçlü aday için kanıt yetersiz' : 'Değerlendirme güncelliğini kaybetti'}</h4>
+  return `<div class="reviewbox"><h4>${q.current ? q.decision === 'gorusme_adayi' ? 'Görüşme adayı' : 'Güçlü aday için kanıt yetersiz' : 'Değerlendirme güncelliğini kaybetti'}</h4>
     <p class="help">Öncelik puanı ${q.score}/90 · ${Object.entries(q.dimensions || {}).map(([k, v]) => esc(labels[k] || k) + ': ' + v).join(' · ')}. Bu bir başarı olasılığı değildir.</p>
     <p><b>İhtiyaç hipotezi:</b> ${esc(q.hypothesis || 'Yeterli gerekçe yok.')}</p><p>${esc(q.reason)}</p>
-    <p><b>Neden şimdi?</b> ${esc(q.why_now)}</p><p><b>Görüşmede sor:</b> ${esc(q.discovery_question)}</p>
+    <p><b>Neden şimdi?</b> ${esc(q.why_now)}</p>
     ${q.adversarial ? `<div class="reviewbox"><h4>Karşıt karar kontrolü · ${q.adversarial.status === 'completed' ? 'Tamamlandı' : 'Eksik'}</h4><p><b>Alternatif açıklama:</b> ${esc(q.adversarial.alternative_explanation)}</p><p><b>Kanıtın sınırı:</b> ${esc(q.adversarial.evidence_limit)}</p><p><b>Tekliften ne zaman vazgeçeriz?</b> ${esc(q.adversarial.disconfirming_observation)}</p><p class="help">${esc(q.adversarial.scope)}</p></div>` : '<p class="help">Önceki ayrı eleştirel okuma mevcut; genişletilmiş karşıt karar kontrolü için yeniden inceleme gerekli.</p>'}
     <details class="mini"><summary>Instagram incelemesi</summary>${(q.instagram || []).length ? q.instagram.map(ig => `<p><a href="${esc(ig.profile)}" target="_blank" rel="noopener noreferrer">${esc(ig.profile)}</a> · ${ig.status === 'readable' ? 'Herkese açık profil metni okundu' : 'İçerik okunamadı; akış bilinmiyor'}</p><p class="help">Hesap işletmenin sitesinden bağlandı. ${esc(ig.limitation || 'Profil içeriği, iç mesaj trafiğini ve yanıt süresini kanıtlamaz.')}</p>${ig.meta_error_code === 190 ? '<p class="help">Meta erişim anahtarı reddedildi. Bağlantı yeniden yetkilendirilmeli; bu, firmanın Instagram’da olmadığı anlamına gelmez.</p>' : ''}`).join('') : '<p class="help">Okunan resmî sayfalarda doğrulanabilir Instagram profil bağlantısı bulunamadı. Bu, hesabın olmadığı anlamına gelmez.</p>'}</details>
     ${q.contact ? `<p><b>İşletmenin yayımladığı kanal:</b> ${esc(q.contact.value)}. Karar vericiye ulaşım ve kanalın çalışması teyit edilmedi.</p>` : '<p class="help">Güncel resmî işletme kanalı doğrulanamadı.</p>'}
     <details class="mini"><summary>Kaynaklar, karşı kanıt ve bilinmeyenler</summary><ol class="evidence">${(q.facts || []).map(f => `<li><p>${esc(f.quote)}</p>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Resmî kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · ${q.supported_ids?.includes(f.id) ? 'Jeff ayrı okumada dayanak olarak değerlendirdi' : 'Öncelik kararına dayanak yapılmadı'}</p></li>`).join('')}</ol><ul>${(q.unknowns || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>${action}</div>`;
-}
-function messageCol(l){
-  if (l.marketing?.source === 'qualification' || l.drafts?.source === 'qualification' || (l.qualification?.current && l.qualification.decision === 'gorusme_adayi' && !l.drafts)) return qualifiedMessageCol(l);
-  const a = l.analysis, d = l.drafts, sent = l.contacts || [];
-  const head = '<h3 class="wh">Raporu özelleştir</h3>';
-  if (analysing(l)) return `<section class="wcol msg">${head}<p class="empty-note">Jeff çalışıyor. İnceleme ve taslak tamamlandığında burada değerlendirebilirsiniz.</p></section>`;
-  if (l.optout) return `<section class="wcol msg">${head}<p class="empty-note">Bu işletme ret listesinde. Kendisine bir daha yazılmaz.</p></section>`;
-  if (!a || a.karar !== 'bulgu_var') return `<section class="wcol msg">${head}<p class="empty-note">${a ? 'Keskin bulgu olmadığı için mesaj yazılmaz.' : 'Jeff raporu yazınca mesajı buradan hazırlarsınız.'}</p></section>`;
-  const wish = `<label class="kicker" for="jnote">Jeff'e notunuz (isteğe bağlı)</label>
-    <input class="field-input" id="jnote" maxlength="300" placeholder="Örn. daha samimi yaz, pazar gününe değin" value="${esc(d?.note || '')}">
-    <div class="row" style="margin-top:10px">${d ? LB('drafts', 'Seçimlerle yeniden yaz', 'btn-glass') : LP('drafts', 'Mesajı Jeff yazsın')}</div>`;
-  if (!d) return `<section class="wcol msg">${head}<p class="help" style="margin:0 0 12px">Rapordan mesajda kullanılacak bulguları seçin. Jeff her kanal için kısa bir ilk mesaj yazar, sonunda firmaya özel kısa bağlantı olur. Hiçbir mesaj kendiliğinden gitmez.</p>${wish}</section>`;
-  const tabs = ['whatsapp', 'instagram', 'email'].concat(l.form ? ['form'] : []);
-  const can = {whatsapp: !!l.wa, instagram: !!l.instagram, email: true, form: !!l.form};
-  const tab = contactTab[l.id] || (l.wa ? 'whatsapp' : l.email ? 'email' : l.instagram ? 'instagram' : l.form ? 'form' : 'whatsapp');
-  const done = ch => sent.some(c => c.channel === ch);
-  const notes = (d.notes?.[tab === 'email' || tab === 'form' ? 'email_govde' : tab] || []).map(n => `<p class="warn"><i class="ph ph-warning" aria-hidden="true"></i>${esc(n)}</p>`).join('');
-  const text = {whatsapp: d.whatsapp, instagram: d.instagram, email: d.email_govde, form: d.email_govde}[tab];
-  const sentBtn = ch => LB(`sent-${{whatsapp: 'wa', instagram: 'ig', form: 'form'}[ch]}`, done(ch) ? 'Gönderildi ✓' : 'Gönderdim', 'btn-glass', done(ch) ? 'disabled' : '');
-  const go = {
-    whatsapp: l.wa ? LP('wa-open', '<i class="ph ph-whatsapp-logo" aria-hidden="true"></i>WhatsApp\'ta aç') + sentBtn('whatsapp') : '<p class="help" style="margin:0">Numara sabit hat, WhatsApp açılamaz. Başka bir kanal seçin.</p>',
-    instagram: l.instagram ? LP('ig-open', '<i class="ph ph-instagram-logo" aria-hidden="true"></i>Kopyala, DM\'yi aç') + sentBtn('instagram') : '<p class="help" style="margin:0">Instagram hesabı bulunamadı.</p>',
-    email: LP('mail-send', `<i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>${done('email') ? 'E-posta gönderildi' : 'E-postayı gönder'}`, done('email') ? 'disabled' : ''),
-    form: LP('form-open', '<i class="ph ph-browser" aria-hidden="true"></i>Kopyala, siteyi aç') + sentBtn('form')}[tab];
-  return `<section class="wcol msg">${head}
-    <details class="mini wishbox" ${d.note ? 'open' : ''}><summary>Jeff'e not ve yeniden yazdırma</summary>${wish}</details>
-    <div class="chan" role="group" aria-label="Kanal">${tabs.map(c => `<button type="button" data-ctab="${c}" aria-pressed="${tab === c}" class="${can[c] ? '' : 'off'}">${CH_LABEL[c]}${done(c) ? ' ✓' : ''}</button>`).join('')}</div>
-    ${tab === 'email' ? `<div class="mailhead"><input class="field-input" id="c-to" value="${esc(l.email || '')}" placeholder="Alıcı: ornek@isletme.com" aria-label="Alıcı"><input class="field-input" id="c-subject" value="${esc(d.email_konu)}" aria-label="Konu"></div>` : ''}
-    <label class="sr-only" for="c-text">Mesaj</label><textarea class="draft" id="c-text">${esc(text)}</textarea>${notes}
-    ${l.marketing?.current ? `<div class="reviewbox"><p class="help">${esc({'accepted': 'Bu metni uygun buldunuz.', 'rejected': 'Bu metni uygun bulmadınız.', 'edited': 'Düzenleme kaydedildi; metni yeniden değerlendirin.'}[l.marketing.review?.decision] || 'Taslağı ve dayandığı bulguları inceleyin. Değerlendirmeniz gönderim yapmaz.')}</p>
-      <div class="row">${LP('review-accept', 'Uygun buldum')}${LB('review-reject', 'Uygun değil')}${LB('review-edit', 'Düzenlemeyi kaydet', 'btn-glass', tab !== 'whatsapp' ? 'disabled title="İlk pilotta WhatsApp taslağı düzenlenir"' : '')}</div></div>` : ''}
-    <div class="row send2">${go}${LB('copy-text', '<i class="ph ph-copy" aria-hidden="true"></i>Kopyala')}</div>
-    <p class="help">${{whatsapp: 'Kendi WhatsApp\'ınızda metin yazılı açılır; gönderen sizsiniz.', instagram: 'Metin panoya kopyalanır, DM penceresine yapıştırırsınız.',
-      email: 'info@cybergene.co adresinden gider, kopyası info@ kutusuna düşer. Altına "bir daha yazmayın" satırı eklenir.', form: 'Metin kopyalanır, site açılır; iletişim formuna yapıştırıp gönderin.'}[tab]}</p>
-    ${sent.length ? `<ul class="contact-log">${sent.map(c => `<li>${CH_LABEL[c.channel]}, ${fmtDate(c.at)}</li>`).join('')}</ul>` : ''}
-  </section>`;
-}
-function qualifiedMessageCol(l){
-  const m = l.marketing || {}, d = l.drafts || {};
-  const ready = m.current && m.published_at && d.marketing_job === m.job_id;
-  const candidate = l.qualification?.current && l.qualification.decision === 'gorusme_adayi';
-  const historical = m.published_at && d.marketing_job === m.job_id;
-  const status = analysing(l) ? 'Jeff kaynakları ve taslağın iddialarını denetliyor.' : m.current
-    ? {'accepted': 'Taslağı uygun buldunuz. Gönderim yapılmadı.', 'rejected': 'Taslağı uygun bulmadınız. Jeff’e not verip yeniden hazırlatabilirsiniz.'}[m.review?.decision] || 'Taslak ve karşıt inceleme hazır; değerlendirmeniz bekleniyor.'
-    : m.stale_reason || (m.status === 'failed' ? m.note || 'Taslak denetlenemedi; hazır olarak işaretlenmedi.' : 'Güncel aday raporundaki kaynaklardan tek ilk temas taslağı hazırlanır.');
-  const audit = m.audit;
-  return `<section class="wcol msg" aria-label="Kaynaklı ilk temas taslağı"><h3 class="wh">İlk temas taslağı</h3>
-    <p class="help" aria-live="polite">${esc(status)}</p>
-    ${analysing(l) ? '<p class="empty-note">Bittiğinde metin ve dayanakları burada görünecek.</p>' : ''}
-    ${historical ? `<label class="kicker" for="c-text">${ready ? 'Jeff’in hazırladığı metin' : 'Önceki metin · yeniden inceleme gerekli'}</label><textarea class="draft" id="c-text" readonly>${esc(d.whatsapp || '')}</textarea>
-      <p><b>Önerilen görev:</b> ${esc(d.scope)}</p><p><b>Mevcut çözüm:</b> ${esc(d.known_counter)}</p>` : ''}
-    ${audit ? `<div class="reviewbox"><h4>Taslağın karşıt incelemesi · ${audit.approved === true ? 'Uygun bulundu' : 'Uygun bulunmadı'}</h4>
-      <p>${esc(audit.reason)}</p><p><b>Alternatif açıklama:</b> ${esc(audit.alternative_explanation)}</p>
-      <p><b>Kanıtın sınırı:</b> ${esc(audit.evidence_limit)}</p><p><b>Tekliften ne zaman vazgeçeriz?</b> ${esc(audit.disconfirming_condition)}</p>
-      <p class="help">Jeff’in ayrı oturumdaki eleştirel okumasıdır; bağımsız saha doğrulaması ve kullanıcı kabulü değildir.</p>
-      ${(audit.unsupported_claims || []).length ? `<ul>${audit.unsupported_claims.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>` : ''}
-    ${ready ? `<details class="mini" open><summary>Cümle ve kanıt eşleşmesi</summary><ol class="evidence">${(d.claim_audit || []).map(c => `<li><p>${esc(c.claim)}</p>${c.fact_ids.map(id => `<span class="tag">Kaynak ${id + 1}</span>`).join(' ')}</li>`).join('')}</ol>
-      <ol class="evidence">${(m.evidence || []).map(f => `<li><b>Kaynak ${f.id + 1}</b><blockquote>${esc(f.quote)}</blockquote>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">Kaynağı aç</a>` : ''}<p class="help">${fmtDate(f.observed_at)} · Yayıncı beyanı; alıntının kaynakta bulunduğu denetlendi.</p></li>`).join('')}</ol></details>
-      <div class="reviewbox"><p class="help">Değerlendirmeniz gönderim yapmaz. Metinde değişiklik için Jeff’e not verin; yeni taslak yeniden karşıt incelemeden geçer.</p>
-        <div class="row">${LP('review-accept', 'Uygun buldum')}${LB('review-reject', 'Uygun değil')}${LB('copy-text', 'Metni kopyala', 'btn-glass')}</div></div>` : ''}
-    ${m.source_check?.verified_at ? `<p class="help" data-source-check>Taslak öncesi kaynak denetimi: ${fmtDate(m.source_check.verified_at)}. Rapor yenilendiğinde, geçerliliğini kaybettiğinde veya hizmet kapsamı değiştiğinde eski taslak yeniden inceleme gerektirir.</p>` : ''}
-    ${candidate && !analysing(l) && !l.optout ? `<label class="kicker" for="q-draft-note">Jeff’e üslup notunuz (isteğe bağlı)</label><input class="field-input" id="q-draft-note" maxlength="300" value="${esc(d.note || '')}" placeholder="Örn. daha kısa ve doğrudan yaz"><div class="row">${LP('prepare-qualified', historical ? 'Güncel kanıttan yeniden hazırlasın' : 'Güncel kanıttan taslak hazırlasın')}</div>` : ''}
-  </section>`;
 }
 async function openLead(id){
   if (!D.leads.some(x => x.id === id)) return;
@@ -1677,48 +1538,85 @@ async function openLead(id){
       </div>
       <div class="row head-acts">${nav}<button class="btn btn-primary btn-sm" type="button" data-lead-talk="${esc(l.id)}"><i class="ph ph-chats-circle" aria-hidden="true"></i>Jeff'le konuş</button><button class="icon-btn" type="button" data-close aria-label="Kapat"><i class="ph ph-x" aria-hidden="true"></i></button></div>
     </div>
-    <div class="sheet-body work">${leadSide(l, s)}${reportCol(l, s)}${messageCol(l)}</div>`, decisionFirst(l) ? 'lead decision-first' : 'lead');
-  if (decisionFirst(l)) organizeDecisionCard(l);
+    <div class="sheet-body lcard">${leadCard(l, s)}</div>`, 'lead');
 }
-// Source-qualified drafts share the same decision view; keep every report and action.
-function decisionFirst(l){
-  return l.marketing?.source === 'qualification' || l.drafts?.source === 'qualification';
-}
-function organizeDecisionCard(l){
-  const body = $('#overlay .sheet-body'), report = body.querySelector('.report'), msg = body.querySelector('.msg'), side = body.querySelector('.side');
-  const fold = title => {
-    const el = document.createElement('details'); el.className = 'fold decision-fold';
-    const summary = document.createElement('summary'); summary.textContent = title;
-    const content = document.createElement('div'); content.className = 'in';
-    el.append(summary, content); return [el, content];
-  };
-  const top = document.createElement('section'); top.className = 'decision-top';
-  top.innerHTML = `<p class="decision-reason">${esc(candidateSummary(l))}</p>`;
-  const heading = msg.querySelector('h3'); top.append(heading);
-  const text = msg.querySelector('#c-text');
-  if (text) {
-    const preview = document.createElement('p'); preview.className = 'decision-preview';
-    // Quote the draft's closing question; never replace the complete copyable text.
-    const sentences = text.value.trim().split(/(?<=[.!?])\s+/);
-    preview.textContent = sentences[sentences.length - 1]; top.append(preview);
+/* One lead, one column (14.10.2026, Bilal): why it is a candidate, the message, the status, the note.
+   Deep research is a button here; its full report and everything else sit in closed folds below. */
+function leadCard(l, s){
+  const ext = 'target="_blank" rel="noopener noreferrer"';
+  const tel = l.phone ? l.phone.replace(/[^\d+]/g, '') : '';
+  const g = l.gate_info?.google, d = l.deep, sent = l.contacts || [];
+  const done = ch => sent.some(c => c.channel === ch);
+  const open = !['Yanıt geldi', 'Görüşme', 'Kazanıldı', 'Kapandı'].includes(l.stage) && !l.optout;
+  /* 1. işletme profili: kanallar ve Google puanı, tek satır */
+  const links = [
+    l.instagram && `<a class="chip" href="https://instagram.com/${encodeURIComponent(l.instagram)}" ${ext}><i class="ph ph-instagram-logo" aria-hidden="true"></i>@${esc(l.instagram)}</a>`,
+    l.wa && `<a class="chip" href="https://wa.me/${esc(l.wa)}" ${ext}><i class="ph ph-whatsapp-logo" aria-hidden="true"></i>WhatsApp</a>`,
+    tel && `<a class="chip" href="tel:${esc(tel)}"><i class="ph ph-phone" aria-hidden="true"></i>${esc(l.phone)}</a>`,
+    l.email && `<a class="chip" href="mailto:${esc(l.email)}"><i class="ph ph-envelope-simple" aria-hidden="true"></i>${esc(l.email)}</a>`,
+    safeUrl(l.website) && `<a class="chip" href="${esc(safeUrl(l.website))}" ${ext}><i class="ph ph-globe" aria-hidden="true"></i>Site</a>`,
+    safeUrl(g?.maps) && `<a class="chip" href="${esc(g.maps)}" ${ext}><i class="ph ph-map-pin" aria-hidden="true"></i>${g.rating ?? '–'}★ · ${g.count} yorum</a>`].filter(Boolean).join('');
+  const profile = `<div class="lc-prof">${links ? `<div class="row lc-links">${links}</div>` : '<p class="help">İletişim bilgisi yok.</p>'}</div>`;
+  /* 2. Jeff'in özeti: derin analiz varsa onun özeti, yoksa kapının gördükleri */
+  const summary = `<p class="lc-sum"><span class="kicker">Jeff'in özeti</span>${esc(d?.ozet || l.jeff_summary || candReason(l))}</p>`;
+  /* 3. derin analiz: yalnız düğmeyle başlar */
+  const job = (D.jobs || []).find(j => j.kind === 'deep' && ['queued', 'running'].includes(j.status) && (j.params?.ids || []).includes(l.id));
+  let deepHtml;
+  if (job) deepHtml = `<p class="lc-busy"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> ${esc(job.note && job.note !== 'Sırada bekliyor' ? job.note : 'Derin analiz sırada')}</p><p class="help">Kartı kapatabilirsiniz; bitince sonuç burada olur.</p>`;
+  else if (!d) deepHtml = `${LP('deep', '<i class="ph ph-magnifying-glass" aria-hidden="true"></i>Derin analiz başlat')}<p class="help">Google kaydı ve yorumlar, resmî site ve Instagram okunur; Jeff muhakeme edip tespitlerini ve önerisini getirir. Birkaç dakika sürer. Mesaj yazmaz, göndermez.</p>`;
+  else {
+    const k = d.kaynaklar || {};
+    const read = [k.google ? `Google kaydı${k.yorum ? ` ve ${k.yorum} yorum` : ''}` : '', k.site_sayfa ? `${k.site_sayfa} site sayfası` : '', k.instagram ? `${k.instagram} Instagram metni` : ''].filter(Boolean).join(', ');
+    deepHtml = `<p class="lc-fit"><span class="tag ${({'yüksek': 'strong', 'orta': 'mid', 'düşük': 'weak'})[d.uygunluk] || 'mid'}">Uygunluk: ${esc(d.uygunluk)}</span> ${esc(d.uygunluk_gerekce)}</p>
+      ${(d.tespitler || []).length ? `<h4>Tespitler</h4><ol class="lc-finds">${d.tespitler.map(t => `<li><b>${esc(t.baslik)}</b><p>${esc(t.aciklama)}</p>${t.alinti ? `<blockquote>"${esc(t.alinti)}"</blockquote>` : ''}<p class="help">${t.dogrulandi ? `Alıntı kaynakta bulundu${safeUrl(t.url) ? ` · <a href="${esc(t.url)}" ${ext}>Kaynağı aç</a>` : ''}` : 'Jeff’in yorumu; alıntı okunan kaynakta bulunamadı'}</p></li>`).join('')}</ol>` : '<p class="help">Kaynaklarda kayda değer bir tespit çıkmadı.</p>'}
+      ${d.oneri?.ne ? `<h4>Önerisi</h4><p>${d.oneri.arguman ? `<b>${esc(d.oneri.arguman)}:</b> ` : ''}${esc(d.oneri.ne)}</p>${d.oneri.neden ? `<p>${esc(d.oneri.neden)}</p>` : ''}${d.oneri.acilis ? `<p class="help">İlk mesajda: ${esc(d.oneri.acilis)}</p>` : ''}` : ''}
+      <details class="mini"><summary>Bilinmeyenler ve okunan kaynaklar</summary>${(d.bilinmeyenler || []).length ? `<ul>${d.bilinmeyenler.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="help">Okunan: ${esc(read || 'kaynak yok')}. ${fmtDate(d.at)}.</p></details>
+      <div class="row">${LB('deep', 'Yeniden analiz et')}</div>`;
   }
-  const actions = msg.querySelector('[data-la="review-accept"]')?.closest('.row');
-  if (actions) { actions.classList.add('decision-actions'); top.append(actions); }
-  const status = msg.querySelector('[aria-live]'); if (status) top.append(status);
-  const [why, whyContent] = fold('Neden bu?');
-  const [proof, proofContent] = fold('Kanıt?');
-  // Every original evidence disclosure is retained, inside one closed outer disclosure.
-  for (const section of [report, msg]) {
-    for (const detail of section.querySelectorAll('details.mini')) {
-      detail.open = true; proofContent.append(detail);
-    }
+  /* 4. işletmeye özel ilk temas mesajları: DM ve e-posta ayrı */
+  const ft = l.drafts && l.drafts.source !== 'qualification' ? l.drafts : null;
+  let msgHtml = '';
+  if (l.optout) msgHtml = '<p class="help">Ret listesinde; bir daha yazılmaz.</p>';
+  else if (open && !ft) msgHtml = `${LP('first-touch', 'Mesajları hazırla')}<p class="help">Instagram DM, WhatsApp ve e-posta ayrı ayrı yazılır. ${d ? 'Derin analizin tespitleri kullanılır.' : 'Derin analiz yoksa kapının gözlemiyle yazılır; önce analiz yaparsanız mesajlar daha özel olur.'} Hiçbiri kendiliğinden gitmez.</p>`;
+  else if (open) {
+    const dm = ft.instagram || '', wa = ft.whatsapp || ft.instagram || '';
+    msgHtml = `<p class="help">${ft.basis === 'derin' ? 'Derin analizin tespitlerine göre yazıldı.' : 'Kapının gözlemine göre yazıldı.'} Gönderen sizsiniz; düzenleyebilirsiniz.</p>
+      <div class="lc-msg"><h4><i class="ph ph-instagram-logo" aria-hidden="true"></i>Instagram DM${done('instagram') ? ' <span class="tag strong">gönderildi</span>' : ''}</h4>
+        <label class="sr-only" for="m-dm">DM metni</label><textarea class="draft" id="m-dm">${esc(dm)}</textarea>
+        <div class="row lc-send">${l.instagram ? LP('dm-open', 'DM gönder') + LB('sent-dm', done('instagram') ? 'Gönderildi ✓' : 'Gönderdim', 'btn-text', done('instagram') ? 'disabled' : '') : '<span class="help">Instagram hesabı bulunamadı.</span>'}</div>
+        ${l.instagram ? '<p class="help">"DM gönder" metni kopyalar ve işletmenin DM penceresini açar; yapıştırıp gönderin, sonra "Gönderdim" deyin.</p>' : ''}</div>
+      <div class="lc-msg"><h4><i class="ph ph-whatsapp-logo" aria-hidden="true"></i>WhatsApp${done('whatsapp') ? ' <span class="tag strong">gönderildi</span>' : ''}</h4>
+        <label class="sr-only" for="m-wa">WhatsApp metni</label><textarea class="draft" id="m-wa">${esc(wa)}</textarea>
+        <div class="row lc-send">${l.wa ? LP('wa-send', 'WhatsApp’tan gönder') + LB('sent-wa2', done('whatsapp') ? 'Gönderildi ✓' : 'Gönderdim', 'btn-text', done('whatsapp') ? 'disabled' : '') : `<span class="help">${l.phone ? 'Kayıtlı numara sabit hat; WhatsApp açılamaz.' : 'Telefon numarası yok.'}</span>`}</div>
+        ${l.wa ? '<p class="help">Kendi WhatsApp’ınızda metin yazılı açılır; gönderip "Gönderdim" deyin.</p>' : ''}</div>
+      <div class="lc-msg"><h4><i class="ph ph-envelope-simple" aria-hidden="true"></i>E-posta${done('email') ? ' <span class="tag strong">gönderildi</span>' : ''}</h4>
+        <div class="mailhead"><input class="field-input" id="c-to" value="${esc(l.email || '')}" placeholder="Alıcı: ornek@isletme.com" aria-label="Alıcı"><input class="field-input" id="c-subject" value="${esc(ft.email_konu || '')}" placeholder="Konu" aria-label="Konu"></div>
+        <label class="sr-only" for="c-text">E-posta metni</label><textarea class="draft" id="c-text">${esc(ft.email_govde || '')}</textarea>
+        <div class="row lc-send">${LP('mail-send', `<i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>${done('email') ? 'E-posta gönderildi' : 'E-posta gönder'}`, done('email') ? 'disabled' : '')}${LB('copy-mail', 'Kopyala')}</div>
+        <p class="help">info@cybergene.co adresinden gider; altına "bir daha yazmayın" satırı eklenir.</p></div>
+      <div class="row">${LB('first-touch', d && ft.basis !== 'derin' ? 'Analize göre yeniden yaz' : 'Yeniden yaz')}</div>`;
   }
-  const checked = msg.querySelector('[data-source-check]'); if (checked) proofContent.append(checked);
-  const [full, fullContent] = fold('Taslağın tamamı');
-  if (text) { fullContent.append(msg.querySelector('label[for="c-text"]'), text); }
-  const [info, infoContent] = fold('İşletme bilgileri ve notlar'); infoContent.append(side);
-  whyContent.append(report, msg);
-  body.replaceChildren(top, ...(text ? [full] : []), why, proof, info);
+  if (sent.length) msgHtml += `<ul class="contact-log">${sent.map(c => `<li>${CH_LABEL[c.channel] || c.channel}, ${fmtDate(c.at)}</li>`).join('')}</ul>`;
+  /* 5. durum ve not */
+  let acts = '';
+  if (l.stage === 'Yanıt geldi') acts = LP('meeting', 'Görüşme ayarlandı') + LB('lost', 'Olmadı, kapat');
+  else if (l.stage === 'Görüşme') acts = LP('won', 'Kazanıldı') + LB('lost', 'Kaybedildi');
+  else if (l.stage === 'Gönderildi') acts = LP('reply', 'Yanıt geldi') + LB('snooze', '3 gün ertele') + LB('lost', 'Kapat');
+  else if (!['Kapandı', 'Kazanıldı'].includes(l.stage)) acts = LB('close', 'İlgilenmiyor');
+  const where = l.address || [l.district, l.city].filter(Boolean).join(', ');
+  return `${profile}${summary}
+    <section class="lc-sec"><h3 class="wh">Derin analiz</h3>${deepHtml}</section>
+    ${msgHtml ? `<section class="lc-sec"><h3 class="wh">İlk temas mesajları</h3>${msgHtml}</section>` : ''}
+    <section class="lc-sec"><h3 class="wh">Durum</h3><p class="st ${s.list}">${esc(l.stage === 'Yeni' || l.stage === 'İncelendi' ? 'Henüz yazılmadı' : s.text)}</p>${acts ? `<div class="row">${acts}</div>` : ''}
+      <label class="sr-only" for="lnote">Notunuz</label><textarea class="note" id="lnote" placeholder="Not (görüşmede ne dendi, ne zaman aranacak)">${esc(l.note)}</textarea></section>
+    <details class="fold"><summary>Diğer</summary><div class="in">
+      ${where ? `<p class="help">${esc(where)}</p>` : ''}
+      <div class="row">${LB('edit', 'Bilgileri düzenle', 'btn-glass')}${l.optout ? '' : LB('optout', 'Bir daha yazma')}</div>
+      <div class="field" style="margin-top:10px"><label for="lstage">Aşamayı elle değiştir</label>
+        <select class="stage-select" id="lstage">${D.stages.concat(['Kapandı']).map(x => `<option ${x === l.stage ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      ${l.qualification || l.analysis ? `<details class="mini"><summary>Eski araştırma raporu</summary>${l.analysis ? reportCol(l, s) : researchBox(l) + qualificationCol(l)}</details>` : ''}
+      <details class="mini"><summary>Geçmiş (${l.events.length})</summary><ol class="tl">${l.events.map(([ts, t, x]) => `<li class="real" style="--c:#A2BCE7"><b>${esc(t)}</b><span>${fmtDate(ts)}${x ? ', ' + esc(x) : ''}</span></li>`).join('')}</ol></details>
+    </div></details>`;
 }
 async function showEvidence(id){
   const box = $('#evidence-list'); if (!box) return;
@@ -1799,6 +1697,30 @@ async function leadAction(a, extra, id = openLeadId){
     if (a === 'ig-open') { try { await navigator.clipboard.writeText(txt()); } catch (e) {} window.open(`https://ig.me/m/${encodeURIComponent(L.instagram)}`, '_blank', 'noopener'); return toast('Metin kopyalandı, DM penceresi açıldı. Gönderdikten sonra "Gönderdim" deyin.'); }
     if (a === 'copy-text') { try { await navigator.clipboard.writeText(txt()); toast('Metin kopyalandı.'); } catch (e) { toast('Kopyalanamadı; metni seçip kopyalayın.'); } return; }
     if (a === 'form-open') { try { await navigator.clipboard.writeText(txt()); } catch (e) {} const w = safeUrl(L.website); if (w) window.open(w, '_blank', 'noopener'); return toast('Metin kopyalandı, site açıldı. Formdan gönderdikten sonra "Gönderdim" deyin.'); }
+    if (a === 'deep') {
+      try { const r = await api(`lead/${id}/deep`, {}); state.radarJob = r.job; knownJobs?.add(r.job); toast('Derin analiz başladı. Birkaç dakika sürer; kartı kapatabilirsiniz.'); pollJobs(); }
+      catch (e) { toast(e.detail || 'Derin analiz başlatılamadı.'); return; }
+      return done();
+    }
+    if (a === 'first-touch') {
+      toast('Jeff mesajları yazıyor; birkaç saniye sürer.');
+      try { await api(`lead/${id}/first-touch`, {}); toast('Mesajlar hazır. Okuyun, gerekirse düzeltin.'); }
+      catch (e) { toast(e.detail || 'Mesajlar yazılamadı.'); return; }
+      return done();
+    }
+    const dmText = () => ($('#m-dm')?.value || '').trim();
+    if (a === 'dm-open') { try { await navigator.clipboard.writeText(dmText()); } catch (e) {} window.open(`https://ig.me/m/${encodeURIComponent(L.instagram)}`, '_blank', 'noopener'); return toast('Metin kopyalandı, DM penceresi açıldı. Yapıştırıp gönderin, sonra "Gönderdim" deyin.'); }
+    const waText = () => ($('#m-wa')?.value || '').trim();
+    if (a === 'wa-send') { window.open(`https://wa.me/${L.wa}?text=${encodeURIComponent(waText())}`, '_blank', 'noopener'); return toast('WhatsApp açıldı. Gönderdikten sonra "Gönderdim" deyin.'); }
+    if (a === 'copy-mail') { try { await navigator.clipboard.writeText(`${$('#c-subject')?.value || ''}\n\n${txt()}`); toast('Konu ve metin kopyalandı.'); } catch (e) { toast('Kopyalanamadı; metni seçip kopyalayın.'); } return; }
+    if (a === 'sent-dm' || a === 'sent-wa2') {
+      // an older sourced draft may refuse the record; then only the stage changes
+      const channel = a === 'sent-dm' ? 'instagram' : 'whatsapp';
+      try { await api(`lead/${id}/contacted`, {channel, text: a === 'sent-dm' ? dmText() : waText()}); }
+      catch (e) { if (L.optout) return toast('Ret listesinde; kaydedilmedi.'); await api(`lead/${id}/sent`, {}); }
+      toast('Kaydedildi. 3 gün sonra takip hatırlatması kuruldu.');
+      return done();
+    }
     if (a === 'sent-wa' || a === 'sent-ig' || a === 'sent-form') {
       try { await api(`lead/${id}/contacted`, {channel: {'sent-wa': 'whatsapp', 'sent-ig': 'instagram', 'sent-form': 'form'}[a], text: txt()}); toast('Kaydedildi. 3 gün sonra takip hatırlatması kuruldu.'); }
       catch (e) { toast(e.detail || 'Kaydedilemedi.'); return; }
@@ -1874,7 +1796,7 @@ $('#overlay').addEventListener('click', async e => {
   if (sheetKind !== 'lead') return;
   const nv = e.target.closest('[data-nav]'); if (nv) return stepLead(+nv.dataset.nav);
   const b = e.target.closest('[data-la]');
-  if (b) { if (b.dataset.la === 'focus-contact') return $('#overlay .contact')?.scrollIntoView({behavior: 'smooth'}); return leadAction(b.dataset.la, b.dataset.la === 'draft' ? ($('.channel [data-channel][aria-pressed=true]')?.dataset.channel || 'WhatsApp') : b.dataset.la === 'link' ? b.dataset.arg : undefined); }
+  if (b) { if (b.dataset.la === 'focus-contact') return $('#overlay .contact')?.scrollIntoView({behavior: 'smooth'}); return leadAction(b.dataset.la, b.dataset.la === 'draft' ? (b.dataset.ch || 'WhatsApp') : b.dataset.la === 'link' ? b.dataset.arg : undefined); }
   const c = e.target.closest('[data-channel]'); if (c) return leadAction('channel', c.dataset.channel);
   const ct = e.target.closest('[data-ctab]'); if (ct) { contactTab[openLeadId] = ct.dataset.ctab; const y = $('#overlay .sheet-body')?.scrollTop || 0; await openLead(openLeadId); const sb = $('#overlay .sheet-body'); if (sb) sb.scrollTop = y; return; }
   const f = e.target.closest('[data-follow]'); if (f) return leadAction('follow', f.dataset.follow);

@@ -281,7 +281,8 @@ def jeff_context(store):
     sec = ", ".join(f"{label}: {counts[k]}" for k, label in LISTS)
     from .metrics import funnel
     sec += "\nHuni: " + " → ".join(f"{x['step']} {x['n']}" for x in funnel(leads))
-    shortlist = qualification.board(store)
+    from .shortlist import board as _shortlist_board
+    shortlist = _shortlist_board(store)
     sec += f"\nGörüşme adayı hedefi: {len(shortlist['ids'])}/10. İhtiyaç ve satın alma niyeti görüşmede doğrulanmalı."
     sec += "\nAday firma kimlikleri: " + ", ".join(shortlist['ids'])
     d = store.get_meta("digest") or {}
@@ -311,6 +312,9 @@ def lead_research(store, lead):
 def lead_draft(store, lead, channel):
     facts = (f"İşletme: {lead['name']}\nŞehir: {lead.get('city') or '-'}\nSektör: {lead.get('sector') or '-'}\n"
              f"İhtiyaç: {lead.get('need') or '-'}\nBizim karşılığımız: {lead.get('fit') or '-'}\nKanal: {channel}")
+    gap = (json.loads(lead.get("gate_info") or "{}") or {}).get("first_gap")
+    if gap:
+        facts += f"\nAçık kaynakta görülen (varsayım olarak, soru diliyle kullan): {gap}"
     text = llm.generate(
         facts,
         system=("Bilal'in göndereceği ilk mesajı yazıyorsun. Mesaj doğrudan Bilal'in ağzından çıkar: Türkçe, ilk kişi tekil, sıcak ama sade. "
