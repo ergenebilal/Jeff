@@ -57,7 +57,9 @@ def main():
         # Include the actual installed transport and readiness reader, without settings.
         for source_name, source_path in (
                 ('transport_collect_windows_source.py', Path(__file__)),
-                ('transport_pablo_runtime_readiness.py', Path(__file__).with_name('pablo_runtime_readiness.py'))):
+                ('transport_pablo_runtime_readiness.py', Path(__file__).with_name('pablo_runtime_readiness.py')),
+                ('transport_pablo_drift_monitor.py', Path(__file__).with_name('pablo_drift_monitor.py')),
+                ('transport_pablo_drift.py', Path(__file__).with_name('pablo_drift.py'))):
             source_data = source_path.read_bytes().replace(b'\r\n', b'\n')
             compile(source_data, str(source_path), 'exec')
             packet['files'][source_name] = {'content': base64.b64encode(source_data).decode(),
