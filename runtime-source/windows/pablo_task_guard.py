@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pablo_local_drafts import LocalDraftStore, DraftError, expectation
 from pablo_antigravity import ALIASES as ANTIGRAVITY_ALIASES, prepare as prepare_antigravity
 from pablo_approval_client import action_binding, ApprovalUnavailable
+from pablo_read_outcome import READ_ALIASES, bind_read, observe_read
 
 
 def fingerprint(action, params):
@@ -731,6 +732,7 @@ class TaskGuard:
                 if action in GUI_ACTIONS and not self.desktop_ready():
                     result = self.response(rid, 'BLOCKED', error='Desktop locked, active or unavailable')
                 else:
+                    read_criterion = bind_read(rid, action, params) if action in READ_ALIASES else None
                     raw = self.actions[action](params)
                     if not isinstance(raw, dict):
                         raw = dict(ok=False, error='Invalid action response')
@@ -745,6 +747,9 @@ class TaskGuard:
                     if self.capability_policy is not None:
                         result.update(capability_admission={'admitted':True,'class':'execution_only_no_observer'},outcome_verified=False,
                                       completion_authority=False,worker_action_succeeded=ok)
+                    if action in READ_ALIASES:
+                        proof = observe_read(read_criterion, raw)
+                        result.update(file_read_outcome=proof, file_read_verified=proof['returned_content_verified'])
             except Exception as exc:
                 result = self.response(rid, 'ERROR', error=type(exc).__name__)
             with self.connect() as db:
