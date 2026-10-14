@@ -85,7 +85,7 @@ document.addEventListener('click', e => {
   const s = e.target.closest('[data-say]'); if (s) { go('komuta'); ask(s.dataset.say); }
   const lb = e.target.closest('[data-lead]'); if (lb) openLead(lb.dataset.lead);
 });
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('tr[data-lead]')) openLead(e.target.dataset.lead); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('tr[data-lead], li[data-lead]')) openLead(e.target.dataset.lead); });
 
 /* ---------- derived ---------- */
 const oppOpen = o => o.status === 'Yeni' || o.status === 'Takipte';
@@ -1314,7 +1314,26 @@ function leadPool(){
     && (!q || [l.name, l.city, l.district, leadKind(l), leadSearchData?.get(l.id)?.note, leadSearchData?.get(l.id)?.address].join(' ').toLocaleLowerCase('tr').includes(q)));
 }
 const candReason = l => D.meeting_candidates?.reasons?.[l.id] || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l);
+const FIT_TAG = {'yüksek': 'strong', 'orta': 'mid', 'düşük': 'weak'};
+/* a candidate row: who, where, why in one line; on the right what is done (analysis, messages) and how to reach them */
+function candRow(l){
+  const c = D.meeting_candidates?.cards?.[l.id] || {};
+  const busy = (D.jobs || []).some(j => j.kind === 'deep' && ['queued', 'running'].includes(j.status) && (j.params?.ids || []).includes(l.id));
+  const meta = [l.district || l.city, c.reviews ? `${c.rating ?? '–'}★ · ${c.reviews} yorum` : ''].filter(Boolean).join(' · ');
+  const why = (c.deep_summary || candReason(l)).split(/(?<=[.!?])\s/)[0];
+  const tags = [busy ? '<span class="tag you"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Analiz sürüyor</span>'
+      : c.fit ? `<span class="tag ${FIT_TAG[c.fit] || 'mid'}">Analiz: ${esc(c.fit)}</span>` : '<span class="tag dim">Analiz yok</span>',
+    c.messages ? '<span class="tag strong">Mesaj hazır</span>' : ''].join('');
+  const ch = [c.whatsapp && '<i class="ph ph-whatsapp-logo" title="WhatsApp"></i>', c.instagram && '<i class="ph ph-instagram-logo" title="Instagram"></i>',
+    c.email && '<i class="ph ph-envelope-simple" title="E-posta"></i>'].filter(Boolean).join('');
+  return `<li class="lrow cand" data-lead="${l.id}" tabindex="0" role="button" aria-label="${esc(l.name)} kartını aç">
+    <span class="lrow-main"><span class="lrow-name"><span class="t">${esc(l.short || l.name)}</span></span>
+      <span class="lrow-meta">${esc(meta)}</span><span class="lrow-why">${esc(why)}</span></span>
+    <span class="lrow-tags">${tags}</span><span class="lrow-ch" aria-label="Kanallar">${ch}</span>
+    <i class="ph ph-caret-right lrow-go" aria-hidden="true"></i></li>`;
+}
 function leadRow([l, s]){
+  if (state.leadSec === 'gorusme') return candRow(l);
   const where = l.district || l.city || '';
   return `<li class="lrow ${s.list}${s.busy ? ' busy' : ''}">
     <button class="lrow-main" type="button" data-lead="${l.id}" title="${esc(l.name)}">
@@ -1604,19 +1623,21 @@ function leadCard(l, s){
   else if (l.stage === 'Gönderildi') acts = LP('reply', 'Yanıt geldi') + LB('snooze', '3 gün ertele') + LB('lost', 'Kapat');
   else if (!['Kapandı', 'Kazanıldı'].includes(l.stage)) acts = LB('close', 'İlgilenmiyor');
   const where = l.address || [l.district, l.city].filter(Boolean).join(', ');
-  return `${profile}${summary}
+  /* wide screens: left = who and why (summary, deep analysis, other), right = act (messages, status, note) */
+  return `${profile}<div class="lc-cols"><div class="lc-left">${summary}
     <section class="lc-sec"><h3 class="wh">Derin analiz</h3>${deepHtml}</section>
-    ${msgHtml ? `<section class="lc-sec"><h3 class="wh">İlk temas mesajları</h3>${msgHtml}</section>` : ''}
-    <section class="lc-sec"><h3 class="wh">Durum</h3><p class="st ${s.list}">${esc(l.stage === 'Yeni' || l.stage === 'İncelendi' ? 'Henüz yazılmadı' : s.text)}</p>${acts ? `<div class="row">${acts}</div>` : ''}
+    <!--diger--></div><div class="lc-right">
+    ${msgHtml ? `<section class="lc-sec lc-first"><h3 class="wh">İlk temas mesajları</h3>${msgHtml}</section>` : ''}
+    <section class="lc-sec${msgHtml ? '' : ' lc-first'}"><h3 class="wh">Durum</h3><p class="st ${s.list}">${esc(l.stage === 'Yeni' || l.stage === 'İncelendi' ? 'Henüz yazılmadı' : s.text)}</p>${acts ? `<div class="row">${acts}</div>` : ''}
       <label class="sr-only" for="lnote">Notunuz</label><textarea class="note" id="lnote" placeholder="Not (görüşmede ne dendi, ne zaman aranacak)">${esc(l.note)}</textarea></section>
-    <details class="fold"><summary>Diğer</summary><div class="in">
+    </div></div>`.replace('<!--diger-->', `<details class="fold"><summary>Diğer</summary><div class="in">
       ${where ? `<p class="help">${esc(where)}</p>` : ''}
       <div class="row">${LB('edit', 'Bilgileri düzenle', 'btn-glass')}${l.optout ? '' : LB('optout', 'Bir daha yazma')}</div>
       <div class="field" style="margin-top:10px"><label for="lstage">Aşamayı elle değiştir</label>
         <select class="stage-select" id="lstage">${D.stages.concat(['Kapandı']).map(x => `<option ${x === l.stage ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
       ${l.qualification || l.analysis ? `<details class="mini"><summary>Eski araştırma raporu</summary>${l.analysis ? reportCol(l, s) : researchBox(l) + qualificationCol(l)}</details>` : ''}
       <details class="mini"><summary>Geçmiş (${l.events.length})</summary><ol class="tl">${l.events.map(([ts, t, x]) => `<li class="real" style="--c:#A2BCE7"><b>${esc(t)}</b><span>${fmtDate(ts)}${x ? ', ' + esc(x) : ''}</span></li>`).join('')}</ol></details>
-    </div></details>`;
+    </div></details>`);
 }
 async function showEvidence(id){
   const box = $('#evidence-list'); if (!box) return;
