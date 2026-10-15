@@ -876,7 +876,10 @@ def agenda_request(text):
     plain={'ne iş var','ne iş var jeff','jeff ne iş var','bugün ne var','bugün neler var',
            'işler nedir','iş listesi','yapılacaklar','sıradaki işler','sıradaki adımlar',
            'gündem','gündem nedir','gündem durumu','gündem özeti','/gündem','/gundem'}
-    return value in plain or bool(re.search(r'\baday(?:lar|ları|ların)?\b',value) and re.search(r'\b(?:durum|durumu|durumda|var|göster|listele|özet|özeti|hangisi|hangi)\b',value))
+    natural_agenda = bool(
+        re.search(r'\bgündem(?:im(?:de(?:ki)?|i)?|i|de(?:ki)?|in|e|den)?\b', value)
+        and re.search(r'\b(?:ne|neler|hangi|durum|durumu|göster|listele|özet|özeti|kaynak|kaynağı|kaynaktan)\b', value))
+    return value in plain or natural_agenda or bool(re.search(r'\baday(?:lar|ları|ların)?\b',value) and re.search(r'\b(?:durum|durumu|durumda|var|göster|listele|özet|özeti|hangisi|hangi)\b',value))
 
 
 def agenda_brief():
