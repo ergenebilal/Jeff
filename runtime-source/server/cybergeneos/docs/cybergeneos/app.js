@@ -1315,6 +1315,9 @@ function leadPool(){
 }
 const candReason = l => D.meeting_candidates?.reasons?.[l.id] || l.gate_info?.first_gap || plainReason(l.gate_reasons?.[0]?.text) || leadKind(l);
 const FIT_TAG = {'yüksek': 'strong', 'orta': 'mid', 'düşük': 'weak'};
+/* uygunluk 0-10: 7+ güçlü, 4-6 orta, 0-3 zayıf; eski üç kademeli raporlar olduğu gibi yazılır */
+const scoreTag = (n, old) => n != null ? `<span class="tag ${n >= 7 ? 'strong' : n >= 4 ? 'mid' : 'weak'}" title="Görüşmeye değerlik; satın alma olasılığı değildir">Uygunluk ${n}/10</span>`
+  : old ? `<span class="tag ${FIT_TAG[old] || 'mid'}" title="Eski ölçek; yeniden analizde 10 üzerinden puanlanır">Uygunluk: ${esc(old)}</span>` : '';
 /* a candidate row: who, where, why in one line; on the right what is done (analysis, messages) and how to reach them */
 function candRow(l){
   const c = D.meeting_candidates?.cards?.[l.id] || {};
@@ -1322,7 +1325,7 @@ function candRow(l){
   const meta = [l.district || l.city, c.reviews ? `${c.rating ?? '–'}★ · ${c.reviews} yorum` : ''].filter(Boolean).join(' · ');
   const why = (c.deep_summary || candReason(l)).split(/(?<=[.!?])\s/)[0];
   const tags = [busy ? '<span class="tag you"><i class="ph ph-circle-notch spin" aria-hidden="true"></i> Analiz sürüyor</span>'
-      : c.fit ? `<span class="tag ${FIT_TAG[c.fit] || 'mid'}">Analiz: ${esc(c.fit)}</span>` : '<span class="tag dim">Analiz yok</span>',
+      : c.score != null || c.fit ? scoreTag(c.score, c.fit) : '<span class="tag dim">Analiz yok</span>',
     c.messages ? '<span class="tag strong">Mesaj hazır</span>' : ''].join('');
   const ch = [c.whatsapp && '<i class="ph ph-whatsapp-logo" title="WhatsApp"></i>', c.instagram && '<i class="ph ph-instagram-logo" title="Instagram"></i>',
     c.email && '<i class="ph ph-envelope-simple" title="E-posta"></i>'].filter(Boolean).join('');
@@ -1586,7 +1589,7 @@ function leadCard(l, s){
   else {
     const k = d.kaynaklar || {};
     const read = [k.google ? `Google kaydı${k.yorum ? ` ve ${k.yorum} yorum` : ''}` : '', k.site_sayfa ? `${k.site_sayfa} site sayfası` : '', k.instagram ? `${k.instagram} Instagram metni` : ''].filter(Boolean).join(', ');
-    deepHtml = `<p class="lc-fit"><span class="tag ${({'yüksek': 'strong', 'orta': 'mid', 'düşük': 'weak'})[d.uygunluk] || 'mid'}">Uygunluk: ${esc(d.uygunluk)}</span> ${esc(d.uygunluk_gerekce)}</p>
+    deepHtml = `<p class="lc-fit">${scoreTag(d.puan, d.uygunluk)} ${esc(d.puan_gerekce || d.uygunluk_gerekce || '')}</p>
       ${(d.tespitler || []).length ? `<h4>Tespitler</h4><ol class="lc-finds">${d.tespitler.map(t => `<li><b>${esc(t.baslik)}</b><p>${esc(t.aciklama)}</p>${t.alinti ? `<blockquote>"${esc(t.alinti)}"</blockquote>` : ''}<p class="help">${t.dogrulandi ? `Alıntı kaynakta bulundu${safeUrl(t.url) ? ` · <a href="${esc(t.url)}" ${ext}>Kaynağı aç</a>` : ''}` : 'Jeff’in yorumu; alıntı okunan kaynakta bulunamadı'}</p></li>`).join('')}</ol>` : '<p class="help">Kaynaklarda kayda değer bir tespit çıkmadı.</p>'}
       ${d.oneri?.ne ? `<h4>Önerisi</h4><p>${d.oneri.arguman ? `<b>${esc(d.oneri.arguman)}:</b> ` : ''}${esc(d.oneri.ne)}</p>${d.oneri.neden ? `<p>${esc(d.oneri.neden)}</p>` : ''}${d.oneri.acilis ? `<p class="help">İlk mesajda: ${esc(d.oneri.acilis)}</p>` : ''}` : ''}
       <details class="mini"><summary>Bilinmeyenler ve okunan kaynaklar</summary>${(d.bilinmeyenler || []).length ? `<ul>${d.bilinmeyenler.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="help">Okunan: ${esc(read || 'kaynak yok')}. ${fmtDate(d.at)}.</p></details>
