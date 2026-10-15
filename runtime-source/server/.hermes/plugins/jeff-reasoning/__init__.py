@@ -326,7 +326,7 @@ def owner_followup(text, history):
                     return None  # Cannot claim a complete target after dropping older refinements.
                 prior_followups.append(prior)
             continue
-        if not (substantive(prior) or operational_question(prior)):
+        if not (substantive(prior) or operational_question(prior) or agenda_request(prior)):
             return None
         # Keep the explicit project header and every collected refinement, in order.
         refinements = list(reversed(prior_followups))
