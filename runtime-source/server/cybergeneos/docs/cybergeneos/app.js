@@ -1603,7 +1603,7 @@ function leadCard(l, s){
       <div class="lc-msg"><h4><i class="ph ph-instagram-logo" aria-hidden="true"></i>Instagram DM${done('instagram') ? ' <span class="tag strong">gönderildi</span>' : ''}</h4>
         <label class="sr-only" for="m-dm">DM metni</label><textarea class="draft" id="m-dm">${esc(dm)}</textarea>
         <div class="row lc-send">${l.instagram ? LP('dm-open', 'DM gönder') + LB('sent-dm', done('instagram') ? 'Gönderildi ✓' : 'Gönderdim', 'btn-text', done('instagram') ? 'disabled' : '') : '<span class="help">Instagram hesabı bulunamadı.</span>'}</div>
-        ${l.instagram ? '<p class="help">"DM gönder" metni kopyalar ve işletmenin DM penceresini açar; yapıştırıp gönderin, sonra "Gönderdim" deyin.</p>' : ''}</div>
+        ${l.instagram ? '<p class="help">"DM gönder" metni kopyalar ve işletmenin Instagram profilini açar. Profilde "Mesaj gönder"e basıp yapıştırın; gönderince "Gönderdim" deyin.</p>' : ''}</div>
       <div class="lc-msg"><h4><i class="ph ph-whatsapp-logo" aria-hidden="true"></i>WhatsApp${done('whatsapp') ? ' <span class="tag strong">gönderildi</span>' : ''}</h4>
         <label class="sr-only" for="m-wa">WhatsApp metni</label><textarea class="draft" id="m-wa">${esc(wa)}</textarea>
         <div class="row lc-send">${l.wa ? LP('wa-send', 'WhatsApp’tan gönder') + LB('sent-wa2', done('whatsapp') ? 'Gönderildi ✓' : 'Gönderdim', 'btn-text', done('whatsapp') ? 'disabled' : '') : `<span class="help">${l.phone ? 'Kayıtlı numara sabit hat; WhatsApp açılamaz.' : 'Telefon numarası yok.'}</span>`}</div>
@@ -1715,7 +1715,7 @@ async function leadAction(a, extra, id = openLeadId){
       return done();
     }
     if (a === 'wa-open') { window.open(`https://wa.me/${L.wa}?text=${encodeURIComponent(txt())}`, '_blank', 'noopener'); return toast('WhatsApp açıldı. Gönderdikten sonra "Gönderdim" deyin.'); }
-    if (a === 'ig-open') { try { await navigator.clipboard.writeText(txt()); } catch (e) {} window.open(`https://ig.me/m/${encodeURIComponent(L.instagram)}`, '_blank', 'noopener'); return toast('Metin kopyalandı, DM penceresi açıldı. Gönderdikten sonra "Gönderdim" deyin.'); }
+    if (a === 'ig-open') { try { await navigator.clipboard.writeText(txt()); } catch (e) {} window.open(`https://www.instagram.com/${encodeURIComponent(L.instagram)}/`, '_blank', 'noopener'); return toast('Metin kopyalandı, işletmenin Instagram profili açıldı. "Mesaj gönder"e basıp yapıştırın, gönderince "Gönderdim" deyin.'); }
     if (a === 'copy-text') { try { await navigator.clipboard.writeText(txt()); toast('Metin kopyalandı.'); } catch (e) { toast('Kopyalanamadı; metni seçip kopyalayın.'); } return; }
     if (a === 'form-open') { try { await navigator.clipboard.writeText(txt()); } catch (e) {} const w = safeUrl(L.website); if (w) window.open(w, '_blank', 'noopener'); return toast('Metin kopyalandı, site açıldı. Formdan gönderdikten sonra "Gönderdim" deyin.'); }
     if (a === 'deep') {
@@ -1730,7 +1730,7 @@ async function leadAction(a, extra, id = openLeadId){
       return done();
     }
     const dmText = () => ($('#m-dm')?.value || '').trim();
-    if (a === 'dm-open') { try { await navigator.clipboard.writeText(dmText()); } catch (e) {} window.open(`https://ig.me/m/${encodeURIComponent(L.instagram)}`, '_blank', 'noopener'); return toast('Metin kopyalandı, DM penceresi açıldı. Yapıştırıp gönderin, sonra "Gönderdim" deyin.'); }
+    if (a === 'dm-open') { try { await navigator.clipboard.writeText(dmText()); } catch (e) {} window.open(`https://www.instagram.com/${encodeURIComponent(L.instagram)}/`, '_blank', 'noopener'); return toast('Metin kopyalandı, işletmenin Instagram profili açıldı. "Mesaj gönder"e basıp yapıştırın, gönderince "Gönderdim" deyin.'); }
     const waText = () => ($('#m-wa')?.value || '').trim();
     if (a === 'wa-send') { window.open(`https://wa.me/${L.wa}?text=${encodeURIComponent(waText())}`, '_blank', 'noopener'); return toast('WhatsApp açıldı. Gönderdikten sonra "Gönderdim" deyin.'); }
     if (a === 'copy-mail') { try { await navigator.clipboard.writeText(`${$('#c-subject')?.value || ''}\n\n${txt()}`); toast('Konu ve metin kopyalandı.'); } catch (e) { toast('Kopyalanamadı; metni seçip kopyalayın.'); } return; }
