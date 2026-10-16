@@ -99,6 +99,9 @@ CORE_SOURCE_PATHS = (
     '.hermes/scripts/masaustu_gozlemci.py',
     'jeff_repo/scripts/masaustu_gozlemci.py',
 )
+# P157: preserve the exact active customized core alongside the previous runtime.
+CORE_SOURCE_PATHS += ('jeff-candidates/P157-v0.22.2/runtime/agent/autonomy.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/capability.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/consolidation.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/context_compressor.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/conversation_loop.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/critical_state_filter.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/episodic_memory.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/error_classifier.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/goal_stack.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/proactive.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/sandbox.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/swarm.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/tool_forge.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/transports/codex.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/turn_context.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/turn_finalizer.py', 'jeff-candidates/P157-v0.22.2/runtime/agent/working_memory.py', 'jeff-candidates/P157-v0.22.2/runtime/hermes_cli/config_defaults.py', 'jeff-candidates/P157-v0.22.2/runtime/install-stamp.json', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/__init__.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/ade.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/autonomy.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/calibration.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/cost.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/demo.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/experiments.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/feedback.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/goals.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/hook.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/learning.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/loop.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/memory.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/observability.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/planner.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/recovery.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/replan.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/routing.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/runtime_bridge.py', 'jeff-candidates/P157-v0.22.2/runtime/jeff_cognitive/state.py', 'jeff-candidates/P157-v0.22.2/runtime/pyproject.toml', 'jeff-candidates/P157-v0.22.2/runtime/run_agent.py', 'jeff-candidates/P157-v0.22.2/runtime/tools/delegate_tool.py', 'jeff-candidates/P157-v0.22.2/runtime/tools/delegate_tool_config.py')
+
 CORE_DATABASE_PATHS = ('jeff_repo/jeff2/bridge/bridge.db', '.local/share/beyin-v3/memory.sqlite3')
 REQUIRED_DATA_PATHS = ('raporlar/JEFF_TO_JARVIS.md',
                        'cybergeneos-data/voice-brain-route.json',
@@ -116,7 +119,7 @@ OPT_TREES = (Path('/opt/hermes'), Path('/usr/lib/python3/dist-packages'))
 
 def trees(home, opt_trees=OPT_TREES):
     h = Path(home)
-    roots = [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'cybergene-chat', h / 'pipeline',
+    roots = [h / '.hermes', h / 'jeff_cognitive', h / 'jeff-v0.21.5' / 'src', h / 'jeff-candidates/P157-v0.22.2/runtime', h / 'cybergene-chat', h / 'pipeline',
             h / 'jeff-beyin', h / 'cybergeneos-data', h / 'cybergeneos', h / 'jeff-artifacts',
             h / '.alert.env', h / '.config', h / 'jeff_repo',
             h / 'jeff-v0.21.5' / 'live_ext', h / 'jeff-v0.21.5' / 'site',
@@ -258,6 +261,7 @@ def package_inventory(home, runner=subprocess.run):
     """What is installed where, so a rebuild on a fresh machine does not miss a package (the 'mcp' SDK once did)."""
     h = Path(home)
     sources = {
+        'etc/p157-runtime-packages.json': [str(h / 'jeff-candidates/P157-v0.22.2/venv/bin/python'), '-B', '-c', "import sys,sqlite3,importlib.metadata as m,json;print(json.dumps({'python':sys.version,'sqlite':sqlite3.sqlite_version,'packages':sorted((d.metadata['Name'],d.version) for d in m.distributions())}))"],
         'etc/pip-freeze-jeff-site.txt': ['python3.11', '-m', 'pip', 'freeze', '--path', str(h / 'jeff-v0.21.5' / 'site')],
         'etc/pip-freeze-user.txt': ['python3.11', '-m', 'pip', 'freeze', '--user'],
         'etc/pip-freeze-bridge.txt': [str(h / '.venv/bin/python'), '-m', 'pip', 'freeze'],
