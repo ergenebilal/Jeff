@@ -522,7 +522,7 @@ def act_card(aid, action, body, by):
             return 200, {"ok": True, **panel_send.execute(store, client, owner, aid, halted=autopilot.halted(store))}
         return 200, {"ok": True, **panel_send.manual(store, aid, action == "owner-sent", act_lead)}
     except contact.Refused as e:
-        return 409, {"error": "reddedildi", "detail": str(e)}
+        return 409, {"error": "reddedildi", "detail": str(e), "spent": isinstance(e, panel_send.Spent)}
     except (OSError, ValueError, KeyError):
         return 503, {"error": "onay_gecidi_yok"}
 
