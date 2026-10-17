@@ -1,87 +1,178 @@
-#!/bin/bash
-# NotebookLM Health Check — v2 (09.10.2026 kök neden düzeltmesi)
-#
-# v1 HATASI: MCP'nin GERÇEK oturum deposu kalıcı Chrome profilidir
-#   (/home/hermes/chrome_profile_notebooklm — bkz. /home/hermes/nblm/config.json
-#    "profile_dir"). Ama v1 bekçisi var olmayan eski yolu kontrol ediyordu:
-#   ~/.notebooklm-mcp-cli/profiles/default/cookies.json
-#   -> 29.09'dan beri her turda SAHTE "cookie eksik / CRITICAL" alarmı üretti,
-#      oysa gerçek oturum canlıydı (tarayıcı ayakta, NotebookLM sekmeleri açık).
-#
-# v2: gerçek sinyali ölçer:
-#   1) Kalıcı Chrome (CDP 18800) ayakta mı? Değilse nlm-chrome'u otonom kaldırır.
-#   2) Oturum açık bir NotebookLM/Gemini Notebook sekmesi var mı?
-#      (notebook.google.com — Google, NotebookLM'i "Gemini Notebook" olarak
-#       yeniden adlandırdı; eski notebooklm.google.com da kabul edilir.)
-#   3) Sekme yoksa: tarayıcı ayakta + profil cookie DB taze ise OK say (yanlış alarmı önler).
-# Alarm YALNIZCA gerçek kayıpta üretilir.
-set -uo pipefail
-LOG="$HOME/logs/notebooklm-health.log"
-CDP_URL="${NLM_CDP_URL:-http://127.0.0.1:18800}"
-PROFILE_DIR="$HOME/chrome_profile_notebooklm"
-PROFILE_COOKIES="$PROFILE_DIR/Default/Cookies"
-BACKUP_DIR="$HOME/.notebooklm-mcp-cli/profiles/default/backup_ha"
-mkdir -p "$(dirname "$LOG")" "$BACKUP_DIR"
+#!/usr/bin/env bash
+# Existing cron script contract: empty stdout is quiet; no model or direct message sender.
+exec /home/hermes/jeff-candidates/P157-v0.22.2/venv/bin/python -B - "$@" <<'PY'
+import argparse
+import asyncio
+import fcntl
+import hashlib
+import json
+import math
+import os
+import subprocess
+import tempfile
+import time
+from pathlib import Path
 
-TELEGRAM_TOKEN=$(grep TELEGRAM_BOT_TOKEN ~/.hermes/gateway.env 2>/dev/null | cut -d= -f2 | tr -d "\r" | head -1)
-CHAT_ID="${TELEGRAM_OWNER_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+SCHEMA = 1
+MIN_CONFIRM_SECONDS = 300
+MAX_GAP_SECONDS = 10800
 
-send_proaktif() {
-  local level="$1" msg="$2"
-  local body="JEFF PROAKTIF BILDIRIM - NotebookLM [$level] $(date '+%d.%m %H:%M') $msg"
-  if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$CHAT_ID" ] && [ "${NLM_DRY_RUN:-0}" != "1" ]; then
-    curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" -d "chat_id=${CHAT_ID}" -d "text=${body}" > /dev/null 2>&1 || true
-  fi
-  echo "$(date -Iseconds) $level: $msg" >> "$LOG"
-}
 
-cdp_ok() { timeout 8 curl -s -o /dev/null -w "%{http_code}" "$CDP_URL/json/version" 2>/dev/null | grep -q 200; }
+def classify(protocol, google):
+    if protocol.get('protocol_ok') is not True:
+        return 'protocol_unverified'
+    if google.get('passive_google_ok') is not True:
+        return 'google_auth_unverified'
+    # A cold MCP client can report ready/authenticated false while passive Google auth succeeds.
+    return 'ok'
 
-# 0) Günlük profil cookie yedeği (HA)
-if [ -f "$PROFILE_COOKIES" ]; then
-  DAY=$(date +%Y%m%d)
-  if [ ! -f "$BACKUP_DIR/profile-cookies-$DAY.db" ]; then
-    cp "$PROFILE_COOKIES" "$BACKUP_DIR/profile-cookies-$DAY.db" 2>/dev/null || true
-    find "$BACKUP_DIR" -name "profile-cookies-*.db" -mtime +14 -delete 2>/dev/null || true
-  fi
-fi
 
-# 1) Kalıcı Chrome ayakta mı? Değilse otonom kaldır.
-if ! cdp_ok; then
-  echo "$(date -Iseconds) WARN: CDP yok, nlm-chrome restart deneniyor" >> "$LOG"
-  # Otonom onarım yalnız gerçek servis için (test amaçlı özel URL'de tetiklenmez)
-  if [ "$CDP_URL" = "http://127.0.0.1:18800" ]; then
-    systemctl --user restart nlm-chrome >/dev/null 2>&1 || true
-    sleep 12
-  fi
-  if ! cdp_ok; then
-    send_proaktif "CRITICAL L4" "Olay: Kalici NotebookLM tarayicisi (CDP 18800) ayakta DEGIL ve restart basarisiz. Analiz: oturum deposuna erisilemiyor. Oneri: systemctl --user status nlm-chrome"
-    exit 1
-  fi
-  echo "$(date -Iseconds) OTO-ONARIM: nlm-chrome yeniden baslatildi, CDP geri geldi" >> "$LOG"
-fi
+def transition(previous, health, now):
+    previous = previous if isinstance(previous, dict) else {}
+    valid_number = lambda v: type(v) in (int, float) and math.isfinite(v)
+    if previous and not (previous.get('version') == SCHEMA
+                         and valid_number(previous.get('checked_at'))
+                         and type(previous.get('failures')) is int and 0 <= previous['failures'] <= 100000
+                         and type(previous.get('notified')) is bool
+                         and (previous.get('status') == 'ok' or valid_number(previous.get('first_failure_at')))):
+        previous = {}
+    last = previous.get('checked_at')
+    if isinstance(last, (int, float)) and now <= last:
+        return previous, ''
+    state = {'version': SCHEMA, 'checked_at': now, 'status': health,
+             'failures': 0, 'first_failure_at': None, 'notified': False}
+    if health == 'ok':
+        return state, ('NotebookLM bağlantısı yeniden doğrulandı.' if previous.get('notified') is True else '')
+    recent = (isinstance(last, (int, float)) and 0 < now-last <= MAX_GAP_SECONDS
+              and previous.get('status') not in (None, 'ok'))
+    state['failures'] = previous.get('failures', 0) + 1 if recent else 1
+    state['first_failure_at'] = previous.get('first_failure_at', last) if recent else now
+    state['notified'] = previous.get('notified') is True if recent else False
+    confirmed = (recent and now-state['first_failure_at'] >= MIN_CONFIRM_SECONDS
+                 and state['failures'] >= 2)
+    message = ''
+    if confirmed and not state['notified']:
+        state['notified'] = True
+        detail = ('MCP bağlantısı yanıtı doğrulanamadı.' if health == 'protocol_unverified'
+                  else 'Google oturumunun ağ üzerinden kabulü doğrulanamadı.' if health == 'google_auth_unverified'
+                  else 'Sağlık kontrolünün ayarları veya sonucu okunamadı.')
+        message = 'NotebookLM iki ayrı kontrolde doğrulanamadı. ' + detail + ' Otomatik yeniden başlatma yapılmadı.'
+    return state, message
 
-# 2) Oturum açık NotebookLM/Gemini Notebook sekmesi var mı?
-TARGETS=$(timeout 10 curl -s "$CDP_URL/json/list" 2>/dev/null || true)
-if printf '%s' "$TARGETS" | grep -qE '"url": "https://(notebooklm|notebook)\.google\.com'; then
-  echo "$(date -Iseconds) OK: oturum canli (kalici tarayici + NotebookLM sekmesi)" >> "$LOG"
-  exit 0
-fi
 
-# 3) Giriş sayfası görülüyorsa oturum düşmüş demektir
-if printf '%s' "$TARGETS" | grep -qE 'accounts\.google\.com|/signin'; then
-  send_proaktif "CRITICAL L4" "Olay: NotebookLM oturumu DUSTU (giris sayfasi goruldu). Oneri: noVNC ekranindan Google girisi yenile (http://100.124.217.48:6080/vnc.html)."
-  exit 1
-fi
+async def protocol_probe(entry, env):
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    with tempfile.TemporaryFile(mode='w+') as error_log:
+        params = StdioServerParameters(command=entry['command'], args=entry.get('args', []), env=env)
+        async with stdio_client(params, errlog=error_log) as (read, write):
+            async with ClientSession(read, write) as client:
+                await client.initialize()
+                result = await client.call_tool('server_info', {'include_account': False})
+                data = getattr(result, 'structured_content', None)
+                if data is None:
+                    data = json.loads(next(c.text for c in result.content if getattr(c, 'type', None) == 'text'))
+                error = getattr(result, 'is_error', getattr(result, 'isError', True))
+                auth = data.get('auth') if isinstance(data, dict) else None
+                return {'protocol_ok': error is False and isinstance(auth, dict),
+                        'local_authenticated_hint': auth.get('authenticated') if isinstance(auth, dict) else None,
+                        'ready_hint': data.get('ready') if isinstance(data, dict) else None}
 
-# 4) Sekme yok ama tarayıcı ayakta: profil cookie DB taze ise oturum muhtemelen canlı
-if [ -f "$PROFILE_COOKIES" ]; then
-  AGE_D=$(( ( $(date +%s) - $(stat -c %Y "$PROFILE_COOKIES") ) / 86400 ))
-  if [ "$AGE_D" -lt 14 ]; then
-    echo "$(date -Iseconds) OK: oturum canli (profil cookie DB ${AGE_D} gun taze; sekme gozlenmedi)" >> "$LOG"
-    exit 0
-  fi
-fi
 
-send_proaktif "HIGH L3" "Olay: Tarayici ayakta ama NotebookLM sekmesi ve taze profil cookie DB yok. Oneri: noVNC ekranindan kontrol et (http://100.124.217.48:6080/vnc.html)."
-exit 1
+def passive_google_probe(entry, env):
+    cli = Path(entry['command']).parent / 'notebooklm'
+    args = entry.get('args', [])
+    profile = args[args.index('--profile')+1] if '--profile' in args else 'default'
+    child_env = dict(env)
+    # The CLI treats an empty inline-auth variable as explicit inline data; use the configured file.
+    if not child_env.get('NOTEBOOKLM_AUTH_JSON'):
+        child_env.pop('NOTEBOOKLM_AUTH_JSON', None)
+    run = subprocess.run([str(cli), '--profile', profile, 'auth', 'check', '--test', '--passive', '--json'],
+                         env=child_env, capture_output=True, text=True, timeout=40)
+    try:
+        data = json.loads(run.stdout)
+    except (ValueError, TypeError):
+        data = {}
+    checks = data.get('checks', {}) if isinstance(data, dict) else {}
+    return {'passive_google_ok': run.returncode == 0 and checks.get('token_fetch') is True}
+
+
+def check():
+    import yaml
+    home = Path(os.environ.get('HERMES_HOME', '/home/hermes/.hermes'))
+    cfg = home / 'config.yaml'
+    entry = yaml.safe_load(cfg.read_bytes())['mcp_servers']['notebooklm']
+    before = hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()
+    if entry.get('enabled') is False:
+        return {'status': 'configuration_unverified', 'protocol_ok': None, 'passive_google_ok': None}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('NOTEBOOKLM_', 'NLM_'))}
+    env.update(entry.get('env', {}))
+    env['PYTHONDONTWRITEBYTECODE'] = '1'
+    try:
+        protocol = asyncio.run(asyncio.wait_for(protocol_probe(entry, env), timeout=35))
+    except Exception:
+        protocol = {'protocol_ok': False}
+    try:
+        google = passive_google_probe(entry, env)
+    except Exception:
+        google = {'passive_google_ok': False}
+    current = yaml.safe_load(cfg.read_bytes())['mcp_servers']['notebooklm']
+    same = hashlib.sha256(json.dumps(current, sort_keys=True).encode()).hexdigest() == before
+    return {**protocol, **google, 'status': classify(protocol, google) if same else 'configuration_unverified'}
+
+
+def atomic_state(path, state):
+    fd, temporary = tempfile.mkstemp(prefix='.health-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write((json.dumps(state, sort_keys=True)+'\n').encode())
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--probe-only', action='store_true')
+    args = parser.parse_args()
+    if args.probe_only:
+        try:
+            result = check()
+        except Exception:
+            result = {'status': 'configuration_unverified', 'protocol_ok': None, 'passive_google_ok': None}
+        print(json.dumps(result))
+        return 0 if result['status'] == 'ok' else 2
+    folder = Path('/home/hermes/.local/state/jeff-notebooklm-health')
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    folder.chmod(0o700)
+    lock_fd = os.open(folder/'state.lock', os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW, 0o600)
+    with os.fdopen(lock_fd, 'r+') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+        path = folder/'state.json'
+        try:
+            previous = json.loads(path.read_bytes()) if path.exists() else {}
+        except (ValueError, OSError):
+            previous = {}
+        try:
+            result = check()
+        except Exception:
+            result = {'status': 'configuration_unverified', 'protocol_ok': None, 'passive_google_ok': None}
+        state, message = transition(previous, result['status'], time.time())
+        state['last_probe'] = result
+        atomic_state(path, state)
+        # Cron owns the existing delivery route. A completed check is not a claim that health is good.
+        if message:
+            print(message)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
+PY
