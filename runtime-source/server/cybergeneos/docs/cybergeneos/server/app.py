@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import analysis, briefing, contact, deep, geo, instagram_scan, intent, jeff, llm, marketing, metrics, outreach, places, qualification, reach, shortlist, sources
+from . import analysis, autopilot, briefing, contact, deep, geo, instagram_scan, intent, jeff, llm, marketing, metrics, outreach, panel_send, places, qualification, reach, shortlist, sources
 from .jobs import Jobs
 from .radar import Radar
 from .store import CLOSED, STAGES, Store, now
@@ -49,8 +49,29 @@ _fails = {}
 _lock = threading.Lock()
 
 # What Jeff may do with his own token (from the server, without the browser login). Nothing here can send a message anywhere.
-JEFF_GET = {("api", "jobs"), ("api", "summary"), ("api", "state")}
+JEFF_GET = {("api", "jobs"), ("api", "summary"), ("api", "state"), ("api", "autopilot", "status"), ("api", "autopilot", "brief"),
+            ("api", "radar", "status")}
 JEFF_POST = {("api", "jobs"), ("api", "radar", "run"), ("api", "lead"), ("api", "opp", "manual")}
+# K-35: Jeff runs the panel for Bilal, Telegram included. Never: login, config, approving or sending (that is Bilal's button),
+# a free-text e-mail, marking "sent", deleting data. He may fix a pending draft's text (a changed text voids its old card).
+JEFF_LEAD = {"review", "update", "reply", "optout", "gate-rerun", "observe", "deep", "first-touch"}
+JEFF_AUTOPILOT = {"pause", "resume", "run", "off", "cards"}
+CARD_APPROVAL = {"execute", "owner-sent", "owner-drop"}
+CARD_KEY = ""
+
+
+def jeff_may(method, parts):
+    t = tuple(parts)
+    if method == "GET":
+        return t in JEFF_GET or (len(t) == 4 and t[:2] == ("api", "lead") and t[3] in ("detail", "evidence"))
+    return (t in JEFF_POST or (len(t) == 3 and t[:2] == ("api", "autopilot") and t[2] in JEFF_AUTOPILOT)
+            or (len(t) == 4 and t[:2] == ("api", "lead") and t[3] in JEFF_LEAD)
+            or (len(t) == 4 and t[:2] == ("api", "approval") and t[3] == "edit")
+            or (len(t) == 4 and t[:2] == ("api", "jobs") and t[3] == "cancel") or t == ("api", "leads", "review"))
+
+
+def card_may(parts):
+    return len(parts) == 4 and parts[:2] == ["api", "approval"] and parts[3] in CARD_APPROVAL
 # What the local Instagram tool (cg_insta, on Bilal's computer) may do with its own key: read the waiting
 # scan requests and hand in public usernames. Every username is checked with the official API before it is kept.
 INSTA_GET = {("api", "insta", "requests")}
@@ -463,6 +484,49 @@ def act_lead(lid, action, body):
     return err(404, "yok")
 
 
+def push_for():
+    """Telegram cards need the approval ledger; without its config there are no cards (and no sends)."""
+    try:
+        client, _ = panel_send.gateway(DATA)
+    except (OSError, ValueError, KeyError):
+        return None
+    return lambda finding: panel_send.push_cards(store, client, lambda p: panel_send.post_card(p, DATA), finding_of=finding,
+                                                 preview=lambda lid: autopilot.is_preview(store, lid))
+
+
+def act_autopilot(action, body):
+    if action == "resume":
+        return 200, autopilot.resume(store, body.get("live") if isinstance(body.get("live"), bool) else None)
+    if action == "pause":
+        return 200, autopilot.pause(store, str(body.get("reason", "")))
+    if action == "off":
+        return 200, autopilot.set_enabled(store, False, "Kapatıldı")
+    if action == "run":
+        return 200, {"note": autopilot.tick(store, jobs, force=True, push=push_for()), "status": autopilot.status(store)}
+    if action == "cards":
+        push = push_for()
+        if not push or autopilot.halted(store):
+            return err(503, "kart_gonderilemez")
+        pushed, errors = push(lambda lid: autopilot.finding_of(store, lid))
+        return 200, {"pushed": pushed, "errors": len(errors)}
+    return err(404, "yok")
+
+
+def act_card(aid, action, body, by):
+    """What the card service asks after Bilal's button press. Authority comes from the ledger, never from this call."""
+    if by != "owner-telegram":
+        return err(401, "giris")
+    try:
+        if action == "execute":
+            client, owner = panel_send.gateway(DATA)
+            return 200, {"ok": True, **panel_send.execute(store, client, owner, aid, halted=autopilot.halted(store))}
+        return 200, {"ok": True, **panel_send.manual(store, aid, action == "owner-sent", act_lead)}
+    except contact.Refused as e:
+        return 409, {"error": "reddedildi", "detail": str(e)}
+    except (OSError, ValueError, KeyError):
+        return 503, {"error": "onay_gecidi_yok"}
+
+
 def act_approval(aid, action, body):
     a = store.approval(aid)
     if not a:
@@ -565,6 +629,11 @@ class H(BaseHTTPRequestHandler):
         tok = self.headers.get("X-CGOS-Token") or ""
         return bool(JEFF_TOKEN) and bool(tok) and hmac.compare_digest(tok.encode(), JEFF_TOKEN.encode())
 
+    def _card(self):
+        """The Telegram card service (deploy/panel-send-bot.py), with its own key. It only relays Bilal's button; the ledger decides."""
+        tok = self.headers.get("X-Card-Key") or ""
+        return bool(CARD_KEY) and bool(tok) and hmac.compare_digest(tok.encode(), CARD_KEY.encode())
+
     def _insta(self):
         tok = self.headers.get("X-CGOS-Insta-Token") or ""
         return bool(INSTA_TOKEN) and bool(tok) and hmac.compare_digest(tok.encode(), INSTA_TOKEN.encode())
@@ -586,7 +655,7 @@ class H(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if host not in ALLOWED:
             return False
-        if self.command == "POST" and not (self._jeff() or self._insta()):
+        if self.command == "POST" and not (self._jeff() or self._insta() or self._card()):
             o = urlparse(self.headers.get("Origin") or "")
             return bool(o.hostname) and o.hostname in ALLOWED
         return True
@@ -632,7 +701,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, LOGIN.replace("{msg}", "").encode(), "text/html; charset=utf-8")
         if self._insta() and tuple(p for p in path.split("/") if p) in INSTA_GET:
             return self._json(200, {"requests": instagram_scan.waiting(store)})
-        jeff_call = self._jeff() and tuple(p for p in path.split("/") if p) in JEFF_GET
+        jeff_call = self._jeff() and jeff_may("GET", [p for p in path.split("/") if p])
         if not (jeff_call or self._authed()):
             return self._send(302, extra={"Location": "/login"}) if not path.startswith("/api/") else self._json(401, {"error": "giris"})
         if path == "/api/state":
@@ -658,6 +727,10 @@ class H(BaseHTTPRequestHandler):
             return self._json(200, {"token": INSTA_TOKEN, "waiting": instagram_scan.waiting(store)})
         if path == "/api/radar/status":
             return self._json(200, radar.status())
+        if path == "/api/autopilot/status":
+            return self._json(200, autopilot.status(store))
+        if path == "/api/autopilot/brief":
+            return self._json(200, autopilot.brief(store))
         if path == "/api/config":
             return self._json(200, radar.config())
         if path == "/api/status":
@@ -712,7 +785,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "gecersiz"})
             jid, e = instagram_scan.submit(store, jobs, body)
             return self._json(400, {"error": e}) if e else self._json(200, {"ok": True, "job": jid})
-        if self._jeff() and tuple(p for p in path.split("/") if p) in JEFF_POST:
+        if self._card() and card_may([p for p in path.split("/") if p]):
+            self.by = "owner-telegram"
+        elif self._jeff() and jeff_may("POST", [p for p in path.split("/") if p]):
             self.by = "jeff"
         elif not self._authed():
             return self._json(401, {"error": "giris"})
@@ -855,6 +930,10 @@ class H(BaseHTTPRequestHandler):
             return act_opp(r[1], r[2], body)
         if len(r) == 3 and r[0] == "lead":
             return act_lead(r[1], r[2], body)
+        if len(r) == 3 and r[0] == "approval" and r[2] in CARD_APPROVAL:
+            return act_card(r[1], r[2], body, self.by)
+        if len(r) == 2 and r[0] == "autopilot":
+            return act_autopilot(r[1], body)
         if len(r) == 3 and r[0] == "approval":
             return act_approval(r[1], r[2], body, actor=self.by)
         if len(r) == 3 and r[0] == "news":
@@ -898,7 +977,7 @@ def jeff_token():
 
 
 def main():
-    global store, radar, jobs, JEFF_TOKEN, INSTA_TOKEN
+    global store, radar, jobs, JEFF_TOKEN, INSTA_TOKEN, CARD_KEY
     if HOST not in ("127.0.0.1", "localhost") and not PASSWORD:
         sys.exit("CGOS_PASSWORD olmadan yalnızca 127.0.0.1 üzerinde çalışır.")
     DATA.mkdir(parents=True, exist_ok=True)
@@ -915,6 +994,7 @@ def main():
     install_panel_correction(sys.modules[__name__])
     JEFF_TOKEN = jeff_token()
     INSTA_TOKEN = insta_token()
+    CARD_KEY = panel_send.card_key(DATA)
     has = llm.load_key()
     radar = Radar(store)
     jobs = Jobs(store, radar)
@@ -924,5 +1004,7 @@ def main():
     contact.ensure_token()  # the site's mail service reads this file to trust the panel
     if has and os.environ.get("CGOS_RADAR", "1") == "1":
         radar.schedule()
+    if os.environ.get("CGOS_AUTOPILOT", "1") == "1":
+        autopilot.start_loop(store, jobs, push_for)  # does nothing until Bilal (or Jeff, on his word) switches it on
     print(f"CybergeneOS: http://{HOST}:{PORT}/docs/cybergeneos/  (Jeff: {'hazır' if has else 'anahtar yok'}, giriş şifresi: {'var' if PASSWORD else 'yok, yerel'}, radar: {'açık' if has else 'kapalı'})")
     ThreadingHTTPServer((HOST, PORT), H).serve_forever()
