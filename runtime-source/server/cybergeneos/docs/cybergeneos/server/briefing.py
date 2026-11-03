@@ -10,6 +10,14 @@ from .store import STAGES, now
 NO_CLAIMS = ("Rakam, yüzde, istatistik, müşteri referansı, fiyat ya da garanti yazma. Em-dash ve emoji kullanma. "
              "Yalnızca verilen bilgiye dayan, bilmediğini uydurma.")
 
+TZ = 3 * 3600  # Turkey, no daylight saving
+
+
+def selam(ts=None):
+    ts = time.time() if ts is None else ts
+    h = time.gmtime(ts + TZ).tm_hour
+    return "Günaydın" if h < 12 else "İyi günler" if h < 18 else "İyi akşamlar"
+
 
 def _clip(s, n):
     return re.sub(r"\s+", " ", (s or "").replace("—", ",").replace("–", "-")).strip()[:n]
@@ -238,8 +246,7 @@ def briefing(store):
     parts = []
     if not store.get_meta("last_run"):
         return {"text": "Merhaba. Panel radarında çalışma kaydı yok. Bu, şirketin genel gündeminin boş olduğunu göstermez.", "focus": None}
-    h = datetime.datetime.now().hour
-    hello = "Günaydın" if h < 12 else "İyi günler" if h < 18 else "İyi akşamlar"
+    hello = selam()
     parts.append(f"{hello}.")
     if mine:
         parts.append(f"{len(mine)} işletme sizden bir adım bekliyor" + (f", {ready} tanesinin mesajı hazır." if ready else "."))
