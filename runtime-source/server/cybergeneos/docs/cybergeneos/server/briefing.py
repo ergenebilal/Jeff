@@ -5,7 +5,7 @@ import re
 import time
 
 from . import llm, scoring
-from .store import STAGES, now
+from .store import ARSIV, STAGES, now
 
 NO_CLAIMS = ("Rakam, yüzde, istatistik, müşteri referansı, fiyat ya da garanti yazma. Em-dash ve emoji kullanma. "
              "Yalnızca verilen bilgiye dayan, bilmediğini uydurma.")
@@ -45,11 +45,14 @@ def you_text(lead, approved=False):
 
 
 SECTIONS = (("yeni", "Yeni bulunanlar"), ("bekleyen", "İşlem bekleyenler"), ("islemde", "İşlem yapılanlar"), ("kapandi", "Kapananlar"),
-            ("elendi", "Kapıda elenenler"))
+            ("elendi", "Kapıda elenenler"), ("arsiv", "Arşiv"))
 
 
 def section_of(lead):
-    """Which lead list a lead belongs to. 'Yeni' and never opened = just found; opened but untouched = waiting; anything done = in progress."""
+    """Which lead list a lead belongs to. 'Yeni' and never opened = just found; opened but untouched = waiting; anything done = in progress.
+    K-62: an archived lead is counted nowhere else; it shows only in its own list."""
+    if lead["stage"] == ARSIV:
+        return "arsiv"
     if lead["stage"] in ("Kapandı", "Kazanıldı"):
         return "kapandi"
     if lead.get("gate") == "elendi" and not lead.get("gate_override") and lead["stage"] in ("Yeni", "İncelendi"):
@@ -159,6 +162,8 @@ def next_step(lead, pending=False, approved=False, optout=False, analysing=False
         return {"list": "arsiv", "text": "Ret listesinde, bir daha yazılmaz"}
     if stage == "Kapandı":
         return {"list": "arsiv", "text": "Kapandı"}
+    if stage == ARSIV:
+        return {"list": "arsiv", "text": "Arşivde"}
     if stage == "Yanıt geldi":
         return {"list": "sira", "rank": 0, "text": "Yanıt geldi, okuyun", "act": ["meeting", "Görüşme ayarlandı"]}
     if stage == "Görüşme":
@@ -214,7 +219,7 @@ def steps(store, leads=None, *, marketing_views=None, qualification_views=None):
     qualification_views = qualification.views(store) if qualification_views is None else qualification_views
     for lead in leads:
         lid = lead['id']
-        if lid in optouts or lid in running or lead['stage'] in ('Gönderildi','Yanıt geldi','Görüşme','Kazanıldı','Kapandı'):
+        if lid in optouts or lid in running or lead['stage'] in ('Gönderildi','Yanıt geldi','Görüşme','Kazanıldı','Kapandı', ARSIV):
             continue
         m = marketing_views.get(lid) or {}
         q = qualification_views.get(lid) or {}

@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 from . import analysis, autopilot, briefing, contact, deep, geo, instagram_scan, intent, jeff, llm, marketing, metrics, outreach, panel_send, places, qualification, reach, shortlist, sources
 from .jobs import Jobs
 from .radar import Radar
-from .store import CLOSED, STAGES, Store, now
+from .store import ARSIV, CLOSED, STAGES, Store, now
 
 HERE = Path(__file__).resolve().parent.parent
 ROOT = HERE.parent.parent
@@ -432,7 +432,7 @@ def act_lead(lid, action, body):
         if ch.get("website") and not ch["website"].startswith(("http://", "https://")):
             ch["website"] = "https://" + ch["website"]
         ch["reviewed_at"] = l["reviewed_at"] or now()
-        if "stage" in body and (body["stage"] in STAGES or body["stage"] == CLOSED) and body["stage"] != l["stage"]:
+        if "stage" in body and (body["stage"] in STAGES or body["stage"] in (CLOSED, ARSIV)) and body["stage"] != l["stage"]:
             ch["stage"] = body["stage"]
             reason = str(body.get("reason") or "").strip()[:300]
             store.add_event(lid, "Aşama elle değiştirildi: " + body["stage"], ("Gerekçe: " + reason) if reason else "Sizin tarafınızdan")
